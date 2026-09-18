@@ -60,7 +60,7 @@ async def test_a_new_provider_needs_only_a_registry_entry(
     class OtherModel(FakeLanguageModel):
         provider = "other"
 
-    minimal_env.setitem(AI_PROVIDERS, "other", lambda ai: OtherModel(model=ai.model))  # type: ignore[arg-type]
+    minimal_env.setitem(AI_PROVIDERS, "other", lambda ai: OtherModel(model=ai.model))
     minimal_env.setenv("AI__PROVIDER", "other")
 
     container = build_container(load_settings())
