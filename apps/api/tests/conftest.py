@@ -1,0 +1,26 @@
+import os
+
+import pytest
+
+# Closed local port: connections are refused immediately, so "service down" is fast and offline.
+DOWN_DATABASE_URL = "postgresql+psycopg://user:pass@127.0.0.1:1/down"
+DOWN_REDIS_URL = "redis://127.0.0.1:1/0"
+
+SETTINGS_ENV_PREFIXES = ("APP__", "DATABASE__", "REDIS__", "AI__", "CORS__")
+
+
+@pytest.fixture
+def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Environment with no settings variables, whatever the developer has exported."""
+    for key in list(os.environ):
+        if key.startswith(SETTINGS_ENV_PREFIXES):
+            monkeypatch.delenv(key)
+    return monkeypatch
+
+
+@pytest.fixture
+def minimal_env(clean_env: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Only the required variables, pointing at services that are down."""
+    clean_env.setenv("DATABASE__URL", DOWN_DATABASE_URL)
+    clean_env.setenv("REDIS__URL", DOWN_REDIS_URL)
+    return clean_env
