@@ -1,0 +1,49 @@
+# apps/api
+
+FastAPI backend, Clean Architecture. Python 3.14, uv, SQLAlchemy (async, psycopg), Alembic,
+Celery + Redis. PostgreSQL everywhere, including tests.
+
+## Layers (enforced by import-linter, see `pyproject.toml`)
+
+| Package | Role | May import |
+| --- | --- | --- |
+| `app.domain` | entities (empty in the setup phase) | nothing |
+| `app.application` | ports (`typing.Protocol`) and use cases | `domain` |
+| `app.infrastructure` | adapters + `config/settings.py` (the only env reader) | `application`, `domain` |
+| `app.api` | routes, Pydantic schemas (the HTTP contract), dependencies | `application` |
+| `app.bootstrap` | composition root: the only importer of concrete adapters | everything |
+| `app.main` | `create_app()`: settings -> bootstrap -> routes | `bootstrap`, `api` |
+
+Swapping or adding an adapter = a new adapter file, one registration line
+(`infrastructure/ai/registry.py` for AI providers, `bootstrap.py` for health checks,
+`infrastructure/jobs/tasks.py` for jobs), one line in the port's contract suite
+(`tests/contract/`), and an env change.
+
+## Commands (run from `apps/api`)
+
+```sh
+uv sync                                   # install (locked)
+uv run pytest --cov                       # default suite: needs NO PostgreSQL/Redis, coverage >= 80%
+uv run pytest -m integration              # needs DATABASE__URL and REDIS__URL pointing at live services
+uv run ruff check . && uv run ruff format --check .
+uv run mypy src tests
+uv run lint-imports
+
+uv run alembic upgrade head               # migrations are an explicit step, never run by the app
+uv run alembic revision -m "message"      # new revision (ruff-formatted by a post-write hook)
+uv run uvicorn app.main:create_app --factory --reload
+uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
+```
+
+Configuration is environment-only (`APP__*`, `DATABASE__URL`, `REDIS__URL`, `AI__*`, `CORS__*`);
+for local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
+
+## Docker
+
+One image (build context `apps/api`) serves three commands:
+
+| Service | Command |
+| --- | --- |
+| api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000` |
+| worker | `celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO` |
+| migrate | `alembic upgrade head` (run before the api starts) |
