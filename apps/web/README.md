@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# apps/web
 
-## Getting Started
+Next.js (App Router, TypeScript, Tailwind) frontend. For now the home page renders a single
+`StatusCard` showing API, Database, Redis and AI (provider and model) status.
 
-First, run the development server:
+## Architecture
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Dependencies point inwards; components never touch HTTP or the environment.
+
+| Path | Responsibility |
+| --- | --- |
+| `src/lib/config.ts` | The only module that reads `process.env`. Validates on load. |
+| `src/lib/api/client.ts` | The only module that calls `fetch`. Throws a typed `ApiError`. |
+| `src/lib/api/schema.d.ts` | Generated from the API's OpenAPI document. Never edited by hand. |
+| `src/features/health/service.ts` | `HealthService` interface, `HttpHealthService`, and the view model. |
+| `src/features/health/StatusCard.tsx` | UI. Depends on `HealthService` only. |
+| `src/app/providers.tsx` | Composition root: the only place `HttpHealthService` is constructed. |
+
+The two "only module" rules are enforced by ESLint (`eslint.config.mjs`), not by convention.
+Readiness checks are a list keyed by name, so a new backend check appears on the page with no
+frontend change; unknown names fall back to the raw name as their label.
+
+## Commands
+
+```sh
+npm run dev                  # needs NEXT_PUBLIC_API_URL
+npm run test -- --coverage   # vitest + msw; fails under 80% coverage
+npm run lint
+npm run typecheck
+npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
+npm run gen:api              # regenerate schema.d.ts from http://localhost:8000/openapi.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Any change to an API response model is followed by `npm run gen:api` in the same commit.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Docker
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`NEXT_PUBLIC_API_URL` is inlined into the client bundle, so it is a build argument:
 
-## Learn More
+```sh
+docker build --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 -t web .
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Version notes
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Dependencies are resolved to latest stable at install time. Two sit below the registry's
+latest because required tooling does not accept it yet: `eslint` stays on 9.x
+(`eslint-config-next` bundles plugins whose peer range ends at `^9`) and `typescript` on 5.x
+(`openapi-typescript` and `typescript-eslint` exclude 7.x). Revisit when those peers move.

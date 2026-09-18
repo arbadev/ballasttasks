@@ -110,6 +110,23 @@ describe("StatusCard", () => {
     expect(getHealth).toHaveBeenCalledTimes(2);
   });
 
+  it("ignores an answer that arrives after it was unmounted", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolve!: (value: HealthViewModel) => void;
+    let reject!: (reason: unknown) => void;
+    const first = renderCard(fakeService(() => new Promise((r) => (resolve = r))));
+    const second = renderCard(fakeService(() => new Promise((_, r) => (reject = r))));
+
+    first.unmount();
+    second.unmount();
+    resolve(healthy);
+    reject(new Error("late"));
+    await Promise.resolve();
+
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("refuses to render outside the provider", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
