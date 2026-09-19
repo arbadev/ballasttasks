@@ -13,6 +13,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 
+from httpx import AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -33,6 +34,7 @@ from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
+from app.infrastructure.ai.http import create_http_client
 from app.infrastructure.ai.registry import AI_PROVIDERS, build_language_model
 from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.cache.health import RedisHealthCheck
@@ -132,6 +134,7 @@ class Container:
     session_factory: async_sessionmaker[AsyncSession]
     request_scope: RequestScopeFactory
     redis: Redis
+    ai_http_client: AsyncClient
 
     @property
     def check_readiness(self) -> CheckReadiness:
@@ -144,6 +147,7 @@ class Container:
         """Release the handles this container owns."""
         await self.engine.dispose()
         await self.redis.aclose()
+        await self.ai_http_client.aclose()
 
 
 def load_settings() -> Settings:
@@ -154,7 +158,8 @@ def load_settings() -> Settings:
 def build_container(settings: Settings) -> Container:
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
-    language_model = build_language_model(settings.ai)
+    ai_http_client = create_http_client(timeout_seconds=settings.ai.timeout_seconds)
+    language_model = build_language_model(settings.ai, ai_http_client)
     session_factory = create_session_factory(engine)
     celery_app = create_celery_app(
         broker_url=settings.redis.url,
@@ -182,4 +187,5 @@ def build_container(settings: Settings) -> Container:
             ),
         ),
         redis=redis,
+        ai_http_client=ai_http_client,
     )

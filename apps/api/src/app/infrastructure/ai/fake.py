@@ -2,7 +2,11 @@ from typing import ClassVar
 
 
 class FakeLanguageModel:
-    """Deterministic, offline LanguageModel. The default provider: needs no API key."""
+    """Deterministic, offline LanguageModel. The default provider: needs no API key.
+
+    It never fails, so it raises none of the port's ``LanguageModelError``s and its
+    ``check`` is always True.
+    """
 
     provider: ClassVar[str] = "fake"
 

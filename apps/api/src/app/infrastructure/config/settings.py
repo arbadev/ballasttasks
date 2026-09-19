@@ -19,6 +19,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DATABASE_SCHEME = "postgresql+psycopg://"
 REDIS_SCHEMES = ("redis://", "rediss://")
+HTTP_SCHEMES = ("https://", "http://")
+# The offline provider: the only one that works without AI__API_KEY.
+KEYLESS_AI_PROVIDER = "fake"
 # RFC 7518 section 3.2: an HMAC key must be at least as long as the hash output.
 JWT_MIN_SECRET_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 
@@ -63,6 +66,24 @@ class RedisSettings(_Group):
 class AiSettings(_Group):
     provider: str = "fake"
     model: str = "fake-1"
+    # Needed by every provider except the offline ``fake`` (checked in ``load_settings``).
+    api_key: SecretStr | None = None
+    # None means the adapter's own default; set it to go through a proxy or a gateway.
+    base_url: str | None = None
+    timeout_seconds: float = Field(default=30.0, gt=0)
+
+    @field_validator("api_key", "base_url", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        """``AI__API_KEY=`` left empty in ``.env`` is the same as leaving it out."""
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("base_url")
+    @classmethod
+    def _require_http(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(HTTP_SCHEMES):
+            raise ValueError(f"AI__BASE_URL must start with one of {HTTP_SCHEMES}")
+        return value
 
 
 class CorsSettings(_Group):
@@ -105,5 +126,9 @@ def load_settings(*, valid_ai_providers: Collection[str]) -> Settings:
         raise ConfigurationError(
             f"AI__PROVIDER={settings.ai.provider!r} is not a registered provider. "
             f"Valid options: {options}"
+        )
+    if settings.ai.provider != KEYLESS_AI_PROVIDER and settings.ai.api_key is None:
+        raise ConfigurationError(
+            f"AI__API_KEY is required when AI__PROVIDER={settings.ai.provider!r}"
         )
     return settings

@@ -8,6 +8,7 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "celery[redis]>=5.6.3",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.14.0",
@@ -26,7 +27,6 @@ module-name = "app"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "import-linter>=2.15",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
@@ -84,7 +84,7 @@ source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2",
+    "jwt", "argon2", "httpx",
 ]
 
 [[tool.importlinter.contracts]]
@@ -94,7 +94,7 @@ source_modules = ["app.application"]
 forbidden_modules = [
     "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2",
+    "jwt", "argon2", "httpx",
 ]
 
 [[tool.importlinter.contracts]]
@@ -103,7 +103,7 @@ type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
     "app.infrastructure", "app.bootstrap", "app.main",
-    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2",
+    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx",
 ]
 
 [[tool.importlinter.contracts]]
