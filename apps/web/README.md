@@ -144,11 +144,12 @@ unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: c
 to Testing`) so that stacked alerts do not all read "Retry"; the visible labels, the Dismiss
 tooltip included, stay as the design has them (`IconButton` takes a `title` of its own for that).
 
-A failed load wears the same treatment in both views — the danger badge, the heading, the detail
-line and a Retry carrying the design's refresh mark — so which tab is open does not change what a
-rejected `taskService.list()` looks like. The board states the failure once: a rejection that
-carried no message of its own is reported as `LOAD_FAILED_WITHOUT_DETAIL`, which says nothing the
-heading has not already said, so the detail line is left out rather than doubling it.
+A failed load is built from the same parts in both views — the danger badge, the heading, the
+detail line and a Retry carrying the design's refresh mark — each naming its own subject and
+keeping its own content gutter. The board states the failure once: a rejection that carried no
+message of its own is reported as `LOAD_FAILED_WITHOUT_DETAIL`, which says nothing the heading has
+not already said, so the board leaves the detail line out rather than doubling it; the list's own
+doubling is left as it was.
 
 The board's own controls name the properties they animate rather than using `transition-colors`,
 which in Tailwind v4 covers `outline-color` as well: the focus ring is `outline: 2px solid
