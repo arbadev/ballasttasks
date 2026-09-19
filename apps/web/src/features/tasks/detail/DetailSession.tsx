@@ -1,36 +1,55 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 export type SaveStatus = "idle" | "saving" | "failed";
 
-/** Text typed into the step and comment boxes but not sent yet, kept per task. */
-class DraftStore {
-  private readonly texts = new Map<string, string>();
-  get(key: string): string {
-    return this.texts.get(key) ?? "";
-  }
-  set(key: string, text: string): void {
-    if (text) this.texts.set(key, text);
-    else this.texts.delete(key);
-  }
-}
-
-/** What one composer is waiting on: the text it sent, and whether that send came back failed. */
-export interface Submission {
+/** The send a step or comment box is waiting on. */
+interface Sending {
   text: string;
+  /** The send came back refused; the text is kept here so a Retry can send exactly it. */
   failed: boolean;
+  /** This send's failure put its text back in the box, and nothing has been typed since. */
+  restored: boolean;
 }
 
-/** The one submission each step and comment box is waiting on, kept per task. */
-class SubmissionStore {
-  private readonly pending = new Map<string, Submission>();
-  get(key: string): Submission | null {
-    return this.pending.get(key) ?? null;
+/** One step or comment box: what is typed in it, and the one send it is waiting on. */
+interface ComposerState {
+  text: string;
+  sending: Sending | null;
+}
+
+const EMPTY_COMPOSER: ComposerState = { text: "", sending: null };
+
+/**
+ * Every step and comment box, under its own key. One place holds both what is typed and what
+ * is in flight, so a box that is closed and opened again — a different React instance — reads
+ * and writes the same record, and a send that answers while the panel is shut is seen by the
+ * box that comes back. Read with `useSyncExternalStore`, as the step generation is.
+ */
+class ComposerStore {
+  private state: ReadonlyMap<string, ComposerState> = new Map();
+  private readonly listeners = new Set<() => void>();
+
+  get(key: string): ComposerState {
+    return this.state.get(key) ?? EMPTY_COMPOSER;
   }
-  set(key: string, submission: Submission | null): void {
-    if (submission) this.pending.set(key, submission);
-    else this.pending.delete(key);
+
+  update(key: string, step: (current: ComposerState) => ComposerState): void {
+    const after = step(this.get(key));
+    if (after === this.get(key)) return;
+    const next = new Map(this.state);
+    if (after.text === "" && after.sending === null) next.delete(key);
+    else next.set(key, after);
+    this.state = next;
+    this.listeners.forEach((listener) => listener());
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 }
 
@@ -44,8 +63,7 @@ interface DetailSession {
    * no other task's outcome clears it, and none of them inherits it.
    */
   track<T>(taskId: string, save: Promise<T>): Promise<T>;
-  drafts: DraftStore;
-  submissions: SubmissionStore;
+  composers: ComposerStore;
   generationFailed(taskId: string): boolean;
   setGenerationFailed(taskId: string, failed: boolean): void;
 }
@@ -67,8 +85,7 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
  */
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
-  const [drafts] = useState(() => new DraftStore());
-  const [submissions] = useState(() => new SubmissionStore());
+  const [composers] = useState(() => new ComposerStore());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
 
   const record = useCallback((taskId: string, step: (current: TaskSaves) => TaskSaves) => {
@@ -116,12 +133,11 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
         return task.inFlight > 0 ? "saving" : task.failed ? "failed" : "idle";
       },
       track,
-      drafts,
-      submissions,
+      composers,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [saves, track, drafts, submissions, failedGenerations, setGenerationFailed],
+    [saves, track, composers, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;
@@ -133,107 +149,91 @@ export function useDetailSession(): DetailSession {
   return session;
 }
 
-/** A text box whose unsent content survives the panel closing: [text, setText]. */
-export function useDraft(key: string): [string, (text: string) => void] {
-  const { drafts } = useDetailSession();
-  const [text, setText] = useState(() => drafts.get(key));
-  const update = useCallback(
-    (next: string) => {
-      drafts.set(key, next);
-      setText(next);
-    },
-    [drafts, key],
-  );
-  return [text, update];
-}
-
 export interface Composer {
   /** What the box holds now. */
   text: string;
   setText(text: string): void;
-  /** The submission this box is waiting on: running, or failed and kept for a retry. */
-  pending: Submission | null;
-  /** Sends what is in the box. Ignored while this box is waiting on something. */
+  /** A send is running: the box takes one at a time and says so while it waits. */
+  sending: boolean;
+  /** The text of a send that was refused, kept for Retry until it is retried or dismissed. */
+  failed: string | null;
+  /** Sends what is in the box. Does nothing while this box is waiting on a send. */
   submit(): void;
   retry(): void;
   dismiss(): void;
 }
 
 /**
- * A step or comment box and the one submission it is waiting on, both kept under the task's
- * own key so they come back with the task. The box sends one thing at a time: a send that
- * fails is held until it is retried or dismissed, and meanwhile the box stays the user's to
- * type in. Text is only ever taken out of the box when this composer put it there and nothing
+ * A step or comment box and the one send it is waiting on, both kept under the task's own key
+ * so they come back with the task and survive the panel closing mid-send. The box sends one
+ * thing at a time: while a send runs the box says so and takes no second one, and a send that
+ * is refused is held until it is retried or dismissed. The box stays the user's to type in
+ * throughout; text is only ever taken back out of it when a failure put it there and nothing
  * has been typed since, so no send can erase what the user wrote or post the same thing twice.
  */
 export function useComposer(key: string, send: (text: string) => Promise<unknown>): Composer {
-  const { drafts, submissions } = useDetailSession();
-  const [text, setStoredText] = useDraft(key);
-  const [pending, setPendingState] = useState(() => submissions.get(key));
-  const restored = useRef<string | null>(null);
+  const { composers } = useDetailSession();
+  const read = useCallback(() => composers.get(key), [composers, key]);
+  const state = useSyncExternalStore((listener) => composers.subscribe(listener), read, read);
   const latest = useRef(send);
 
   useEffect(() => {
     latest.current = send;
   });
 
-  const setPending = useCallback(
-    (next: Submission | null) => {
-      submissions.set(key, next);
-      setPendingState(next);
-    },
-    [submissions, key],
-  );
-
   const run = useCallback(
     (value: string) => {
-      setPending({ text: value, failed: false });
+      composers.update(key, (c) => ({ ...c, sending: { text: value, failed: false, restored: c.sending?.restored ?? false } }));
       latest.current(value).then(
-        () => {
-          setPending(null);
-          if (restored.current === null) return;
-          restored.current = null;
-          setStoredText("");
-        },
-        () => {
-          setPending({ text: value, failed: true });
-          if (drafts.get(key)) return;
-          restored.current = value;
-          setStoredText(value);
-        },
+        () =>
+          composers.update(key, (c) => ({
+            text: c.sending?.restored && c.text === c.sending.text ? "" : c.text,
+            sending: null,
+          })),
+        () =>
+          composers.update(key, (c) => {
+            const restored = c.text === "";
+            return { text: restored ? value : c.text, sending: { text: value, failed: true, restored } };
+          }),
       );
     },
-    [drafts, key, setPending, setStoredText],
+    [composers, key],
   );
 
   const setText = useCallback(
     (next: string) => {
-      restored.current = null;
-      setStoredText(next);
+      // Typing makes the box the user's again, whatever a failed send left in it.
+      composers.update(key, (c) => ({ text: next, sending: c.sending?.restored ? { ...c.sending, restored: false } : c.sending }));
     },
-    [setStoredText],
+    [composers, key],
   );
 
   const submit = useCallback(() => {
-    if (submissions.get(key)) return;
-    const value = drafts.get(key).trim();
+    const current = composers.get(key);
+    if (current.sending) return;
+    const value = current.text.trim();
     if (!value) return;
-    restored.current = null;
-    setStoredText("");
+    composers.update(key, (c) => ({ ...c, text: "" }));
     run(value);
-  }, [drafts, submissions, key, run, setStoredText]);
+  }, [composers, key, run]);
 
   const retry = useCallback(() => {
-    const held = submissions.get(key);
+    const held = composers.get(key).sending;
     if (!held?.failed) return;
     run(held.text);
-  }, [submissions, key, run]);
+  }, [composers, key, run]);
 
   const dismiss = useCallback(() => {
-    if (!submissions.get(key)?.failed) return;
-    restored.current = null;
-    setPending(null);
-  }, [submissions, key, setPending]);
+    composers.update(key, (c) => (c.sending?.failed ? { ...c, sending: null } : c));
+  }, [composers, key]);
 
-  return { text, setText, pending, submit, retry, dismiss };
+  return {
+    text: state.text,
+    setText,
+    sending: state.sending !== null && !state.sending.failed,
+    failed: state.sending?.failed ? state.sending.text : null,
+    submit,
+    retry,
+    dismiss,
+  };
 }

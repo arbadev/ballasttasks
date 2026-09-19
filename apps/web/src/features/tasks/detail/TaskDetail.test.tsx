@@ -320,7 +320,7 @@ describe("delete, from a list row", () => {
     await openFirstRow([threeTasks[0]]);
     await deleteOpenTask();
     await screen.findByText("No tasks match these filters.");
-    expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus());
   });
 
   it("still hands focus on after the task was edited in the panel first", async () => {
@@ -378,7 +378,7 @@ describe("closing the panel, from a list row", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     await settle();
     await screen.findByText("No tasks match these filters.");
-    expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus());
   });
 
   it("leaves the focus on the row it was opened from when that row is still there", async () => {

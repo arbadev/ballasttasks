@@ -84,13 +84,13 @@ export function PropertiesPanel({ task }: { task: Task }) {
         />
         {clearingDue && (
           <div role="group" aria-label="Remove the date?" className="flex animate-bt-fade flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-3">
-            <span>Emptying the box does not remove the date.</span>
+            <span>Choose Clear date to remove this task&rsquo;s due date.</span>
             <PanelButton
               variant="confirm"
               className="h-[26px] text-[12px]"
               onClick={() => {
                 setClearingDue(false);
-                void track(task.id, commands.update(task.id, { due: null })).catch(() => {});
+                due.store(null);
               }}
             >
               Clear date

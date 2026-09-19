@@ -21,6 +21,12 @@ export interface AutosaveField<T> {
   change(value: T): void;
   /** Settles the field now: on blur, and when it unmounts (the panel closing, a task switch). */
   flush(): void;
+  /**
+   * Stores a value the control is not typing — an explicit action such as clearing a date, or
+   * a Retry. It supersedes any half-typed edit and is sent whether or not `savable` allows it
+   * to be typed, so no edit the user has abandoned can land on top of it.
+   */
+  store(value: T): void;
   /** The value a failed save tried to store; the control is already back on `saved`. */
   failed: { value: T } | null;
   retry(): void;
@@ -57,7 +63,8 @@ interface Machine<T> {
  *    the last word: nothing newer typed or queued behind it.
  * 5. A value the field declares unsavable is not a save at all: it never runs and never clears
  *    the draft, so a half-typed value stays as typed. `flush` settles it instead, by putting
- *    the control back on the confirmed value: leaving a field never writes through it.
+ *    the control back on the confirmed value: leaving a field never writes through it. Only
+ *    `store` asks for such a value on purpose, and it drops the half-typed edit as it goes.
  */
 export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options<T>): AutosaveField<T> {
   const [draft, setDraft] = useState<{ value: T } | null>(null);
@@ -99,29 +106,47 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
     run(first);
   }, []);
 
-  /** Hands the pending edit to a save. False when the value is one the field cannot store. */
-  const commit = useCallback(
-    () => {
+  /** Sends a value, behind whatever is already running, unless the task already holds it. */
+  const enqueue = useCallback(
+    (value: T) => {
       const state = machine.current;
-      const edit = state.pending;
-      if (!edit) return true;
-      if (edit.timer) clearTimeout(edit.timer);
-
-      if (latest.current.savable?.(edit.value) === false) {
-        state.pending = { value: edit.value, timer: null };
-        return false;
+      if (!state.inFlight && !state.queued && Object.is(value, latest.current.saved)) {
+        setDraft((d) => (d && Object.is(d.value, value) ? null : d));
+        return;
       }
-
-      state.pending = null;
-      if (!state.inFlight && !state.queued && Object.is(edit.value, latest.current.saved)) {
-        setDraft((d) => (d && Object.is(d.value, edit.value) ? null : d));
-        return true;
-      }
-      if (state.inFlight) state.queued = { value: edit.value };
-      else start(edit.value);
-      return true;
+      if (state.inFlight) state.queued = { value };
+      else start(value);
     },
     [start],
+  );
+
+  /** Hands the pending edit to a save. False when the value is one the field cannot store. */
+  const commit = useCallback(() => {
+    const state = machine.current;
+    const edit = state.pending;
+    if (!edit) return true;
+    if (edit.timer) clearTimeout(edit.timer);
+
+    if (latest.current.savable?.(edit.value) === false) {
+      state.pending = { value: edit.value, timer: null };
+      return false;
+    }
+
+    state.pending = null;
+    enqueue(edit.value);
+    return true;
+  }, [enqueue]);
+
+  const store = useCallback(
+    (value: T) => {
+      const state = machine.current;
+      if (state.pending?.timer) clearTimeout(state.pending.timer);
+      state.pending = null;
+      setFailed(null);
+      setDraft({ value });
+      enqueue(value);
+    },
+    [enqueue],
   );
 
   const flush = useCallback(() => {
@@ -144,13 +169,10 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
 
   const retry = useCallback(() => {
     if (!failed) return;
-    setFailed(null);
-    setDraft({ value: failed.value });
-    machine.current.pending = { value: failed.value, timer: null };
-    commit();
-  }, [failed, commit]);
+    store(failed.value);
+  }, [failed, store]);
 
   useEffect(() => flush, [flush]);
 
-  return { value: draft ? draft.value : saved, change, flush, failed, retry };
+  return { value: draft ? draft.value : saved, change, flush, store, failed, retry };
 }

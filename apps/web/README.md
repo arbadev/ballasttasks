@@ -106,6 +106,21 @@ card, the New task button) on close, so an opener needs nothing more than being 
   another task opening), so typed text is never dropped. A failed save puts the control back on
   the saved value with an inline message and a Retry that carries the rejected value. The footer
   reports `saving…`, `saved · <when>` or `not saved`.
+- **A value the field cannot hold is never written by leaving it.** A field may declare which
+  values are `savable`: an emptied number box and an emptied date box are not, and a date
+  reports itself empty while a segment is being retyped. Such a value is kept as typed, never
+  sent, and `flush` (blur, unmount) puts the stored value back instead of saving it. Removing a
+  due date is its own action — "Clear date" under the emptied box — which calls `field.store`,
+  the one path that writes a value the control is not typing. `store` drops any half-typed edit
+  as it goes, so an abandoned one cannot land on top of it, and its failure uses the field's own
+  inline message and Retry.
+- **The step and comment boxes send one thing at a time.** `useComposer` holds what is typed and
+  the send it is waiting on in one record per task and box, so both survive the panel closing
+  mid-send and the box that opens again sees how that send ended. While a send runs the box says
+  so and takes no second one; the next draft can be typed and is kept. A refused send is held
+  with its exact text until Retry or Dismiss, and is put back in the box only if the box is
+  empty — a newer draft is never overwritten, and a Retry that lands clears only text the
+  failure itself put there.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed

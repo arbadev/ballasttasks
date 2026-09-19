@@ -5,6 +5,15 @@ import { openTask, renderDetail, settle } from "./testing/renderDetail";
 
 const steps = () => within(screen.getByRole("region", { name: "Steps" }));
 const stepTexts = () => within(steps().getByRole("list", { name: "Steps" })).getAllByRole("listitem").map((li) => li.textContent);
+/** A request the test holds open, so it can refuse it at the moment the trace calls for. */
+function deferred() {
+  let reject!: () => void;
+  const promise = new Promise<never>((_resolve, rejectRequest) => {
+    reject = () => rejectRequest(new Error("offline"));
+  });
+  return { promise, reject };
+}
+
 /** Rejects every add, recording the attempt, so a test can count what was actually sent. */
 const rejectAddStep = (service: FakeTaskService) => async (id: string, text: string) => {
   service.calls.push(["addStep:rejected", id, text]);
@@ -179,6 +188,105 @@ describe("steps checklist", () => {
     openTask("t4");
     expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
     expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("Belongs to t4");
+  });
+
+  it("sees a send that answered while the panel was shut, and a Retry after that clears only its own text", async () => {
+    const { taskService } = await renderDetail();
+    const original = taskService.addStep.bind(taskService);
+    const held = deferred();
+    taskService.addStep = () => held.promise;
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("status")).toHaveTextContent("Adding step…");
+
+    // Closed before the send answers; the refusal lands with no box on screen.
+    fireEvent.keyDown(window, { key: "Escape" });
+    held.reject();
+    await settle();
+
+    openTask("t4");
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+    expect(input()).toHaveValue("Pick the token lifetime");
+
+    taskService.addStep = original;
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+    expect(input()).toHaveValue("");
+
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep")).toHaveLength(1);
+  });
+
+  it("a box reopened mid-send still sees how that send ended", async () => {
+    const { taskService } = await renderDetail();
+    const held = deferred();
+    taskService.addStep = () => held.promise;
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Still in flight" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    openTask("t4");
+    expect(steps().getByRole("status")).toHaveTextContent("Adding step…");
+
+    // The same send answers with the box open again: no second close and reopen to see it.
+    held.reject();
+    await settle();
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+    expect(input()).toHaveValue("Still in flight");
+
+    // And the box is not wedged: dismissing the held send lets the next one through.
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    taskService.addStep = async (id: string, text: string) => {
+      taskService.calls.push(["addStep", id, text]);
+      throw new Error("offline");
+    };
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls).toContainEqual(["addStep", "t4", "Still in flight"]);
+  });
+
+  it("says it is adding, takes one send at a time, and keeps the next draft", async () => {
+    const { taskService } = await renderDetail();
+    const original = taskService.addStep.bind(taskService);
+    let release!: () => void;
+    taskService.addStep = (id, text) => new Promise<void>((resolve) => (release = resolve)).then(() => original(id, text));
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "First step" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("status")).toHaveTextContent("Adding step…");
+    expect(input()).toHaveAttribute("aria-busy", "true");
+
+    // Typing the next one is fine; pressing Enter again sends nothing while the first runs.
+    fireEvent.change(input(), { target: { value: "Second step" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep")).toHaveLength(0);
+    expect(input()).toHaveValue("Second step");
+
+    release();
+    await settle();
+    expect(steps().queryByRole("status")).not.toBeInTheDocument();
+    expect(stepTexts()).toEqual(["First step"]);
+    expect(input()).toHaveValue("Second step");
+
+    taskService.addStep = original;
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(stepTexts()).toEqual(["First step", "Second step"]);
   });
 
   it("keeps a half-typed step when the panel closes and reopens", async () => {

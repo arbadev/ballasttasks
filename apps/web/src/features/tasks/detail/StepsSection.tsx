@@ -94,6 +94,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           name="new-step"
           placeholder="Add a step and press Enter"
           value={box.text}
+          aria-busy={box.sending}
           onChange={(e) => box.setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") box.submit();
@@ -101,7 +102,12 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           className="min-w-0 flex-1 border-0 bg-transparent py-1 text-[13.5px] text-fg placeholder:text-fg-3 placeholder:opacity-100"
         />
       </div>
-      {box.pending?.failed && (
+      {box.sending && (
+        <p role="status" className="m-0 text-[12px] text-fg-3">
+          Adding step… the box takes the next one when this lands.
+        </p>
+      )}
+      {box.failed !== null && (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
           Could not add the step. It is kept: retry it, or dismiss it to add another.
         </ActionError>

@@ -15,7 +15,7 @@ const rejectAddComment = (service: FakeTaskService) => async (id: string, text: 
   throw new Error("offline");
 };
 
-/** A request the test holds open, so it can reject it after the user has typed again. */
+/** A request the test holds open, so it can refuse it at the moment the trace calls for. */
 function deferred() {
   let reject!: () => void;
   const promise = new Promise<never>((_resolve, rejectRequest) => {
@@ -161,6 +161,65 @@ describe("activity", () => {
     fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
     expect(section().queryByRole("alert")).not.toBeInTheDocument();
     expect(box()).toHaveValue("Following up separately");
+  });
+
+  it("sees a post that answered while the panel was shut, and a Retry after that clears only its own text", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    const original = taskService.addComment.bind(taskService);
+    const held = deferred();
+    taskService.addComment = () => held.promise;
+    openTask("t1");
+
+    fireEvent.change(box(), { target: { value: "Ping the vendor" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(section().getByRole("status")).toHaveTextContent("Posting comment…");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    held.reject();
+    await settle();
+
+    openTask("t1");
+    expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+    expect(box()).toHaveValue("Ping the vendor");
+
+    taskService.addComment = original;
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(taskService.calls).toContainEqual(["addComment", "t1", "Ping the vendor"]);
+    expect(box()).toHaveValue("");
+
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment")).toHaveLength(1);
+  });
+
+  it("says it is posting, takes one post at a time, and keeps the next draft", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    const original = taskService.addComment.bind(taskService);
+    let release!: () => void;
+    taskService.addComment = (id, text) => new Promise<void>((resolve) => (release = resolve)).then(() => original(id, text));
+    openTask("t1");
+
+    fireEvent.change(box(), { target: { value: "First comment" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(section().getByRole("status")).toHaveTextContent("Posting comment…");
+    expect(section().getByRole("button", { name: "Comment" })).toBeDisabled();
+
+    fireEvent.change(box(), { target: { value: "Second comment" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    fireEvent.click(section().getByRole("button", { name: "Comment" }));
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment")).toHaveLength(0);
+    expect(box()).toHaveValue("Second comment");
+
+    release();
+    await settle();
+    expect(taskService.calls).toContainEqual(["addComment", "t1", "First comment"]);
+    expect(section().queryByRole("status")).not.toBeInTheDocument();
+    expect(section().getByRole("button", { name: "Comment" })).toBeEnabled();
+    expect(box()).toHaveValue("Second comment");
   });
 
   it("keeps what was typed since, and Retry sends the comment that failed", async () => {

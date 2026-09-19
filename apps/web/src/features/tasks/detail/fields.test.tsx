@@ -393,6 +393,56 @@ describe("property controls", () => {
     expect(properties().getByLabelText("Due date")).toHaveValue(due(3));
   });
 
+  it("says so inline when Clear date is refused, and Retry sends the same null", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    const original = taskService.update.bind(taskService);
+    taskService.update = async () => {
+      throw new Error("offline");
+    };
+    await renderDetail({ taskService });
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(properties().getByRole("button", { name: "Clear date" }));
+    await settle();
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+    expect(input).toHaveValue(due(3));
+
+    taskService.update = original;
+    fireEvent.click(within(properties().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(updates(taskService)).toEqual([["update", "t1", { due: null }]]);
+    expect(input).toHaveValue("");
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps an explicit clear last, behind a date save that is still open", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+    const requests = deferUpdates(taskService);
+
+    fireEvent.change(input, { target: { value: due(9) } });
+    fireEvent.blur(input);
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ due: due(9) }]);
+
+    // Cleared while that save is still open: the null is sent after it, never under it.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(properties().getByRole("button", { name: "Clear date" }));
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ due: due(9) }]);
+
+    requests[0].settle(true);
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ due: due(9) }, { due: null }]);
+
+    requests[1].settle(true);
+    await settle();
+    expect(input).toHaveValue("");
+  });
+
   it("Keep leaves the stored date alone and takes the prompt away", async () => {
     const { taskService } = await renderDetail();
     openTask("t1");
