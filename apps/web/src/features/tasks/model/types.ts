@@ -40,11 +40,15 @@ export interface Person {
   role: string;
 }
 
+/** Which design token colours a project's dot. */
+export type ProjectTone = "accent" | "muted" | "info" | "ok" | "warn";
+
 export interface Project {
   id: string;
   name: string;
-  /** Which token colours the project's dot. */
-  tone: "accent" | "muted";
+  /** A short code that identifies the project: 2 to 4 uppercase letters. */
+  key?: string;
+  tone: ProjectTone;
 }
 
 export interface Task {

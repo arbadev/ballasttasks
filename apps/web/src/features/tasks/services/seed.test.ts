@@ -18,8 +18,8 @@ describe("seed data", () => {
       ["ai", "Assistant", "AI", "system"],
     ]);
     expect(SEED_PROJECTS).toEqual([
-      { id: "ballast", name: "Ballast Tasks", tone: "accent" },
-      { id: "inbox", name: "Inbox", tone: "muted" },
+      { id: "ballast", name: "Ballast Tasks", key: "BT", tone: "accent" },
+      { id: "inbox", name: "Inbox", key: "IN", tone: "muted" },
     ]);
   });
 
