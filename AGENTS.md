@@ -8,7 +8,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **Layers** (`apps/api`): `domain` <- `application` <- `infrastructure` / `api` (the presentation package). Imports point inward only; `infrastructure` and `api` never import each other. Enforced by `uv run lint-imports`.
 - **Ports** are `typing.Protocol` classes in `apps/api/src/app/application/ports/`. Keep them small; every adapter must pass its port's contract suite before it is registered.
 - **Composition roots**: only `apps/api/src/app/bootstrap.py` and `apps/web/src/app/providers.tsx` name concrete classes. No DI framework. A new provider = new adapter + one registry line (`infrastructure/ai/registry.py`), no edits to existing code.
-- **Env readers**: in application code, only `infrastructure/config/settings.py` (API) and `src/lib/config.ts` (web) read the environment. Test tooling configuration (`playwright.config.ts` and the suites in `apps/web/visual/`) may read its own variables, such as `BT_DESIGN_DIR` and `BT_APP_PORT`. Variable names are in `.env.example`; a new variable is added there in the same commit.
+- **Env readers**: in application code, only `infrastructure/config/settings.py` (API) and `src/lib/config.ts` (web) read the environment. Test tooling configuration (`playwright.config.ts` and the suites in `apps/web/visual/`) may read its own variables, such as `BT_DESIGN_DIR`. Variable names are in `.env.example`; a new variable is added there in the same commit.
 - **Network**: `client.ts` is the only `fetch` caller. Components depend on service interfaces from context, never on the client.
 - **Web UI**: colours, radii, shadows, fonts and animations come from the design tokens in `apps/web/src/app/globals.css` through their Tailwind names, never raw values. Time comes from `useNow()` (the injected clock), never `Date.now()`. Task mutations go through `useTaskCommands()`, which keeps service and workspace state in step. Folder ownership and the hook/action/service contract: "Building on the shell" in `apps/web/README.md`.
 - **Generated files** (`schema.d.ts`, lockfiles) are never edited by hand.
@@ -36,7 +36,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
-| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo). It reuses whatever answers on its ports, so with several checkouts on one machine set `BT_APP_PORT` / `BT_DESIGN_PORT` per checkout or it tests another checkout's app |
+| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
 | `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
 
 ## Repo map

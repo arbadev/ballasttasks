@@ -163,13 +163,6 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   colour and contrast, `prefers-reduced-motion`, and no console error or warning across every
   state of the panel.
 
-Both servers are reused when their port already answers, so two checkouts on one machine would
-test each other's app. Give each its own pair:
-
-```sh
-BT_APP_PORT=47842 BT_DESIGN_PORT=47841 BT_DESIGN_DIR=/path/to/design-v2 npm run test:visual
-```
-
 Screenshots, diffs and `report.json` (the measured percentages) land in the git-ignored
 `visual-results/` (the panel's under `visual-results/detail/`). Run `npx playwright install chromium` once beforehand.
 
