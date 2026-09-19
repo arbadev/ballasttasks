@@ -1,0 +1,34 @@
+# One guard for the whole repo: `pre-commit install`, or `pre-commit run --all-files`.
+# Each hook is scoped to its app with `files:`. The local hooks use the apps' own locked
+# toolchains, so run `uv sync` in apps/api and `npm install` in apps/web first.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        files: ^apps/api/
+      - id: ruff-format
+        files: ^apps/api/
+
+  - repo: local
+    hooks:
+      - id: lint-imports
+        name: import-linter (apps/api layer contracts)
+        entry: sh -c 'cd apps/api && uv run lint-imports'
+        language: system
+        files: ^apps/api/
+        pass_filenames: false
+
+      - id: web-lint
+        name: eslint (apps/web)
+        entry: npm --prefix apps/web run lint
+        language: system
+        files: ^apps/web/
+        pass_filenames: false
+
+      - id: web-typecheck
+        name: tsc --noEmit (apps/web)
+        entry: npm --prefix apps/web run typecheck
+        language: system
+        files: ^apps/web/
+        pass_filenames: false
