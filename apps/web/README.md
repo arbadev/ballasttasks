@@ -92,6 +92,25 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 `WorkspaceProvider`, or render `<TasksApp />` to drive it through the real shell.
 `FakeTaskService.calls` records what the UI asked for.
 
+## The board
+
+`src/features/tasks/board/` is the board view, built from the design's markup and `taskView` rules.
+
+| File | Responsibility |
+| --- | --- |
+| `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state and puts focus back on a card moved from the keyboard. |
+| `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once, a rejected move puts it back and is reported with a retry, and an older answer never undoes a newer move. |
+| `cardView.ts` | Pure: everything a card shows (due chip tone and mark, rail, priority tone, step and attachment labels), from `urgency` and `dueInfo`. |
+| `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
+
+The board passes `applyStatus: false`, so every status is a column whatever the Status filter
+says; the header count keeps describing the list's filters. Both are the design's behaviour.
+
+The design can only be dragged. Two additions make the same move reachable without a pointer
+drag: Shift+Left / Shift+Right on a focused card, announced through a polite live region, and
+a row of move buttons that appears while the keyboard is inside a card and is always present
+on a coarse pointer. At rest on a desktop the card is pixel-identical to the design.
+
 ## Commands
 
 ```sh
@@ -108,7 +127,7 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 and runs three suites from `visual/`:
+`npm run test:visual` starts the app on port 47812 and runs the suites in `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
@@ -127,6 +146,14 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   search placeholder is set in `--fg-3`. With `BT_DESIGN_DIR`: the skin's custom properties on
   the root element, the resolved colours, radii, shadows and type of shell elements, and the
   keyboard focus ring all equal the design's.
+- `board.visual.ts` compares the board with the design at both desktop sizes: the whole
+  board, one column, a card at rest, hovered and selected, a column highlighted as the drop
+  target with the dragged card (a real mouse drag, held), and the empty column. Same limits as
+  the shell suite; needs `BT_DESIGN_DIR`. Measurements go to `board-report.json`.
+- `board-behaviour.visual.ts` needs nothing else: a real mouse drag moves a card, Shift+Arrow
+  moves the focused card and focus follows it, at 375px the columns scroll and snap inside the
+  board with touch-sized move buttons and no page overflow, reduced motion stills the card,
+  and the console stays silent.
 
 Screenshots, diffs and `report.json` (the measured percentages) land in the git-ignored
 `visual-results/`. Run `npx playwright install chromium` once beforehand.
