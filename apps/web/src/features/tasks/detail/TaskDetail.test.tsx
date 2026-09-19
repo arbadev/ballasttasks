@@ -1,6 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { ListView } from "../list/ListView";
+import type { Task } from "../model/types";
 import { TasksApp } from "../shell/TasksApp";
+import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
+import { TaskDetail } from "./TaskDetail";
 import { FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
 import { NOW, due, makeTask } from "@/test/tasks";
@@ -188,6 +192,53 @@ describe("footer", () => {
     const properties = within(screen.getByRole("complementary", { name: "Properties" }));
     expect(properties.getByText("created 4 days ago")).toBeInTheDocument();
     expect(properties.getByText("updated 4 days ago")).toBeInTheDocument();
+  });
+});
+
+describe("delete, from a list row", () => {
+  const threeTasks = [makeTask({ id: "t1", title: "Alpha" }), makeTask({ id: "t2", title: "Beta" }), makeTask({ id: "t3", title: "Gamma" })];
+
+  const rowTitles = () =>
+    within(screen.getByRole("list", { name: "Tasks" }))
+      .getAllByRole("listitem")
+      .map((row) => row.querySelector<HTMLElement>("[data-row-title]")!);
+
+  async function openFirstRow(tasks: Task[]) {
+    renderWithServices(
+      <WorkspaceProvider>
+        <ListView />
+        <TaskDetail />
+      </WorkspaceProvider>,
+      { tasks },
+    );
+    await screen.findByRole("textbox", { name: "Add a task" });
+    const row = rowTitles()[0];
+    row.focus();
+    fireEvent.click(row);
+    await settle();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  }
+
+  async function deleteOpenTask() {
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
+    await settle();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  }
+
+  it("hands focus to the row that took the deleted row's place", async () => {
+    await openFirstRow(threeTasks);
+    await deleteOpenTask();
+    expect(rowTitles()).toHaveLength(2);
+    expect(rowTitles()[0]).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("falls back to the quick-add when the deleted row was the only one", async () => {
+    await openFirstRow([threeTasks[0]]);
+    await deleteOpenTask();
+    await screen.findByText("No tasks match these filters.");
+    expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus();
   });
 });
 

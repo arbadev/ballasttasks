@@ -12,10 +12,10 @@ import { rowView } from "./rowView";
 const ROW_TITLE = "[data-row-title]";
 const ROW_TOGGLE = "[role=checkbox]";
 
-/** The row control that had focus when its task was toggled, so focus can follow the list. */
+/** The row control that had focus when its task was toggled or opened, so focus can follow the list. */
 interface PendingFocus {
   taskId: string;
-  /** The status the toggle started from: the entry is spent once the task shows another one. */
+  /** The status the row started from: the entry is spent once the task shows another one. */
   status: Task["status"];
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
@@ -39,9 +39,18 @@ export function ListView() {
 
   const controls = (selector: string) => Array.from(listRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
 
-  // A completed row usually leaves the list (the default filter hides done tasks) and takes
-  // the focus with it; hand the focus to the row that took its place, or to the quick-add.
-  // A row that stays keeps its own focus, so the entry is dropped as soon as the toggle lands.
+  /** Remembers where focus was in a row, for when that row is about to leave the list. */
+  const rememberFocus = useCallback((task: Task, index: number) => {
+    const row = listRef.current?.children[index];
+    const focused = document.activeElement;
+    pendingFocus.current =
+      row && focused && row.contains(focused) ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
+  }, []);
+
+  // A completed row usually leaves the list (the default filter hides done tasks), and a row
+  // opened in the panel can be deleted there; either way it takes the focus with it, so hand
+  // the focus to the row that took its place, or to the quick-add. A row that stays keeps its
+  // own focus, so the entry is dropped as soon as the toggle lands.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
@@ -55,16 +64,14 @@ export function ListView() {
 
   const toggle = useCallback(
     (task: Task, index: number) => {
-      const row = listRef.current?.children[index];
-      const focused = document.activeElement;
-      pendingFocus.current = row && focused && row.contains(focused) ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
+      rememberFocus(task, index);
       setFailedTitle(null);
       commands.toggleDone(task.id).catch(() => {
         pendingFocus.current = null;
         setFailedTitle(task.title);
       });
     },
-    [commands],
+    [commands, rememberFocus],
   );
 
   const move = (index: number, to: RowMove) => {
@@ -105,7 +112,10 @@ export function ListView() {
                 assignee={assignee}
                 assigneeIsCurrentUser={assignee !== null && assignee.id === currentUser?.id}
                 selected={task.id === state.selectedId}
-                onOpen={() => actions.selectTask(task.id)}
+                onOpen={() => {
+                  rememberFocus(task, index);
+                  actions.selectTask(task.id);
+                }}
                 onToggle={() => toggle(task, index)}
                 onMove={(to) => move(index, to)}
               />

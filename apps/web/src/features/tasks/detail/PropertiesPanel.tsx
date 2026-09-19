@@ -29,10 +29,12 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const due = useAutosaveField({ saved: task.due, save: (v: string | null) => track(commands.update(task.id, { due: v })) });
   const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(commands.update(task.id, { prio: v })) });
   const project = useAutosaveField({ saved: task.project, save: (v: string) => track(commands.update(task.id, { project: v })) });
-  // Held as text while typing so the field can be emptied; an empty box is simply not saved.
+  // Held as text while typing so the field can be emptied: an empty or half-typed box is not a
+  // number the task can hold, so it stays exactly as typed until blur puts the last one back.
   const importance = useAutosaveField({
     saved: String(task.importance),
-    save: (v: string) => (v.trim() === "" || Number.isNaN(Number(v)) ? Promise.resolve() : track(commands.update(task.id, { importance: clampImportance(Number(v)) }))),
+    savable: (v: string) => v.trim() !== "" && !Number.isNaN(Number(v)),
+    save: (v: string) => track(commands.update(task.id, { importance: clampImportance(Number(v)) })),
     delay: AUTOSAVE_DELAY_MS,
   });
 

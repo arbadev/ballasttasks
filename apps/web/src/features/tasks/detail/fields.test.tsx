@@ -162,16 +162,43 @@ describe("title and description autosave", () => {
     fireEvent.change(title(), { target: { value: "JWT authentication" } });
     fireEvent.blur(title());
     await settle();
-    expect(requests.map((r) => r.patch)).toEqual([{ title: "Typed while offline" }, { title: "JWT authentication" }]);
+    expect(title()).toHaveValue("JWT authentication");
 
+    // Queued behind the save in flight, never skipped, so the service is written to in order.
     requests[0].settle(true);
     await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "Typed while offline" }, { title: "JWT authentication" }]);
+    expect(title()).toHaveValue("JWT authentication");
+
     requests[1].settle(true);
     await settle();
-
     expect(title()).toHaveValue("JWT authentication");
     expect(screen.getByRole("dialog")).toHaveAccessibleName("JWT authentication");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("never shows stale confirmed text while an edit of its own is still on the way", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t4");
+    const requests = deferUpdates(taskService);
+
+    fireEvent.change(title(), { target: { value: "First" } });
+    fireEvent.blur(title());
+    await settle();
+    fireEvent.change(title(), { target: { value: "Second" } });
+    fireEvent.blur(title());
+    await settle();
+
+    requests[0].settle(true);
+    await settle();
+    // The task now holds "First", but the user's own newer text is what the field keeps showing.
+    expect(taskService.calls).toContainEqual(["update", "t4", { title: "First" }]);
+    expect(title()).toHaveValue("Second");
+
+    requests[1].settle(true);
+    await settle();
+    expect(title()).toHaveValue("Second");
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Second");
   });
 
   it("keeps showing an edit that the save in flight is already carrying", async () => {
@@ -182,20 +209,24 @@ describe("title and description autosave", () => {
     fireEvent.change(title(), { target: { value: "JWT auth" } });
     fireEvent.blur(title());
     await settle();
-    expect(requests).toHaveLength(1);
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "JWT auth" }]);
 
-    // Typed and undone again while that save is still open: nothing new to send, nothing to revert.
+    // Typed and undone again while that save is still open: the field must not revert meanwhile.
     fireEvent.change(title(), { target: { value: "JWT auth!" } });
     fireEvent.change(title(), { target: { value: "JWT auth" } });
     fireEvent.blur(title());
     await settle();
-    expect(requests).toHaveLength(1);
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "JWT auth" }]);
     expect(title()).toHaveValue("JWT auth");
 
     requests[0].settle(true);
     await settle();
     expect(title()).toHaveValue("JWT auth");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    requests[1]?.settle(true);
+    await settle();
+    expect(title()).toHaveValue("JWT auth");
   });
 
   it("drops the failure of a save that a later, successful one has overtaken", async () => {
@@ -209,13 +240,17 @@ describe("title and description autosave", () => {
     fireEvent.change(title(), { target: { value: "JWT auth, v2" } });
     fireEvent.blur(title());
     await settle();
-    expect(requests).toHaveLength(2);
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "JWT auth" }]);
 
     requests[0].settle(false);
     await settle();
+    // The newer edit was queued behind it, so the failure is not the last word: no alert, no rollback.
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "JWT auth" }, { title: "JWT auth, v2" }]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(title()).toHaveValue("JWT auth, v2");
+
     requests[1].settle(true);
     await settle();
-
     expect(title()).toHaveValue("JWT auth, v2");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(saveState()).toHaveTextContent(/^saved · /);
@@ -335,6 +370,24 @@ describe("property controls", () => {
     await settle();
     expect(updates(taskService)).toEqual([]);
     expect(input).toHaveValue(95);
+  });
+
+  it("keeps an emptied importance box empty while the debounce passes, so the next digits are the value", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByRole("spinbutton", { name: "Importance" });
+    fakeDebounce();
+
+    fireEvent.change(input, { target: { value: "" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(input).toHaveValue(null);
+    expect(updates(taskService)).toEqual([]);
+
+    fireEvent.change(input, { target: { value: "45" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(updates(taskService)).toEqual([["update", "t1", { importance: 45 }]]);
+    expect(input).toHaveValue(45);
+    expect(properties().getByRole("meter", { name: "Importance" })).toHaveAttribute("aria-valuenow", "45");
   });
 
   it("a failed property save snaps the control back and explains", async () => {
