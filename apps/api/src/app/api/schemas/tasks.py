@@ -8,7 +8,14 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from pydantic.json_schema import SkipJsonSchema
 
 from app.api.schemas.projects import ProjectResponse
@@ -39,8 +46,17 @@ from app.domain.task import (
     TaskPriority,
     TaskStatus,
 )
+from app.domain.user import CONTROL_CHARACTERS
 
 Title = Annotated[str, Field(min_length=1, max_length=TITLE_MAX_LENGTH)]
+SearchText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        max_length=SEARCH_MAX_LENGTH,
+        pattern=rf"^[^{CONTROL_CHARACTERS}]*$",
+    ),
+]
 AssigneeId = Annotated[
     uuid.UUID | None,
     Field(
@@ -233,9 +249,8 @@ class TaskFilterParams(BaseModel):
     assignee_id: uuid.UUID | Literal["unassigned"] | None = Field(
         default=None, description="A user id, or `unassigned` for tasks nobody owns."
     )
-    q: str | None = Field(
+    q: SearchText | None = Field(
         default=None,
-        max_length=SEARCH_MAX_LENGTH,
         description="Case-insensitive text to find in the title or the description.",
     )
     signal: TaskSignal | None = Field(

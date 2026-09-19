@@ -412,6 +412,10 @@ async def test_a_page_reports_the_total_and_echoes_limit_and_offset(
         "?signal=blinking",
         "?sort=title",
         f"?q={'x' * 201}",
+        "?q=%00",
+        "?q=a%00b",
+        "?q=a%1Bb",
+        "?q=a%C2%9Bb",
         "?page=2",
     ],
 )
@@ -476,7 +480,10 @@ async def test_the_summary_of_an_empty_workspace_is_all_zeroes(
     assert [(p["key"], p["open_tasks"]) for p in body["projects"]] == [("IN", 0)]
 
 
-@pytest.mark.parametrize("query", ["?sort=urgency", "?limit=5", "?offset=1", "?status=blocked"])
+@pytest.mark.parametrize(
+    "query",
+    ["?sort=urgency", "?limit=5", "?offset=1", "?status=blocked", "?q=%00", "?q=a%1Bb"],
+)
 async def test_the_summary_takes_filters_only(task_client: httpx.AsyncClient, query: str) -> None:
     assert (await task_client.get(f"/tasks/summary{query}")).status_code == 422
 
