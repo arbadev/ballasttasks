@@ -8,7 +8,8 @@ change. No DI framework: the container is a plain frozen dataclass.
 here, so it never imports ``app.infrastructure`` itself.
 """
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
@@ -17,7 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
+from app.application.ports.task_repository import TaskRepository
 from app.application.use_cases.check_readiness import CheckReadiness
+from app.application.use_cases.create_task import CreateTask
+from app.application.use_cases.delete_task import DeleteTask
+from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from app.infrastructure.ai.registry import AI_PROVIDERS, build_language_model
 from app.infrastructure.cache.client import create_redis_client
@@ -26,11 +33,59 @@ from app.infrastructure.config import settings as config
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
+from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.jobs.factory import create_celery_app
 from app.infrastructure.jobs.queue import CeleryJobQueue
 
-__all__ = ["Container", "Settings", "build_container", "load_settings"]
+__all__ = ["Container", "RequestScope", "Settings", "build_container", "load_settings"]
+
+
+@dataclass(frozen=True, slots=True)
+class RequestScope:
+    """One unit of work: repositories bound to ONE session, and the use cases on top.
+
+    Everything done through a scope commits or rolls back together (see
+    ``app.infrastructure.db.unit_of_work``). New repository = one field here and one
+    argument in ``_request_scope_factory``.
+    """
+
+    tasks: TaskRepository
+
+    @property
+    def create_task(self) -> CreateTask:
+        return CreateTask(self.tasks)
+
+    @property
+    def get_task(self) -> GetTask:
+        return GetTask(self.tasks)
+
+    @property
+    def list_tasks(self) -> ListTasks:
+        return ListTasks(self.tasks)
+
+    @property
+    def update_task(self) -> UpdateTask:
+        return UpdateTask(self.tasks)
+
+    @property
+    def delete_task(self) -> DeleteTask:
+        return DeleteTask(self.tasks)
+
+
+RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
+
+
+def _request_scope_factory(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> RequestScopeFactory:
+    @asynccontextmanager
+    async def request_scope() -> AsyncIterator[RequestScope]:
+        async with transactional_session(session_factory) as session:
+            yield RequestScope(tasks=SqlAlchemyTaskRepository(session))
+
+    return request_scope
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +96,7 @@ class Container:
     job_queue: JobQueue
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
+    request_scope: RequestScopeFactory
     redis: Redis
 
     @property
@@ -65,6 +121,7 @@ def build_container(settings: Settings) -> Container:
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
     language_model = build_language_model(settings.ai)
+    session_factory = create_session_factory(engine)
     celery_app = create_celery_app(
         broker_url=settings.redis.url,
         result_backend=settings.redis.url,
@@ -80,6 +137,7 @@ def build_container(settings: Settings) -> Container:
         language_model=language_model,
         job_queue=CeleryJobQueue(celery_app),
         engine=engine,
-        session_factory=create_session_factory(engine),
+        session_factory=session_factory,
+        request_scope=_request_scope_factory(session_factory),
         redis=redis,
     )

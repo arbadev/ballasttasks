@@ -79,7 +79,8 @@ async def test_openapi_says_title_and_status_cannot_be_null_in_a_patch(
     ]
 
     assert properties["title"]["type"] == "string"
-    assert properties["status"] == {"$ref": "#/components/schemas/TaskStatus"}
+    assert properties["status"]["$ref"] == "#/components/schemas/TaskStatus"
+    assert "anyOf" not in properties["status"]
     assert {"type": "null"} in properties["assignee_id"]["anyOf"]
 
 
