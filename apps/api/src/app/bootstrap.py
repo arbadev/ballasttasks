@@ -48,6 +48,7 @@ from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.seed_demo import SeedDemo
 from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.summarise_tasks import SummariseTasks
@@ -110,6 +111,12 @@ class RequestScope:
     one_time_store: OneTimeStore
     # Every rule that depends on "now" reads this clock; tests pin it.
     clock: Clock = utc_now
+
+    @property
+    def seed_demo(self) -> SeedDemo:
+        return SeedDemo(
+            self.users, self.projects, self.tasks, self.password_hasher, clock=self.clock
+        )
 
     @property
     def register_user(self) -> RegisterUser:
@@ -197,6 +204,7 @@ def _request_scope_factory(
     token_service: TokenService,
     identity_providers: Mapping[str, IdentityProvider],
     one_time_store: OneTimeStore,
+    clock: Clock,
 ) -> RequestScopeFactory:
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
@@ -213,6 +221,7 @@ def _request_scope_factory(
                 identities=SqlAlchemyUserIdentityRepository(session),
                 identity_providers=identity_providers,
                 one_time_store=one_time_store,
+                clock=clock,
             )
 
     return request_scope
@@ -291,7 +300,7 @@ def load_settings() -> Settings:
     )
 
 
-def build_container(settings: Settings) -> Container:
+def build_container(settings: Settings, *, clock: Clock = utc_now) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
     identity_providers = build_identity_providers(settings)
@@ -327,6 +336,7 @@ def build_container(settings: Settings) -> Container:
             ),
             identity_providers,
             one_time_store,
+            clock,
         ),
         redis=redis,
         rate_limiting=_rate_limiting(settings.rate_limit, redis),

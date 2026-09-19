@@ -38,6 +38,61 @@ uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 Configuration is environment-only; every variable is documented in the repo-root `.env.example`.
 For local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
 
+## Local demo data (explicit, optional)
+
+After migrations, seed **only a local development/demo database**. With the local compose
+API running, invoke from the repo root:
+
+```sh
+docker compose exec api python -m app.seed_demo
+```
+
+Or, from `apps/api`, with your local `DATABASE__URL`, `REDIS__URL`, `AUTH__JWT_SECRET`
+and other settings loaded: `uv run python -m app.seed_demo`. No seed runs on startup;
+there is no seed HTTP route or startup flag. `APP__ENV=production` is refused before
+opening any database connection. Do not override that setting to seed a deployed database.
+The command does not run migrations and requires no AI/provider calls.
+
+Intentional **public, demo-only** password: `ballast-local-demo-only` for these accounts:
+
+| Email | Person | Role label |
+| --- | --- | --- |
+| `demo@ballast.example` | Andres Barradas | owner |
+| `lucia@ballast.example` | Lucía Marín | backend |
+| `tomas@ballast.example` | Tomás Rey | frontend |
+
+These reserved example addresses are not real accounts. Never reuse this password or
+expose this database publicly. Use `/docs` → **Authorize** with an email as the username,
+or `POST /auth/login` (form fields `username`, `password`), then explore `/auth/me`,
+`/users`, `/projects`, `/tasks?status=all` and `/tasks/summary` through the real API.
+Frontend authentication and HTTP-backed task services are separate work; this command
+does not connect the in-memory web demo to the API.
+
+The self-contained fixture is `src/app/application/demo_data.py`, corresponding to the
+web's `src/features/tasks/services/seed.ts`: **16 tasks, 13 open** (8 todo, 3 in progress,
+2 testing, 3 done), 14 in Ballast Tasks (`BT`) and 2 in the existing Inbox (`IN`). It also
+adds Assistant (`system`, no password sign-in), so all four design people are visible.
+Role labels grant no permissions. API initials are derived: Assistant is `AS`, not the
+design's manually supplied `AI`. Design `progress` becomes API `in_progress`; completed
+tasks use their last update time as `completed_at`, creators come from the design's
+creation activity, and empty descriptions become `null`. Only current API fields are
+seeded: not steps, attachments or activity. Descriptions are historical design sample
+copy, not a claim that the features they describe are implemented.
+
+Dates are relative to the injected UTC clock at first invocation: 1 overdue, 2 P0 at risk,
+4 due soon, 2 needing an owner, and 7 open tasks assigned to Andres. Existing Inbox
+metadata and tasks stay intact; every new key is allocated through the project repository
+(`BT-01`–`BT-14` on a fresh demo project; Inbox numbering continues after existing tasks).
+
+**Safe reruns:** one request-scope transaction owns every insert and key allocation.
+Concurrent invocations serialise on the existing Inbox row. Stable demo IDs and the demo
+project's creation timestamp identify and date the seed. An intact rerun says `Demo
+unchanged` without rewriting hashes, dates or rows. A conflicting email, ID or project
+key, edited demo record/password, or partial/deleted seed is refused, not repaired; all
+in-flight inserts and counters roll back. Unrelated records are never deleted or reset.
+Use a separate fresh local database if you need the original scenarios again after edits
+or as dates age. Failure returns a nonzero exit status without printing credentials.
+
 ## Docker
 
 One image (build context `apps/api`) serves three commands:
