@@ -149,12 +149,14 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   keyboard focus ring all equal the design's.
 - `board.visual.ts` compares the board with the design at both desktop sizes: the whole
   board, one column, a card at rest, hovered and selected, a column highlighted as the drop
-  target with the dragged card (a real mouse drag, held), and the empty column. Same limits as
+  target with the dragged card (a real mouse drag, held), the empty column, and a card with
+  the hot P0 mark (its text is `--acc-fg`, not the design's white, for contrast). Same limits as
   the shell suite; needs `BT_DESIGN_DIR`. Measurements go to `board-report.json`.
 - `board-behaviour.visual.ts` needs nothing else: a real mouse drag moves a card, Shift+Arrow
   moves the focused card and focus follows it, at 375px the columns scroll and snap inside the
   board with touch-sized move buttons and no page overflow, reduced motion stills the card,
-  and the console stays silent.
+  the hot P0 mark computes to `--acc-fg` on `--danger` at 4.5:1 or better, and the console
+  stays silent.
 
 Screenshots, diffs and `report.json` (the measured percentages) land in the git-ignored
 `visual-results/`. Run `npx playwright install chromium` once beforehand.

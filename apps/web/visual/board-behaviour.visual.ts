@@ -128,6 +128,44 @@ test("the columns stay inside the board from 375px to 1440px", async ({ page }) 
   }
 });
 
+test("the hot P0 mark is set in the accent-foreground token and reads at AA on the danger colour", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openBoard(page);
+
+  // An open P0 inside its window: the design draws this mark in white, which is 3:1.
+  const mark = card(page, "JWT authentication").getByText("Priority P0");
+  const measured = await mark.evaluate((el) => {
+    const resolve = (property: string, token: string) => {
+      const probe = document.createElement("span");
+      probe.style.setProperty(property, `var(${token})`);
+      document.body.append(probe);
+      const value = getComputedStyle(probe).getPropertyValue(property);
+      probe.remove();
+      return value;
+    };
+    const luminance = (rgb: string) => {
+      const [r, g, b] = rgb.match(/[\d.]+/g)!.slice(0, 3).map((v) => {
+        const c = Number(v) / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const style = getComputedStyle(el);
+    const [light, dark] = [luminance(style.backgroundColor), luminance(style.color)].sort((a, b) => b - a);
+    return {
+      color: style.color,
+      background: style.backgroundColor,
+      accentForeground: resolve("color", "--acc-fg"),
+      danger: resolve("background-color", "--danger"),
+      contrast: (light + 0.05) / (dark + 0.05),
+    };
+  });
+
+  expect(measured.color).toBe(measured.accentForeground);
+  expect(measured.background).toBe(measured.danger);
+  expect(measured.contrast).toBeGreaterThanOrEqual(4.5);
+});
+
 test("reduced motion stills the card entrance and the hover lift", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   const page = await context.newPage();

@@ -14,6 +14,8 @@ const column = (side: Side, name: string) => side.columns.filter({ hasText: new 
 const card = (side: Side, title: string) => side.cards.filter({ hasText: title }).first();
 
 const DEFAULT_CARD = "Generate-steps job";
+/** Carries the hot P0 mark, whose text is deliberately darker than the design's white. */
+const HOT_CARD = "Task CRUD endpoints";
 const DRAGGED_CARD = "Write PRD.md";
 
 /** Parks the pointer in the sidebar, where nothing on the board reacts to it. */
@@ -61,6 +63,7 @@ const STATES: BoardState[] = [
       { name: "board", locate: (s) => s.board },
       { name: "column", locate: (s) => column(s, "In Progress") },
       { name: "card", locate: (s) => card(s, DEFAULT_CARD) },
+      { name: "card-hot-p0", locate: (s) => card(s, HOT_CARD) },
     ],
   },
   {
