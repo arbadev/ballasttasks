@@ -1,7 +1,7 @@
 """Contract every FileStorage adapter must honour.
 
 The in-memory adapter the unit and API tests rely on runs here next to the local-disk one
-(in a temporary directory: it needs no service, so both run in the default suite). A future
+(in a temporary directory under the integration marker). A future
 S3 or Cloudinary adapter is one new entry in ``ADAPTERS`` and one branch in ``storage``.
 """
 
@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+
 from app.application.ports.file_storage import (
     FileStorage,
     InvalidStorageKeyError,
@@ -19,7 +20,7 @@ from app.application.ports.file_storage import (
 from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from app.infrastructure.storage.local_disk import LocalDiskFileStorage
 
-ADAPTERS = ["in-memory", "local-disk"]
+ADAPTERS = ["in-memory", pytest.param("local-disk", marks=pytest.mark.integration)]
 KEY = "0123456789abcdef0123456789abcdef"
 
 INVALID_KEYS = [
