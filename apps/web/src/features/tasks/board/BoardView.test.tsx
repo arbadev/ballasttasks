@@ -1177,6 +1177,17 @@ describe("load states", () => {
     }
   }
 
+  class RejectsWithoutDetail extends FakeTaskService {
+    private failed = false;
+    override async list() {
+      if (!this.failed) {
+        this.failed = true;
+        throw "nope";
+      }
+      return super.list();
+    }
+  }
+
   it("shows a skeleton shaped like the board while the tasks load", () => {
     renderWithServices(<TasksApp />, { taskService: new NeverLoads() });
     fireEvent.click(screen.getByText("Board", { exact: true }));
@@ -1192,6 +1203,19 @@ describe("load states", () => {
     expect(alert).toHaveTextContent("Could not load the board.");
     expect(alert).toHaveTextContent("The API is down.");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
+    expect(await screen.findByRole("article", { name: "Only task" })).toBeInTheDocument();
+  });
+
+  it("states the board failure once when the rejection carries no detail of its own", async () => {
+    renderWithServices(<TasksApp />, { taskService: new RejectsWithoutDetail([makeTask({ id: "x1", title: "Only task", due: due(9) })]) });
+    fireEvent.click(screen.getByText("Board", { exact: true }));
+    const alert = await screen.findByRole("alert");
+
+    expect(alert).toHaveTextContent("Could not load the board.");
+    expect(alert).not.toHaveTextContent("Could not load the tasks.");
+    expect(within(alert).getAllByText(/Could not load/)).toHaveLength(1);
 
     fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     expect(await screen.findByRole("article", { name: "Only task" })).toBeInTheDocument();

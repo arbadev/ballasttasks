@@ -67,7 +67,7 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
         aria-disabled={adding ? true : undefined}
         aria-busy={adding === "pending" ? true : undefined}
         className={cn(
-          "inline-flex h-[30px] cursor-pointer items-center gap-1.5 self-start rounded-bt-sm px-2 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card hover:text-fg",
+          "inline-flex h-[30px] cursor-pointer items-center gap-1.5 self-start rounded-bt-sm px-2 text-[12.5px] text-fg-3 transition-[background-color,color] duration-[160ms] ease-bt hover:bg-card hover:text-fg",
           "aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-transparent aria-disabled:hover:text-fg-3",
         )}
       >

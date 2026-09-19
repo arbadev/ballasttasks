@@ -60,7 +60,7 @@ function isKeyboardFocus(element: Element): boolean {
 }
 
 const MOVE_BUTTON =
-  "inline-flex h-[26px] cursor-pointer items-center gap-1 rounded-bt-sm bg-card-2 px-2 font-mono text-[10.5px] text-fg-2 transition-colors duration-[160ms] ease-bt hover:text-fg pointer-coarse:h-9 pointer-coarse:px-3";
+  "inline-flex h-[26px] cursor-pointer items-center gap-1 rounded-bt-sm bg-card-2 px-2 font-mono text-[10.5px] text-fg-2 transition-[color] duration-[160ms] ease-bt hover:text-fg pointer-coarse:h-9 pointer-coarse:px-3";
 
 export function TaskCard({ task, view, index, projectName, assignee, assigneeIsCurrentUser, selected, dragging, previous, next, onOpen, onMove, onDragStart, onDragEnd }: TaskCardProps) {
   const titleId = useId();

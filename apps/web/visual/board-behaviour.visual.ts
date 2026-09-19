@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { APP_PAGE, RESULTS } from "./harness";
 
 /**
@@ -165,6 +165,36 @@ test("the hot P0 mark is set in the accent-foreground token and reads at AA on t
   expect(measured.color).toBe(measured.accentForeground);
   expect(measured.background).toBe(measured.danger);
   expect(measured.contrast).toBeGreaterThanOrEqual(4.5);
+});
+
+test("the board's own controls transition only what the design animates, so the focus ring is the accent at once", async ({ page }) => {
+  const problems = watchConsole(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openBoard(page);
+
+  const open = card(page, PRD).getByRole("button", { name: PRD, exact: true });
+  await open.focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+
+  const move = card(page, PRD).getByRole("button", { name: `Move "${PRD}" to In Progress` });
+  await expect(move).toBeVisible();
+
+  // The focus ring is `outline: 2px solid var(--acc)` on :focus-visible, so any control that
+  // transitions outline-color tweens its ring from the inherited text colour instead.
+  const transitioned = (locator: Locator) => locator.evaluate((el) => getComputedStyle(el).transitionProperty.split(",").map((property) => property.trim()));
+
+  const moveProperties = await transitioned(move);
+  expect(moveProperties).not.toContain("outline-color");
+  expect(moveProperties).not.toContain("all");
+  expect(moveProperties).toContain("color");
+
+  const addProperties = await transitioned(column(page, "To Do").locator("[data-column-add]"));
+  expect(addProperties).not.toContain("outline-color");
+  expect(addProperties).not.toContain("all");
+  expect(addProperties).toEqual(expect.arrayContaining(["background-color", "color"]));
+
+  expect(problems).toEqual([]);
 });
 
 test("reduced motion stills the card entrance and the hover lift", async ({ browser }) => {

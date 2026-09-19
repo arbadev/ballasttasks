@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { Button } from "@/components/ui/Button";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
-import { useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
+import { LOAD_FAILED_WITHOUT_DETAIL, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
 import { BoardAlert } from "./BoardAlert";
 import { BoardColumn } from "./BoardColumn";
+import { BoardLoadError } from "./BoardLoadError";
 import { BoardSkeleton } from "./BoardSkeleton";
 import { cardView } from "./cardView";
 import { BOARD_GRID } from "./layout";
@@ -32,14 +32,7 @@ export function BoardView() {
     <section aria-label="Board" className="flex min-w-0 flex-1 flex-col">
       {state.load.status === "loading" && <BoardSkeleton />}
       {state.load.status === "error" && (
-        <div role="alert" className="flex flex-col items-start gap-3 px-8 py-14 text-[13px] text-fg-2 max-md:px-4">
-          <p className="m-0">
-            Could not load the board. <span className="text-fg-3">{state.load.message}</span>
-          </p>
-          <Button variant="ghost" onClick={actions.reload} className="border border-line bg-card text-fg-2">
-            Retry
-          </Button>
-        </div>
+        <BoardLoadError detail={state.load.message === LOAD_FAILED_WITHOUT_DETAIL ? undefined : state.load.message} onRetry={actions.reload} />
       )}
       {state.load.status === "ready" && <Board />}
     </section>

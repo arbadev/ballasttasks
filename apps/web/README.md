@@ -111,7 +111,7 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 | `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state, reports a refused "Add a task", and keeps focus after a move made without a drag: on the card until the move settles, then on whatever took its place in the column it left (that column's heading if it is empty) if the move took the card off the board. |
 | `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once; a rejected move cancels queued moves, restores the last saved status and offers a retry of the newest target. |
 | `cardView.ts` | Pure: everything a card shows (due chip tone and mark, rail, priority tone, step and attachment labels), from `urgency` and `dueInfo`. |
-| `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
+| `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx`, `BoardLoadError.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
 
 Calls for the same task never overlap. The newest queued target wins, so intermediate queued
 targets are never sent; serialization prevents stale answers without a shared workspace guard.
@@ -143,6 +143,17 @@ the body, which is why that button is never `disabled` and can still take focus 
 unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: could not add a task
 to Testing`) so that stacked alerts do not all read "Retry"; the visible labels, the Dismiss
 tooltip included, stay as the design has them (`IconButton` takes a `title` of its own for that).
+
+A failed load wears the same treatment in both views — the danger badge, the heading, the detail
+line and a Retry carrying the design's refresh mark — so which tab is open does not change what a
+rejected `taskService.list()` looks like. The board states the failure once: a rejection that
+carried no message of its own is reported as `LOAD_FAILED_WITHOUT_DETAIL`, which says nothing the
+heading has not already said, so the detail line is left out rather than doubling it.
+
+The board's own controls name the properties they animate rather than using `transition-colors`,
+which in Tailwind v4 covers `outline-color` as well: the focus ring is `outline: 2px solid
+var(--acc)`, so transitioning it would tween the ring up from the element's text colour instead
+of showing the accent at once.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.
