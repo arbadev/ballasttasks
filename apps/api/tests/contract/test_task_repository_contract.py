@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import InvalidAssigneeError, TaskNotFound, UnknownProjectError
@@ -38,6 +37,7 @@ from app.application.task_query import (
 from app.domain.task import Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests import builders
@@ -677,14 +677,15 @@ async def test_the_same_tasks_on_another_day_are_ordered_by_that_day(
         TaskQuery(filter=TaskFilter(scope=TaskScope.OVERDUE)), today=due_in(31)
     )
 
-    # Everything dated is overdue by then; "far" by one day, the others by more.
+    # Everything dated is overdue by then. Lateness is capped at 30 days (design line 531),
+    # so among the tasks past the cap ownership, importance and priority decide.
     assert [task.title for task in a_month_later.items] == [
-        "p0-tomorrow",
-        "overdue-mine",
-        "next-week",
-        "soon-p1",
-        "today-lucia",
-        "far",
+        "p0-tomorrow",  # 1300 + 40 (nobody owns it) + 9.5 + 9
+        "overdue-mine",  # 1300 + 8 + 6
+        "today-lucia",  # 1300 + 5 + 3
+        "soon-p1",  # 28 days late: 1280 + 4 + 6
+        "next-week",  # 25 days late: 1250 + 6 + 3
+        "far",  # 1 day late: 1010 + 1
     ]
 
 

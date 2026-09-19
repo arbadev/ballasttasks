@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors import EmailAlreadyRegisteredError
+from app.application.errors import EmailAlreadyRegisteredError, UserNotFound
 from app.domain.user import User
 from app.infrastructure.db.constraints import violated_constraint
 from app.infrastructure.db.models.user import EMAIL_UNIQUE_CONSTRAINT, UserModel
@@ -40,6 +40,14 @@ class SqlAlchemyUserRepository:
         model = await self._session.scalar(select(UserModel).where(UserModel.email == email))
         return None if model is None else _to_entity(model)
 
+    async def update(self, user: User) -> None:
+        """Only what a profile change can touch; the email, hash and flags are left alone."""
+        model = await self._session.get(UserModel, user.id)
+        if model is None:
+            raise UserNotFound(user.id)
+        model.full_name, model.role_label = user.full_name, user.role_label
+        await self._session.flush()
+
 
 def _to_model(user: User) -> UserModel:
     return UserModel(
@@ -49,6 +57,7 @@ def _to_model(user: User) -> UserModel:
         hashed_password=user.hashed_password,
         is_active=user.is_active,
         created_at=user.created_at,
+        role_label=user.role_label,
     )
 
 
@@ -60,4 +69,5 @@ def _to_entity(model: UserModel) -> User:
         hashed_password=model.hashed_password,
         is_active=model.is_active,
         created_at=model.created_at,
+        role_label=model.role_label,
     )
