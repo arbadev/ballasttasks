@@ -4,6 +4,8 @@ import type { Task, TaskStatus } from "../model/types";
 import { useTaskCommands, useWorkspace } from "../workspace/WorkspaceProvider";
 
 export interface MoveFailure {
+  /** Identifies the user attempt this message belongs to. */
+  move: number;
   taskId: string;
   title: string;
   /** Where the card is now that the move is undone. */
@@ -17,13 +19,9 @@ export interface BoardMoves {
   tasks: Task[];
   /** Moves the card and answers with the move's number; null when there is nothing to move. */
   move(taskId: string, to: TaskStatus): number | null;
-  /**
-   * The move the service last answered, refusal included. It is state rather than a ref, so the
-   * render that carries it is the first one that shows what the answer did.
-   */
-  settled: { move: number; taskId: string } | null;
+  /** Last answered ticket per task, including refusals; batched answers cannot erase each other. */
+  settled: Readonly<Record<string, number>>;
   failure: MoveFailure | null;
-  retry(): void;
   dismissFailure(): void;
   /** The last successful move, worded for a polite live region. */
   announcement: string;
@@ -42,7 +40,7 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
   const all = useWorkspace().state.tasks;
   const [inFlight, setInFlight] = useState<Record<string, TaskStatus>>({});
   const [failed, setFailed] = useState<Omit<MoveFailure, "from"> | null>(null);
-  const [settled, setSettled] = useState<{ move: number; taskId: string } | null>(null);
+  const [settled, setSettled] = useState<Record<string, number>>({});
   const [announcement, setAnnouncement] = useState("");
   /** Where each unsettled task is headed: the column the board shows it in, and the move that asked. */
   const target = useRef(new Map<string, { to: TaskStatus; move: number }>());
@@ -73,10 +71,11 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
         }
         target.current.delete(taskId);
         setInFlight((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== taskId)));
-        setSettled({ move: newest.move, taskId });
-        if (!refused) return;
+        setSettled((current) => ({ ...current, [taskId]: newest.move }));
+        // An older task's answer must not replace the newest attempt's feedback.
+        if (!refused || newest.move !== sequence.current) return;
         setAnnouncement("");
-        setFailed({ taskId, title, to: newest.to });
+        setFailed({ move: newest.move, taskId, title, to: newest.to });
       };
 
       commands.move(taskId, asked.to).then(
@@ -108,11 +107,7 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
     return failed && from ? { ...failed, from } : null;
   }, [failed, all]);
 
-  const retry = useCallback(() => {
-    if (failure) move(failure.taskId, failure.to);
-  }, [failure, move]);
-
   const dismissFailure = useCallback(() => setFailed(null), []);
 
-  return { tasks: shown, move, settled, failure, retry, dismissFailure, announcement };
+  return { tasks: shown, move, settled, failure, dismissFailure, announcement };
 }

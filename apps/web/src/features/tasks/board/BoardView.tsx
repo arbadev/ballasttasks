@@ -57,6 +57,10 @@ function Board() {
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
   /** The column whose "Add a task" was refused. */
   const [addFailedIn, setAddFailedIn] = useState<TaskStatus | null>(null);
+  const [activeMove, setActiveMove] = useState<number | null>(null);
+  /** Only the latest user attempt can report a failure, regardless of response order. */
+  const attempt = useRef(0);
+  const failure = moves.failure?.move === activeMove ? moves.failure : null;
   const grid = useRef<HTMLDivElement>(null);
   /**
    * The card moved without a drag. It is remounted in its new column, and again if the move is
@@ -70,7 +74,7 @@ function Board() {
   useEffect(() => {
     const pending = focusAfterMove.current;
     if (!pending) return;
-    const done = moves.settled?.move === pending.move;
+    const done = moves.settled[pending.taskId] === pending.move;
     if (done) focusAfterMove.current = null;
     // Focus the user has since put somewhere else stays there.
     if (document.activeElement !== document.body) return;
@@ -93,14 +97,23 @@ function Board() {
   };
 
   const addTask = (status: TaskStatus) => {
+    const ticket = ++attempt.current;
+    setActiveMove(null);
+    moves.dismissFailure();
     setAddFailedIn(null);
-    commands.create({ title: "Untitled task", status }, { open: true }).catch(() => setAddFailedIn(status));
+    commands.create({ title: "Untitled task", status }, { open: true }).catch(() => {
+      if (ticket === attempt.current) setAddFailedIn(status);
+    });
   };
 
   /** A move that happens replaces whatever the board was reporting, so nothing older comes back. */
   const startMove = (taskId: string, to: TaskStatus) => {
     const move = moves.move(taskId, to);
-    if (move !== null) setAddFailedIn(null);
+    if (move !== null) {
+      ++attempt.current;
+      setActiveMove(move);
+      setAddFailedIn(null);
+    }
     return move;
   };
 
@@ -112,7 +125,7 @@ function Board() {
 
   /** Retry is a button press: its alert goes away, so focus goes to the card it moves. */
   const retryMove = () => {
-    if (moves.failure) moveWithoutDrag(moves.failure.taskId, moves.failure.from, moves.failure.to);
+    if (failure) moveWithoutDrag(failure.taskId, failure.from, failure.to);
   };
 
   return (
@@ -121,14 +134,14 @@ function Board() {
         {moves.announcement}
       </p>
 
-      {moves.failure && (
+      {failure && (
         <BoardAlert
-          message={`Could not move "${moves.failure.title}". It is back in ${statusName(moves.failure.from)}.`}
+          message={`Could not move "${failure.title}". It is back in ${statusName(failure.from)}.`}
           onRetry={retryMove}
           onDismiss={moves.dismissFailure}
         />
       )}
-      {addFailedIn && !moves.failure && (
+      {addFailedIn && (
         <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => setAddFailedIn(null)} />
       )}
 
