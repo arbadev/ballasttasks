@@ -331,6 +331,10 @@ async def test_the_foreign_key_answers_the_same_422_when_the_check_is_outrun(
         async def is_active_user(self, user_id: uuid.UUID) -> bool:
             return True
 
+        async def full_name_of(self, user_id: uuid.UUID) -> str | None:
+            # Never reached: the foreign key refuses the write before anything is logged.
+            return None
+
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
         async with container.request_scope() as scope:

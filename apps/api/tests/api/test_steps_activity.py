@@ -592,7 +592,7 @@ async def test_the_feed_rejects_parameters_it_does_not_understand(
 
 # --- what every new route shares ---------------------------------------------------------------
 
-NEW_ROUTES = [
+NEW_ROUTES: list[tuple[str, str, dict[str, object] | None]] = [
     ("GET", "/steps", None),
     ("POST", "/steps", {"title": "a step"}),
     ("POST", "/steps/bulk", {"titles": ["a step"]}),

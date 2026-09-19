@@ -72,13 +72,13 @@ async def task_side(request: pytest.FixtureRequest) -> AsyncIterator[TaskSideSto
         async with AsyncSession(
             bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
         ) as session:
-            log = SqlAlchemyActivityLog(session)
+            sql_log = SqlAlchemyActivityLog(session)
             yield TaskSideStore(
                 SqlAlchemyUserRepository(session),
                 SqlAlchemyTaskRepository(session),
                 SqlAlchemyStepRepository(session),
-                log,
-                log,
+                sql_log,
+                sql_log,
                 SqlAlchemyTaskTallies(session),
             )
         await transaction.rollback()

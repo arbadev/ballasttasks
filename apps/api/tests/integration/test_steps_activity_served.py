@@ -108,7 +108,7 @@ def test_all_detail_endpoints_over_tcp(served: str) -> None:
             1,
         ]
 
-        routes = [
+        routes: list[tuple[str, str, dict[str, object] | None]] = [
             ("GET", "/steps", None),
             ("POST", "/steps", {"title": "x"}),
             ("POST", "/steps/bulk", {"titles": ["x"]}),
