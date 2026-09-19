@@ -384,6 +384,26 @@ async def test_only_the_entry_the_trusted_proxy_appended_counts(
     assert responses[-1].status_code == 429
 
 
+async def test_a_forged_header_line_ahead_of_the_trusted_proxys_own_line_does_not_count(
+    limited_env: pytest.MonkeyPatch, build_app: AppFactory
+) -> None:
+    """A proxy may append a header line of its own instead of extending the client's."""
+    limited_env.setenv("RATE_LIMIT__TRUST_PROXY", "true")
+    transport = httpx.ASGITransport(app=build_app(), client=("10.0.0.1", 50000))
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as proxy:
+        responses = [
+            await proxy.post(
+                "/auth/login",
+                data=CREDENTIALS,
+                headers=[("X-Forwarded-For", f"198.51.100.{n}"), ("X-Forwarded-For", ADA_IP)],
+            )
+            for n in range(AUTH_LIMIT + 1)
+        ]
+
+    assert [response.status_code for response in responses] == [401] * AUTH_LIMIT + [429]
+
+
 async def test_a_trusted_proxy_that_sends_no_forwarded_header_is_the_client(
     limited_env: pytest.MonkeyPatch, build_app: AppFactory
 ) -> None:

@@ -33,11 +33,11 @@ Like every other outside dependency (ADR 0002), it has to be replaceable in test
 | `anonymous` | the same routes, when it does not (the route then answers `401`) | client IP | 60 / 60 s |
 
 - Keyed by user where there is one: a user keeps one budget across devices and addresses, and users who share an address (an office, a carrier NAT) do not spend each other's. Keyed by address only where nobody is identified yet.
-- The strict check runs before the body is read, a unit of work is opened or a password is hashed; the `429` is cheap to produce.
+- The strict check runs before the body is validated, a unit of work is opened or a password is hashed; the `429` is cheap to produce. The body itself has already been received and parsed by then: FastAPI reads it before it solves dependencies.
 - `GET /health` and `GET /health/ready` are exempt: probes must never be refused, and they cost almost nothing. Exempt means the route simply has no limiter dependency; nothing matches on paths.
 - Redis keys are `<RATE_LIMIT__KEY_PREFIX>:<policy>:ip:<address>` or `...:user:<uuid>`; they hold no credentials and live for one window at most.
 
-**Client address.** The peer of the TCP connection, which a client cannot choose. `X-Forwarded-For` is honoured only when `RATE_LIMIT__TRUST_PROXY=true`, and then only its last entry, the one the trusted proxy appended; anything to its left came from the client. Off by default: trusting the header from anyone would let every request claim a fresh address and a fresh budget.
+**Client address.** The peer of the TCP connection, which a client cannot choose. `X-Forwarded-For` is honoured only when `RATE_LIMIT__TRUST_PROXY=true`, and then only its last entry, the one the trusted proxy appended; anything to its left came from the client. Every `X-Forwarded-For` header line is read, in order, because a proxy may append a line of its own instead of extending the client's. Off by default: trusting the header from anyone would let every request claim a fresh address and a fresh budget.
 
 **HTTP.** Over the limit is `429` with the standard `ErrorResponse` body and `Retry-After`. Every response of a limited route, errors included, carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`; `Reset` is seconds from now, like `Retry-After`, so a client needs no synchronised clock. The headers are exposed through CORS, and the `429` is declared in OpenAPI on each limited route.
 

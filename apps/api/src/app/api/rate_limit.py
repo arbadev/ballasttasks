@@ -71,10 +71,13 @@ def client_ip(request: Request, *, trust_proxy: bool) -> str:
 
     Even then only the LAST entry counts: that is the one the trusted proxy appended, the
     address that connected to it. Everything to its left arrived from the client and can
-    be forged. (One proxy hop is assumed; see ADR 0004.)
+    be forged. (One proxy hop is assumed; see ADR 0004.) A proxy may append its entry as a
+    header line of its own instead of extending the client's, so every line is read, in
+    order: the last entry of the last line is still the proxy's.
     """
     if trust_proxy:
-        forwarded = request.headers.get("x-forwarded-for", "").rpartition(",")[2].strip()
+        lines = request.headers.getlist("x-forwarded-for")
+        forwarded = ",".join(lines).rpartition(",")[2].strip()
         if forwarded:
             return forwarded
     return request.client.host if request.client else "unknown"
@@ -92,7 +95,11 @@ async def _enforce(
 
 
 async def limit_auth_attempts(request: Request, rate_limiting: RateLimitingDep) -> None:
-    """Brute-force protection. Runs before the body is read or a password is hashed."""
+    """Brute-force protection.
+
+    Runs before the body is validated, a unit of work is opened or a password is hashed.
+    (Not before the body is received: FastAPI reads it before it solves dependencies.)
+    """
     ip = client_ip(request, trust_proxy=rate_limiting.trust_proxy)
     await _enforce(request, rate_limiting, rate_limiting.auth, f"ip:{ip}")
 
