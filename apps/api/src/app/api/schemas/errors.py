@@ -2,6 +2,6 @@ from pydantic import BaseModel
 
 
 class ErrorResponse(BaseModel):
-    """Body of every non-validation error: the same shape FastAPI's HTTPException emits."""
+    """Body of every error except request validation (``422`` uses ``HTTPValidationError``)."""
 
     detail: str

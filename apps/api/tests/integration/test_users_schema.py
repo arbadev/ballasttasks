@@ -1,18 +1,25 @@
-"""The ``users`` migration, proven against real PostgreSQL from an empty database."""
+"""The ``users`` migration against real PostgreSQL.
+
+That ``upgrade head`` from empty matches the ORM models, and that ``downgrade base``
+removes every table, is proven for all tables at once in ``test_migrations.py``.
+"""
 
 import pytest
-from alembic import command
-from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
-from app.infrastructure.db.base import Base
-from tests.support.database import alembic_config, scratch_database
+from tests.postgres import API_ROOT
 
 pytestmark = pytest.mark.integration
+
+
+def _script_directory() -> ScriptDirectory:
+    config = Config(str(API_ROOT / "alembic.ini"))
+    return ScriptDirectory.from_config(config)
+
 
 INSERT_USER = text(
     "INSERT INTO users (id, email, full_name, hashed_password, is_active, created_at) "
@@ -25,7 +32,7 @@ def test_upgrade_head_from_an_empty_database_creates_users(migrated_database_url
     try:
         with engine.connect() as connection:
             inspector = inspect(connection)
-            head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+            head = _script_directory().get_current_head()
 
             assert MigrationContext.configure(connection).get_current_revision() == head
             assert "users" in inspector.get_table_names()
@@ -41,17 +48,6 @@ def test_upgrade_head_from_an_empty_database_creates_users(migrated_database_url
         engine.dispose()
 
 
-def test_the_orm_models_match_the_migrations_exactly(migrated_database_url: str) -> None:
-    engine = create_engine(migrated_database_url)
-    try:
-        with engine.connect() as connection:
-            context = MigrationContext.configure(connection, opts={"compare_type": True})
-
-            assert compare_metadata(context, Base.metadata) == []
-    finally:
-        engine.dispose()
-
-
 def test_the_database_itself_refuses_a_duplicate_email(migrated_database_url: str) -> None:
     engine = create_engine(migrated_database_url)
     try:
@@ -63,13 +59,10 @@ def test_the_database_itself_refuses_a_duplicate_email(migrated_database_url: st
         engine.dispose()
 
 
-def test_downgrade_to_base_removes_users_again() -> None:
-    with scratch_database() as url:
-        command.downgrade(alembic_config(), "base")
+def test_there_is_one_head_and_users_follow_tasks() -> None:
+    """One linear history: baseline -> create_tasks -> create_users."""
+    scripts = _script_directory()
 
-        engine = create_engine(url)
-        try:
-            with engine.connect() as connection:
-                assert "users" not in inspect(connection).get_table_names()
-        finally:
-            engine.dispose()
+    assert len(scripts.get_heads()) == 1
+    chain = [revision.doc for revision in scripts.walk_revisions("base", "heads")]
+    assert list(reversed(chain)) == ["baseline", "create tasks", "create users"]

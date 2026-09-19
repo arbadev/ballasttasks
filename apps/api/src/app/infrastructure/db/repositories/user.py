@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import EmailAlreadyRegisteredError
 from app.domain.user import User
@@ -10,15 +10,21 @@ from app.infrastructure.db.models.user import EMAIL_UNIQUE_CONSTRAINT, UserModel
 
 
 class SqlAlchemyUserRepository:
-    """PostgreSQL ``UserRepository``. Each call is its own short transaction."""
+    """UserRepository on PostgreSQL.
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
+    Works inside the session it is given and never commits: the transaction belongs to
+    ``transactional_session`` (see ``app.infrastructure.db.unit_of_work``).
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
 
     async def add(self, user: User) -> None:
         try:
-            async with self._session_factory() as session, session.begin():
-                session.add(_to_model(user))
+            # A savepoint, so a rejected email undoes only this insert and the rest of the
+            # unit of work stays usable.
+            async with self._session.begin_nested():
+                self._session.add(_to_model(user))
         except IntegrityError as error:
             # The unique constraint, not a prior SELECT, is what makes registration race-safe.
             if _violated_constraint(error) == EMAIL_UNIQUE_CONSTRAINT:
@@ -26,14 +32,12 @@ class SqlAlchemyUserRepository:
             raise
 
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
-        async with self._session_factory() as session:
-            model = await session.get(UserModel, user_id)
-        return _to_entity(model) if model is not None else None
+        model = await self._session.get(UserModel, user_id)
+        return None if model is None else _to_entity(model)
 
     async def get_by_email(self, email: str) -> User | None:
-        async with self._session_factory() as session:
-            model = await session.scalar(select(UserModel).where(UserModel.email == email))
-        return _to_entity(model) if model is not None else None
+        model = await self._session.scalar(select(UserModel).where(UserModel.email == email))
+        return None if model is None else _to_entity(model)
 
 
 def _violated_constraint(error: IntegrityError) -> str | None:

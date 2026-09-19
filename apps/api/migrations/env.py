@@ -12,7 +12,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
+import app.infrastructure.db.models  # noqa: F401  (registers the tables on Base.metadata)
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.db.base import Base
 
@@ -25,7 +25,8 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    return Settings().database.url
+    """``sqlalchemy.url`` set by the caller (the integration tests) wins over the app settings."""
+    return config.get_main_option("sqlalchemy.url") or Settings().database.url
 
 
 def run_migrations_offline() -> None:

@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
@@ -6,11 +7,12 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from app.api.security import get_current_user_id
 from app.application.ports.health_check import HealthCheck
-from app.bootstrap import build_container, load_settings
+from app.bootstrap import RequestScope, build_container, load_settings
 from app.main import create_app
 from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
-from tests.fakes import StubHealthCheck
+from tests.fakes import InMemoryTaskRepository, StubHealthCheck
 
 ClientFactory = Callable[
     [Sequence[HealthCheck] | None], AbstractAsyncContextManager[httpx.AsyncClient]
@@ -50,11 +52,44 @@ async def client(client_with: ClientFactory) -> AsyncIterator[httpx.AsyncClient]
         yield http_client
 
 
+USER_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
+
+
 @dataclass(frozen=True, slots=True)
 class AuthFakes:
     users: InMemoryUserRepository
     hasher: FakePasswordHasher
     tokens: FakeTokenService
+
+
+class RecordingRequestScopes:
+    """Stands in for ``Container.request_scope``: the same in-memory repositories for
+    every request, and a record of how each scope ended."""
+
+    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes) -> None:
+        self.tasks = tasks
+        self.auth = auth
+        self.events: list[str] = []
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[RequestScope]:
+        self.events.append("begin")
+        try:
+            yield RequestScope(
+                tasks=self.tasks,
+                users=self.auth.users,
+                password_hasher=self.auth.hasher,
+                token_service=self.auth.tokens,
+            )
+        except BaseException:
+            self.events.append("rollback")
+            raise
+        self.events.append("commit")
+
+
+@pytest.fixture
+def tasks() -> InMemoryTaskRepository:
+    return InMemoryTaskRepository()
 
 
 @pytest.fixture
@@ -63,23 +98,47 @@ def auth_fakes() -> AuthFakes:
 
 
 @pytest.fixture
-async def auth_app(minimal_env: pytest.MonkeyPatch, auth_fakes: AuthFakes) -> FastAPI:
-    """The real app around a container whose user and auth adapters are fakes: no database."""
-    container = replace(
-        build_container(load_settings()),
-        health_checks=ALL_HEALTHY,
-        user_repository=auth_fakes.users,
-        password_hasher=auth_fakes.hasher,
-        token_service=auth_fakes.tokens,
-    )
-    return create_app(container=container)
+def request_scopes(tasks: InMemoryTaskRepository, auth_fakes: AuthFakes) -> RecordingRequestScopes:
+    return RecordingRequestScopes(tasks, auth_fakes)
 
 
 @pytest.fixture
-async def auth_client(auth_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
-    transport = httpx.ASGITransport(app=auth_app)
-    async with (
-        auth_app.router.lifespan_context(auth_app),
-        httpx.AsyncClient(transport=transport, base_url="http://test") as http_client,
-    ):
+async def tasks_app(
+    minimal_env: pytest.MonkeyPatch, request_scopes: RecordingRequestScopes
+) -> AsyncIterator[FastAPI]:
+    """The real app around a container of fakes: no database, no Redis."""
+    container = replace(
+        build_container(load_settings()), health_checks=ALL_HEALTHY, request_scope=request_scopes
+    )
+    app = create_app(container=container)
+    async with app.router.lifespan_context(app):
+        yield app
+
+
+@pytest.fixture
+async def anonymous_client(tasks_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
+    transport = httpx.ASGITransport(app=tasks_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
         yield http_client
+
+
+@pytest.fixture
+async def task_client(
+    tasks_app: FastAPI, anonymous_client: httpx.AsyncClient
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Signed in as ``USER_ID`` through the pinned seam, ``get_current_user_id``."""
+    tasks_app.dependency_overrides[get_current_user_id] = lambda: USER_ID
+    yield anonymous_client
+    tasks_app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_app(tasks_app: FastAPI) -> FastAPI:
+    """The same app of fakes, named for the auth tests: users, hasher and tokens are the
+    ``auth_fakes``; nobody is signed in through an override."""
+    return tasks_app
+
+
+@pytest.fixture
+def auth_client(anonymous_client: httpx.AsyncClient) -> httpx.AsyncClient:
+    return anonymous_client

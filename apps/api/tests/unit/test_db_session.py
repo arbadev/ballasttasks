@@ -1,6 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.session import create_session_factory
@@ -17,8 +16,16 @@ async def test_session_factory_is_bound_to_the_engine() -> None:
     await engine.dispose()
 
 
-def test_importing_the_models_package_registers_the_tables_alembic_targets() -> None:
-    assert set(Base.metadata.tables) >= {"users"}
+def test_importing_the_models_package_registers_the_tasks_table() -> None:
+    import app.infrastructure.db.models  # noqa: F401
+
+    assert "tasks" in Base.metadata.tables
+
+
+def test_importing_the_models_package_registers_the_users_table() -> None:
+    import app.infrastructure.db.models  # noqa: F401
+
+    assert "users" in Base.metadata.tables
 
 
 async def test_sql_echo_never_logs_bound_parameters() -> None:

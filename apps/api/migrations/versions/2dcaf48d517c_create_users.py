@@ -1,7 +1,7 @@
 """create users
 
 Revision ID: 2dcaf48d517c
-Revises: 23cd5b1da963
+Revises: 538d7dc736b3
 Create Date: 2026-09-18 19:26:25.994833
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "2dcaf48d517c"
-down_revision: str | Sequence[str] | None = "23cd5b1da963"
+down_revision: str | Sequence[str] | None = "538d7dc736b3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -28,8 +28,8 @@ def upgrade() -> None:
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("email", name="uq_users_email"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
+        sa.UniqueConstraint("email", name=op.f("uq_users_email")),
     )
 
 

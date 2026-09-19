@@ -10,10 +10,11 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **Composition roots**: only `apps/api/src/app/bootstrap.py` and `apps/web/src/app/providers.tsx` name concrete classes. No DI framework. A new provider = new adapter + one registry line (`infrastructure/ai/registry.py`), no edits to existing code.
 - **Env readers**: only `infrastructure/config/settings.py` (API) and `src/lib/config.ts` (web) read the environment. Variable names are in `.env.example`; a new variable is added there in the same commit.
 - **Network**: `client.ts` is the only `fetch` caller. Components depend on service interfaces from context, never on the client.
-- **Caller identity**: a route learns who is calling only through `CurrentUserId` from `apps/api/src/app/api/security.py`; its API tests use `app.dependency_overrides[get_current_user_id]`. No other module touches JWTs, and no response, log line or error ever carries a password, a hash or a token.
 - **Generated files** (`schema.d.ts`, lockfiles) are never edited by hand.
 - **Contract change in one commit**: update the Pydantic model, run `npm run gen:api`, fix frontend types, commit together.
-- **PostgreSQL only**, including tests. No SQLite.
+- **PostgreSQL only**, including tests. No SQLite. A table = an ORM model in `infrastructure/db/models/` plus one Alembic revision (`--autogenerate`, then reviewed by hand).
+- **Transactions**: repositories never commit. `Container.request_scope()` is the unit of work (one session, commit or rollback in one place); see "Unit of work" in `docs/architecture.md`.
+- **Auth seam**: routes get the caller only through `CurrentUserId` (`api/security.py`); API tests set it with `app.dependency_overrides[get_current_user_id]`. No other module touches JWTs, and no response, log line or error ever carries a password, a hash or a token.
 - **Versions**: latest stable, verified from the official source at install time. Let `uv add` / `npm install` resolve; never type versions from memory.
 - **TDD order**: write the test, see it fail, implement, run all checks, commit (`chore(scope): ...`, conventional commits). Never weaken or delete a test to get green.
 - **No AI attribution**: commits, PR titles and PR descriptions never carry an AI or agent attribution (no `Co-Authored-By: Claude ...` trailer, no "Generated with ..." line).

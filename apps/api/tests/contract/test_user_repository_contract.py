@@ -1,54 +1,49 @@
 """Contract every UserRepository adapter must honour (Liskov).
 
 The in-memory fake runs everywhere; the SQLAlchemy adapter runs the same cases under the
-``integration`` marker against a freshly migrated PostgreSQL database.
+``integration`` marker against a freshly migrated PostgreSQL database. The race between
+two transactions needs one session per contender, so it lives in
+``tests/integration/test_sqlalchemy_user_repository.py``.
 """
 
-import asyncio
 import dataclasses
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import EmailAlreadyRegisteredError
 from app.application.ports.user_repository import UserRepository
 from app.domain.user import User
 from app.infrastructure.db.engine import create_engine
-from app.infrastructure.db.session import create_session_factory
-from app.infrastructure.db.user_repository import SqlAlchemyUserRepository
+from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests.auth_fakes import InMemoryUserRepository
 
-
-@pytest.fixture(
-    params=[
-        pytest.param("in-memory"),
-        pytest.param("postgres", marks=pytest.mark.integration),
-    ]
-)
-def adapter(request: pytest.FixtureRequest) -> str:
-    return str(request.param)
+ADAPTERS = [
+    pytest.param("in-memory"),
+    pytest.param("sqlalchemy-postgresql", marks=pytest.mark.integration),
+]
 
 
-@pytest.fixture
-def database_url(adapter: str, request: pytest.FixtureRequest) -> str | None:
-    # Resolved here, in a sync fixture, because Alembic runs its own event loop.
-    if adapter == "postgres":
-        return str(request.getfixturevalue("migrated_database_url"))
-    return None
-
-
-@pytest.fixture
-async def users(database_url: str | None) -> AsyncIterator[UserRepository]:
-    if database_url is None:
+@pytest.fixture(params=ADAPTERS)
+async def users(request: pytest.FixtureRequest) -> AsyncIterator[UserRepository]:
+    if request.param == "in-memory":
         yield InMemoryUserRepository()
         return
-    engine = create_engine(database_url)
-    try:
-        yield SqlAlchemyUserRepository(create_session_factory(engine))
-    finally:
-        await engine.dispose()
+
+    # Real PostgreSQL, migrated by Alembic; every test runs in a transaction that is
+    # rolled back, so the cases stay independent of each other.
+    engine = create_engine(request.getfixturevalue("migrated_database_url"))
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        async with AsyncSession(
+            bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
+        ) as session:
+            yield SqlAlchemyUserRepository(session)
+        await transaction.rollback()
+    await engine.dispose()
 
 
 def make_user(**overrides: object) -> User:
@@ -124,19 +119,3 @@ async def test_the_repository_stays_usable_after_a_rejected_add(users: UserRepos
     await users.add(another)
 
     assert await users.get_by_id(another.id) == another
-
-
-async def test_concurrent_adds_of_one_email_let_exactly_one_through(
-    users: UserRepository,
-) -> None:
-    email = f"{uuid.uuid4().hex}@example.com"
-    contenders = [make_user(email=email) for _ in range(8)]
-
-    outcomes = await asyncio.gather(
-        *(users.add(user) for user in contenders), return_exceptions=True
-    )
-
-    assert sum(outcome is None for outcome in outcomes) == 1
-    assert sum(isinstance(outcome, EmailAlreadyRegisteredError) for outcome in outcomes) == 7
-    winner = await users.get_by_email(email)
-    assert winner in contenders

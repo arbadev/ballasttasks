@@ -2,7 +2,7 @@
 
 A task management app: a Python REST API with a web frontend, built as a Clean Architecture exercise.
 
-The repository contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and **JWT authentication** (register, login, current user). The other product features (tasks, pagination, filtering, rate limiting, seed data) arrive in later phases.
+The repository currently contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and the first product feature: the task CRUD API under `/tasks` (create, read, update, delete, assign, mark as completed; see the [task contract](docs/architecture.md#task-contract) and Swagger UI). It sits behind **JWT authentication** (`/auth/register`, `/auth/login`, `/auth/me`; see [authentication](docs/architecture.md#authentication)): a `/tasks` request without a valid bearer token is answered `401`. Pagination, filtering, rate limiting, seed data and the task UI arrive in later phases.
 
 ## Architecture at a glance
 
