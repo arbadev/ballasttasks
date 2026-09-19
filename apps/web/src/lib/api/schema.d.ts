@@ -11,8 +11,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Liveness */
-        get: operations["liveness_health_get"];
+        /** Liveness: the API process is up */
+        get: operations["health_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -28,8 +28,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Readiness */
-        get: operations["readiness_health_ready_get"];
+        /** Readiness: every dependency is usable */
+        get: operations["ready_health_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -63,6 +63,7 @@ export interface components {
         HealthResponse: {
             /**
              * Status
+             * @default ok
              * @constant
              */
             status: "ok";
@@ -87,7 +88,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    liveness_health_get: {
+    health_health_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -107,7 +108,7 @@ export interface operations {
             };
         };
     };
-    readiness_health_ready_get: {
+    ready_health_ready_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -125,7 +126,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReadinessResponse"];
                 };
             };
-            /** @description Service Unavailable */
+            /** @description At least one dependency failed its check */
             503: {
                 headers: {
                     [name: string]: unknown;
