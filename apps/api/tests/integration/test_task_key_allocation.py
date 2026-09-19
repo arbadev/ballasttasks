@@ -16,6 +16,7 @@ from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import Task
 from app.domain.task_key import TaskKey
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
@@ -61,6 +62,7 @@ async def create_task(
             SqlAlchemyTaskRepository(session),
             SqlAlchemyUserDirectory(session),
             SqlAlchemyProjectRepository(session),
+            SqlAlchemyActivityLog(session),
         ).execute(title=title, created_by=creator, project_id=project_id)
 
 
@@ -104,6 +106,7 @@ async def test_a_creation_that_rolls_back_gives_its_number_back(
                     SqlAlchemyTaskRepository(session),
                     SqlAlchemyUserDirectory(session),
                     SqlAlchemyProjectRepository(session),
+                    SqlAlchemyActivityLog(session),
                 ).execute(title="abandoned", created_by=creator, project_id=project.id)
             )
             raise RuntimeError("something failed later in the request")

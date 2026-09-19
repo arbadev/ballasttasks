@@ -19,7 +19,7 @@ from tests.postgres import (
 
 pytestmark = pytest.mark.integration
 
-PREVIOUS_HEAD = "0ecd0978f6fd"
+PREVIOUS_HEAD = "a1c5e7f90b24"
 ATTACHMENTS = "c4a9e7d21b65"
 
 INSERT_TASK = sqlalchemy.text(

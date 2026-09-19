@@ -9,6 +9,7 @@ CREATE_USERS = "2dcaf48d517c"
 WIRE_TASKS_TO_USERS = "fa7b13ec7508"
 DESIGN_MODEL = "8b2f4c6d1a3e"
 ATTACHMENTS = "c4a9e7d21b65"
+STEPS_AND_ACTIVITY = "a1c5e7f90b24"
 
 
 def test_the_history_is_one_line_and_each_revision_follows_what_it_builds_on() -> None:
@@ -22,7 +23,8 @@ def test_the_history_is_one_line_and_each_revision_follows_what_it_builds_on() -
     history = [revision.revision for revision in oldest_first]
     assert history.index(CREATE_USERS) < history.index(WIRE_TASKS_TO_USERS)
     assert history.index(WIRE_TASKS_TO_USERS) < history.index(DESIGN_MODEL)
-    assert history.index(DESIGN_MODEL) < history.index(ATTACHMENTS)
+    assert history.index(DESIGN_MODEL) < history.index(STEPS_AND_ACTIVITY)
+    assert history.index(STEPS_AND_ACTIVITY) < history.index(ATTACHMENTS)
 
 
 def test_user_identities_arrive_in_one_revision_after_the_tasks_to_users_wiring() -> None:

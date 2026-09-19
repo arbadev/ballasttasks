@@ -21,12 +21,15 @@ from app.application.errors import (
     InvalidTaskReferenceError,
     ProjectKeyTakenError,
     ProjectNotFound,
+    StepNotFound,
     TaskNotFound,
     UnknownProjectError,
     UnsupportedFileTypeError,
 )
+from app.domain.activity import InvalidActivityError
 from app.domain.attachment import InvalidAttachmentError
 from app.domain.project import InvalidProjectError
+from app.domain.step import InvalidStepError, InvalidStepOrderError
 from app.domain.task import InvalidTaskError
 from app.domain.user import InvalidProfileError
 
@@ -104,6 +107,7 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(TaskNotFound, _not_found)
     app.add_exception_handler(ProjectNotFound, _not_found)
     app.add_exception_handler(AttachmentNotFound, _not_found)
+    app.add_exception_handler(StepNotFound, _not_found)
     app.add_exception_handler(ProjectKeyTakenError, _conflict)
     app.add_exception_handler(
         InvalidTaskReferenceError, _unprocessable("invalid_task_reference", ["path", "id_or_key"])
@@ -116,5 +120,10 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidAttachmentError, _unprocessable("invalid_attachment", ["body"])
     )
+    app.add_exception_handler(InvalidStepError, _unprocessable("invalid_step", ["body"]))
+    app.add_exception_handler(
+        InvalidStepOrderError, _unprocessable("invalid_step_order", ["body", "step_ids"])
+    )
+    app.add_exception_handler(InvalidActivityError, _unprocessable("invalid_comment", ["body"]))
     app.add_exception_handler(InvalidTaskError, _invalid_task)
     app.add_exception_handler(InvalidAssigneeError, _invalid_assignee)

@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -353,3 +354,16 @@ def test_touch_needs_a_timezone_aware_moment() -> None:
         task.touch(now=datetime(2026, 1, 6, 9, 0))
 
     assert task.updated_at == CREATED
+
+
+def test_touching_a_task_only_moves_updated_at() -> None:
+    """What the design does to a task when a step or a comment is added to it."""
+    task = new_task()
+    before = replace(task)
+
+    task.touch(LATER)
+
+    assert task.updated_at == LATER
+    assert replace(task, updated_at=CREATED) == before
+    with pytest.raises(InvalidTaskError, match="timezone-aware"):
+        task.touch(datetime(2026, 1, 5, 9, 0))

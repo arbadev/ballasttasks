@@ -1,0 +1,368 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/and3/.local/state/firstmate/task-workspaces/home-f9786625272c2da18d650f3a69734de30da07794/.treehouse/ballasttasks-e8129d/12/ballasttasks/apps/api
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2870 items / 332 deselected / 2538 selected
+
+tests/api/test_access_log.py ................                            [  0%]
+tests/api/test_app.py ....                                               [  0%]
+tests/api/test_attachments.py .....................................      [  2%]
+tests/api/test_auth.py ................................................. [  4%]
+.                                                                        [  4%]
+tests/api/test_file_attachments.py ....................                  [  5%]
+tests/api/test_health.py .......                                         [  5%]
+tests/api/test_openapi.py ................F                              [  5%]
+tests/api/test_people.py ................                                [  6%]
+tests/api/test_projects.py .............................                 [  7%]
+tests/api/test_rate_limit.py ...........................                 [  8%]
+tests/api/test_rate_limit_served.py .                                    [  8%]
+tests/api/test_security.py ....                                          [  8%]
+tests/api/test_sso.py .................................................. [ 10%]
+.....                                                                    [ 11%]
+tests/api/test_sso_rate_limit.py ......                                  [ 11%]
+tests/api/test_steps_activity.py ....................................... [ 12%]
+.........................................................                [ 15%]
+tests/api/test_tasks.py ................................................ [ 17%]
+...........                                                              [ 17%]
+tests/api/test_tasks_design.py ......................................... [ 19%]
+......................................................                   [ 21%]
+tests/config/test_bootstrap.py ................                          [ 21%]
+tests/config/test_celery_entrypoint.py ..                                [ 21%]
+tests/config/test_rate_limit_settings.py .........                       [ 22%]
+tests/config/test_settings.py .......................................... [ 23%]
+.....                                                                    [ 24%]
+tests/config/test_sso_settings.py ............................           [ 25%]
+tests/config/test_storage.py .....                                       [ 25%]
+tests/contract/test_activity_log_contract.py ........                    [ 25%]
+tests/contract/test_attachment_repository_contract.py ..........         [ 26%]
+tests/contract/test_file_storage_contract.py ........................... [ 27%]
+....                                                                     [ 27%]
+tests/contract/test_health_check_contract.py ..........                  [ 27%]
+tests/contract/test_identity_provider_contract.py ..............         [ 28%]
+tests/contract/test_job_queue_contract.py ..                             [ 28%]
+tests/contract/test_language_model_contract.py .............             [ 28%]
+tests/contract/test_one_time_store_contract.py ........                  [ 29%]
+tests/contract/test_password_hasher_contract.py .....................    [ 30%]
+tests/contract/test_people_directory_contract.py ...                     [ 30%]
+tests/contract/test_project_repository_contract.py ...........           [ 30%]
+tests/contract/test_rate_limiter_contract.py ......................      [ 31%]
+tests/contract/test_step_repository_contract.py ..........               [ 31%]
+tests/contract/test_task_repository_contract.py ........................ [ 32%]
+........................................                                 [ 34%]
+tests/contract/test_task_tallies_contract.py .....                       [ 34%]
+tests/contract/test_token_service_contract.py ......................     [ 35%]
+tests/contract/test_user_directory_contract.py ......                    [ 35%]
+tests/contract/test_user_identity_repository_contract.py .......         [ 35%]
+tests/contract/test_user_repository_contract.py ...........              [ 36%]
+tests/unit/test_activity.py ...........................................  [ 38%]
+tests/unit/test_activity_use_cases.py ........................           [ 39%]
+tests/unit/test_attach_file.py ............................              [ 40%]
+tests/unit/test_attachment.py .......................................... [ 41%]
+.......................................................                  [ 43%]
+tests/unit/test_attachment_use_cases.py .......                          [ 44%]
+tests/unit/test_attention.py ........................................... [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 54%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+........................................................................ [ 68%]
+........................................................................ [ 71%]
+...................................................                      [ 73%]
+tests/unit/test_authenticate_user.py ...............                     [ 74%]
+tests/unit/test_check_readiness.py ......                                [ 74%]
+tests/unit/test_db_session.py ....                                       [ 74%]
+tests/unit/test_fail_open_rate_limiter.py ...........                    [ 74%]
+tests/unit/test_fake_language_model.py ..                                [ 74%]
+tests/unit/test_file_changes.py ......                                   [ 75%]
+tests/unit/test_file_type.py .........................                   [ 76%]
+tests/unit/test_gemini_language_model.py ............................... [ 77%]
+...................                                                      [ 78%]
+tests/unit/test_get_current_user.py ......                               [ 78%]
+tests/unit/test_google_identity_provider.py ............................ [ 79%]
+...........................................                              [ 81%]
+tests/unit/test_jobs.py ..                                               [ 81%]
+tests/unit/test_language_model_errors.py ......                          [ 81%]
+tests/unit/test_language_model_health_check.py ......                    [ 81%]
+tests/unit/test_local_disk_file_storage.py ................              [ 82%]
+tests/unit/test_migration_history.py ..                                  [ 82%]
+tests/unit/test_openrouter_language_model.py ........................... [ 83%]
+........................................                                 [ 85%]
+tests/unit/test_people_use_cases.py ....                                 [ 85%]
+tests/unit/test_project.py ............................................. [ 87%]
+                                                                         [ 87%]
+tests/unit/test_project_use_cases.py .........                           [ 87%]
+tests/unit/test_register_user.py ......                                  [ 87%]
+tests/unit/test_sign_in_with_identity.py ......................          [ 88%]
+tests/unit/test_sso_flow.py .............................                [ 89%]
+tests/unit/test_step.py ................                                 [ 90%]
+tests/unit/test_step_use_cases.py ..............................         [ 91%]
+tests/unit/test_task.py ................................................ [ 93%]
+...                                                                      [ 93%]
+tests/unit/test_task_queries.py .............                            [ 93%]
+tests/unit/test_task_use_cases.py ...................................... [ 95%]
+....                                                                     [ 95%]
+tests/unit/test_user.py ................................................ [ 97%]
+...............................................................          [100%]
+
+=================================== FAILURES ===================================
+_______ test_openapi_documents_every_step_comment_and_activity_response ________
+
+client = <httpx.AsyncClient object at 0x11754ad50>
+
+    async def test_openapi_documents_every_step_comment_and_activity_response(
+        client: httpx.AsyncClient,
+    ) -> None:
+        schema = (await client.get("/openapi.json")).json()
+        paths, schemas = schema["paths"], schema["components"]["schemas"]
+    
+        def documented(path: str, method: str) -> dict[str, str | None]:
+            return {
+                code: response.get("content", {})
+                .get("application/json", {})
+                .get("schema", {})
+                .get("$ref", "")
+                .rpartition("/")[2]
+                or None
+                for code, response in paths[path][method]["responses"].items()
+            }
+    
+        errors = {"401": "ErrorResponse", "404": "ErrorResponse", "429": "ErrorResponse"}
+        refused = errors | {"422": "HTTPValidationError"}
+        assert documented("/tasks/{id_or_key}/steps", "get") == {"200": "StepListResponse"} | refused
+        assert documented("/tasks/{id_or_key}/steps", "post") == {"201": "StepResponse"} | refused
+        assert (
+            documented("/tasks/{id_or_key}/steps/bulk", "post") == {"201": "StepListResponse"} | refused
+        )
+        assert (
+            documented("/tasks/{id_or_key}/steps/order", "put") == {"200": "StepListResponse"} | refused
+        )
+        assert (
+            documented("/tasks/{id_or_key}/steps/{step_id}", "patch")
+            == {"200": "StepResponse"} | refused
+        )
+        assert documented("/tasks/{id_or_key}/steps/{step_id}", "delete") == {"204": None} | refused
+        assert (
+            documented("/tasks/{id_or_key}/comments", "post")
+            == {"201": "ActivityEntryResponse"} | refused
+        )
+        assert (
+            documented("/tasks/{id_or_key}/activity", "get")
+            == {"200": "ActivityListResponse"} | refused
+        )
+    
+        assert set(schemas["StepResponse"]["properties"]) == {
+            "id",
+            "task_id",
+            "title",
+            "done",
+            "position",
+            "created_at",
+        }
+        assert set(schemas["ActivityEntryResponse"]["properties"]) == {
+            "id",
+            "task_id",
+            "kind",
+            "text",
+            "actor",
+            "created_at",
+        }
+        assert set(schemas["ActorResponse"]["properties"]) == {"id", "full_name", "initials"}
+        assert schemas["ActivityKind"]["enum"] == ["log", "comment"]
+        assert {"steps_total", "steps_done", "comments_count"} <= set(
+            schemas["TaskResponse"]["required"]
+        )
+>       assert set(schemas["TaskDetailResponse"]["properties"]) == set(
+            schemas["TaskResponse"]["properties"]
+        ) | {"steps"}
+E       AssertionError: assert {'assignee_id...eted_at', ...} == {'assignee_id...ated_at', ...}
+E         
+E         Extra items in the left set:
+E         'attachments'
+E         Use -v to get more diff
+
+tests/api/test_openapi.py:389: AssertionError
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.14.7-final-0 _______________
+
+Name                                                          Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------------------------------------------
+src/app/__init__.py                                               0      0      0      0   100%
+src/app/api/__init__.py                                           0      0      0      0   100%
+src/app/api/access_log.py                                        25      0      8      1    97%   47->46
+src/app/api/dependencies.py                                     166      0      0      0   100%
+src/app/api/errors.py                                            54      0      0      0   100%
+src/app/api/multipart.py                                         88      3     24      3    95%   54, 66, 130, 133->136
+src/app/api/rate_limit.py                                        60      2     16      1    96%   159-160
+src/app/api/routes/__init__.py                                    0      0      0      0   100%
+src/app/api/routes/activity.py                                   17      0      0      0   100%
+src/app/api/routes/attachments.py                                33      0      0      0   100%
+src/app/api/routes/auth.py                                       31      0      0      0   100%
+src/app/api/routes/health.py                                     13      0      2      0   100%
+src/app/api/routes/projects.py                                   24      0      0      0   100%
+src/app/api/routes/sso.py                                        72      0      0      0   100%
+src/app/api/routes/steps.py                                      33      0      0      0   100%
+src/app/api/routes/tasks.py                                      48      0      2      0   100%
+src/app/api/routes/users.py                                      11      0      0      0   100%
+src/app/api/schemas/__init__.py                                   0      0      0      0   100%
+src/app/api/schemas/activity.py                                  25      0      0      0   100%
+src/app/api/schemas/attachments.py                               20      0      0      0   100%
+src/app/api/schemas/auth.py                                      34      0      2      0   100%
+src/app/api/schemas/errors.py                                     2      0      0      0   100%
+src/app/api/schemas/health.py                                     7      0      0      0   100%
+src/app/api/schemas/projects.py                                  33      0      2      0   100%
+src/app/api/schemas/sso.py                                        8      0      0      0   100%
+src/app/api/schemas/steps.py                                     37      0      6      1    98%   52->56
+src/app/api/schemas/tasks.py                                    130      0     12      0   100%
+src/app/api/schemas/users.py                                     11      0      0      0   100%
+src/app/api/security.py                                          47      0      8      0   100%
+src/app/application/__init__.py                                   0      0      0      0   100%
+src/app/application/clock.py                                      7      0      0      0   100%
+src/app/application/errors.py                                   103      2      0      0    98%   73-74
+src/app/application/file_changes.py                              33      0      2      0   100%
+src/app/application/ports/__init__.py                             0      0      0      0   100%
+src/app/application/ports/activity_feed.py                       13      0      0      0   100%
+src/app/application/ports/activity_recorder.py                    4      0      0      0   100%
+src/app/application/ports/attachment_repository.py               10      0      0      0   100%
+src/app/application/ports/file_storage.py                        12      0      0      0   100%
+src/app/application/ports/health_check.py                         5      0      0      0   100%
+src/app/application/ports/identity_provider.py                    7      0      0      0   100%
+src/app/application/ports/job_queue.py                            9      0      0      0   100%
+src/app/application/ports/language_model.py                      13      0      0      0   100%
+src/app/application/ports/one_time_store.py                       5      0      0      0   100%
+src/app/application/ports/password_hasher.py                      4      0      0      0   100%
+src/app/application/ports/people_directory.py                     5      0      0      0   100%
+src/app/application/ports/project_repository.py                  14      0      0      0   100%
+src/app/application/ports/rate_limiter.py                        11      0      2      0   100%
+src/app/application/ports/step_repository.py                      9      0      0      0   100%
+src/app/application/ports/task_repository.py                     16      0      0      0   100%
+src/app/application/ports/task_tallies.py                        11      0      0      0   100%
+src/app/application/ports/token_service.py                        4      0      0      0   100%
+src/app/application/ports/user_directory.py                       5      0      0      0   100%
+src/app/application/ports/user_identity_repository.py             5      0      0      0   100%
+src/app/application/ports/user_repository.py                      7      0      0      0   100%
+src/app/application/sso.py                                       25      0      0      0   100%
+src/app/application/task_query.py                                65      0      8      0   100%
+src/app/application/unset.py                                      5      0      0      0   100%
+src/app/application/use_cases/__init__.py                         0      0      0      0   100%
+src/app/application/use_cases/add_step.py                        30      0      2      0   100%
+src/app/application/use_cases/add_steps.py                       37      0      6      0   100%
+src/app/application/use_cases/assess_attention.py                 8      0      0      0   100%
+src/app/application/use_cases/attach_file.py                     65      0     18      0   100%
+src/app/application/use_cases/attach_link.py                     23      0      2      0   100%
+src/app/application/use_cases/authenticate_user.py               25      0      6      0   100%
+src/app/application/use_cases/check_readiness.py                 26      0      0      0   100%
+src/app/application/use_cases/complete_sso_sign_in.py            38      0     12      0   100%
+src/app/application/use_cases/create_project.py                  14      0      0      0   100%
+src/app/application/use_cases/create_task.py                     30      0      2      0   100%
+src/app/application/use_cases/delete_step.py                     25      0      6      0   100%
+src/app/application/use_cases/delete_task.py                     18      0      6      0   100%
+src/app/application/use_cases/get_current_user.py                13      0      2      0   100%
+src/app/application/use_cases/get_project.py                     11      0      2      0   100%
+src/app/application/use_cases/get_task.py                        24      0      4      0   100%
+src/app/application/use_cases/list_activity.py                   12      0      2      0   100%
+src/app/application/use_cases/list_attachments.py                11      0      0      0   100%
+src/app/application/use_cases/list_people.py                      8      0      0      0   100%
+src/app/application/use_cases/list_projects.py                    7      0      0      0   100%
+src/app/application/use_cases/list_steps.py                      14      0      2      0   100%
+src/app/application/use_cases/list_tasks.py                       9      0      0      0   100%
+src/app/application/use_cases/open_attachment_content.py         21      0      4      0   100%
+src/app/application/use_cases/post_comment.py                    28      0      2      0   100%
+src/app/application/use_cases/redeem_sso_code.py                 21      0      6      0   100%
+src/app/application/use_cases/register_user.py                   22      0      2      0   100%
+src/app/application/use_cases/remove_attachment.py               24      0      6      0   100%
+src/app/application/use_cases/reorder_steps.py                   27      0      6      0   100%
+src/app/application/use_cases/sign_in_with_identity.py           54      1     12      1    97%   83
+src/app/application/use_cases/start_sso_sign_in.py               23      0      2      0   100%
+src/app/application/use_cases/summarise_tasks.py                 18      0      0      0   100%
+src/app/application/use_cases/tally_tasks.py                      8      0      0      0   100%
+src/app/application/use_cases/update_profile.py                  20      0      6      0   100%
+src/app/application/use_cases/update_project.py                  27      0      8      0   100%
+src/app/application/use_cases/update_step.py                     44      0     10      0   100%
+src/app/application/use_cases/update_task.py                     77      0     32      1    99%   97->99
+src/app/bootstrap.py                                            233      4      0      0    98%   300-306
+src/app/domain/__init__.py                                        0      0      0      0   100%
+src/app/domain/activity.py                                       37      0      8      0   100%
+src/app/domain/activity_log.py                                   42      0     14      0   100%
+src/app/domain/attachment.py                                     92      0     36      0   100%
+src/app/domain/attention.py                                      43      0     10      0   100%
+src/app/domain/file_type.py                                      15      0      6      0   100%
+src/app/domain/project.py                                        51      0     14      0   100%
+src/app/domain/step.py                                           53      0     18      0   100%
+src/app/domain/storage_key.py                                     4      0      0      0   100%
+src/app/domain/task.py                                          112      0     24      0   100%
+src/app/domain/task_key.py                                       25      0      6      0   100%
+src/app/domain/user.py                                           67      0     12      0   100%
+src/app/infrastructure/__init__.py                                0      0      0      0   100%
+src/app/infrastructure/ai/__init__.py                             0      0      0      0   100%
+src/app/infrastructure/ai/fake.py                                 9      0      0      0   100%
+src/app/infrastructure/ai/gemini.py                              43      0      4      0   100%
+src/app/infrastructure/ai/health.py                              27      0      4      0   100%
+src/app/infrastructure/ai/http.py                                53      0     12      0   100%
+src/app/infrastructure/ai/openrouter.py                          53      0      8      0   100%
+src/app/infrastructure/ai/registry.py                            27      0      2      0   100%
+src/app/infrastructure/cache/__init__.py                          0      0      0      0   100%
+src/app/infrastructure/cache/client.py                            5      0      0      0   100%
+src/app/infrastructure/cache/health.py                           10      0      0      0   100%
+src/app/infrastructure/cache/one_time_store.py                   14      7      4      0    39%   17-19, 22-25
+src/app/infrastructure/config/__init__.py                         0      0      0      0   100%
+src/app/infrastructure/config/settings.py                       123      0     16      0   100%
+src/app/infrastructure/db/__init__.py                             0      0      0      0   100%
+src/app/infrastructure/db/base.py                                 5      0      0      0   100%
+src/app/infrastructure/db/constraints.py                          5      3      0      0    40%   11-13
+src/app/infrastructure/db/engine.py                               4      0      0      0   100%
+src/app/infrastructure/db/health.py                              13      2      0      0    85%   14, 17
+src/app/infrastructure/db/models/__init__.py                      8      0      0      0   100%
+src/app/infrastructure/db/models/activity.py                     18      0      0      0   100%
+src/app/infrastructure/db/models/attachment.py                   26      0      0      0   100%
+src/app/infrastructure/db/models/project.py                      18      0      0      0   100%
+src/app/infrastructure/db/models/step.py                         15      0      0      0   100%
+src/app/infrastructure/db/models/task.py                         30      0      0      0   100%
+src/app/infrastructure/db/models/user.py                         16      0      0      0   100%
+src/app/infrastructure/db/models/user_identity.py                15      0      0      0   100%
+src/app/infrastructure/db/repositories/__init__.py                0      0      0      0   100%
+src/app/infrastructure/db/repositories/activity.py               20      8      0      0    60%   23, 26-38, 42-57, 61
+src/app/infrastructure/db/repositories/attachment.py             43     25      6      0    37%   36, 42-52, 55-58, 61-66, 69-77, 80-86, 90-95
+src/app/infrastructure/db/repositories/project.py                51     27      6      0    42%   26, 29-47, 50-51, 54-57, 60-63, 67-71, 74-78, 88-99, 105, 113
+src/app/infrastructure/db/repositories/step.py                   30     16      4      0    41%   21, 24-34, 37-40, 43-47, 50-54, 58
+src/app/infrastructure/db/repositories/task.py                   77     47     10      0    34%   58, 61-62, 65-66, 69-72, 75-76, 80-92, 95-104, 107-114, 117-121, 124-128, 141-150, 154-158, 162-170
+src/app/infrastructure/db/repositories/task_queries.py           79     58     42      0    17%   63, 67, 71, 75, 79-80, 85-91, 98-107, 117-157, 162-173
+src/app/infrastructure/db/repositories/task_tallies.py           19      8      2      0    52%   23, 26-59
+src/app/infrastructure/db/repositories/user.py                   35     19      4      0    41%   21, 24-33, 36-37, 40-41, 45-49, 53, 65
+src/app/infrastructure/db/repositories/user_directory.py         18      7      0      0    61%   23, 26-29, 32-35, 38-44
+src/app/infrastructure/db/repositories/user_identity.py          23     10      2      0    52%   27, 30-35, 40-57
+src/app/infrastructure/db/session.py                              3      0      0      0   100%
+src/app/infrastructure/db/unit_of_work.py                         7      2      0      0    71%   31-32
+src/app/infrastructure/identity/__init__.py                       0      0      0      0   100%
+src/app/infrastructure/identity/fake.py                          29      1      6      1    94%   41
+src/app/infrastructure/identity/google.py                       174      2     40      1    99%   182->181, 220-221
+src/app/infrastructure/identity/registry.py                      16      0      2      0   100%
+src/app/infrastructure/jobs/__init__.py                           0      0      0      0   100%
+src/app/infrastructure/jobs/celery_app.py                         4      0      0      0   100%
+src/app/infrastructure/jobs/factory.py                            8      0      2      0   100%
+src/app/infrastructure/jobs/queue.py                             12      0      2      0   100%
+src/app/infrastructure/jobs/tasks.py                              3      0      0      0   100%
+src/app/infrastructure/rate_limit/__init__.py                     0      0      0      0   100%
+src/app/infrastructure/rate_limit/fail_open_rate_limiter.py      38      0      8      0   100%
+src/app/infrastructure/rate_limit/in_memory_rate_limiter.py      35      0      8      0   100%
+src/app/infrastructure/rate_limit/redis_rate_limiter.py          14      1      0      0    93%   76
+src/app/infrastructure/rate_limit/window.py                       4      0      0      0   100%
+src/app/infrastructure/security/__init__.py                       0      0      0      0   100%
+src/app/infrastructure/security/argon2_password_hasher.py        12      0      0      0   100%
+src/app/infrastructure/security/jwt_token_service.py             19      0      0      0   100%
+src/app/infrastructure/storage/__init__.py                        0      0      0      0   100%
+src/app/infrastructure/storage/in_memory.py                      37      0     10      0   100%
+src/app/infrastructure/storage/local_disk.py                    139     17     28      3    86%   51, 72-76, 84, 119-121, 145-147, 155-157, 174
+src/app/infrastructure/storage/registry.py                       10      0      2      0   100%
+src/app/main.py                                                  35      0      4      0   100%
+---------------------------------------------------------------------------------------------------------
+TOTAL                                                          4603    272    648     13    93%
+Required test coverage of 80.0% reached. Total coverage: 92.97%
+=========================== short test summary info ============================
+FAILED tests/api/test_openapi.py::test_openapi_documents_every_step_comment_and_activity_response
+=============== 1 failed, 2537 passed, 332 deselected in 34.93s ================

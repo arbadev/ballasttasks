@@ -15,6 +15,8 @@ from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.sso import SsoConfig
+from app.application.use_cases.add_step import AddStep
+from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.attach_file import AttachFile
 from app.application.use_cases.attach_link import AttachLink
@@ -23,22 +25,29 @@ from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
 from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
+from app.application.use_cases.delete_step import DeleteStep
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_activity import ListActivity
 from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
+from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.open_attachment_content import OpenAttachmentContent
+from app.application.use_cases.post_comment import PostComment
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
+from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.summarise_tasks import SummariseTasks
+from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
+from app.application.use_cases.update_step import UpdateStep
 from app.application.use_cases.update_task import UpdateTask
 
 
@@ -110,6 +119,33 @@ class RequestScope(Protocol):
 
     @property
     def open_attachment_content(self) -> OpenAttachmentContent: ...
+
+    @property
+    def tally_tasks(self) -> TallyTasks: ...
+
+    @property
+    def list_steps(self) -> ListSteps: ...
+
+    @property
+    def add_step(self) -> AddStep: ...
+
+    @property
+    def add_steps(self) -> AddSteps: ...
+
+    @property
+    def update_step(self) -> UpdateStep: ...
+
+    @property
+    def reorder_steps(self) -> ReorderSteps: ...
+
+    @property
+    def delete_step(self) -> DeleteStep: ...
+
+    @property
+    def post_comment(self) -> PostComment: ...
+
+    @property
+    def list_activity(self) -> ListActivity: ...
 
 
 class RateLimiting(Protocol):
@@ -332,3 +368,50 @@ OpenAttachmentContentDep = Annotated[OpenAttachmentContent, Depends(get_open_att
 AttachLinkDep = Annotated[AttachLink, Depends(get_attach_link)]
 ListAttachmentsDep = Annotated[ListAttachments, Depends(get_list_attachments)]
 RemoveAttachmentDep = Annotated[RemoveAttachment, Depends(get_remove_attachment)]
+
+
+def get_tally_tasks(scope: RequestScopeDep) -> TallyTasks:
+    return scope.tally_tasks
+
+
+def get_list_steps(scope: RequestScopeDep) -> ListSteps:
+    return scope.list_steps
+
+
+def get_add_step(scope: RequestScopeDep) -> AddStep:
+    return scope.add_step
+
+
+def get_add_steps(scope: RequestScopeDep) -> AddSteps:
+    return scope.add_steps
+
+
+def get_update_step(scope: RequestScopeDep) -> UpdateStep:
+    return scope.update_step
+
+
+def get_reorder_steps(scope: RequestScopeDep) -> ReorderSteps:
+    return scope.reorder_steps
+
+
+def get_delete_step(scope: RequestScopeDep) -> DeleteStep:
+    return scope.delete_step
+
+
+def get_post_comment(scope: RequestScopeDep) -> PostComment:
+    return scope.post_comment
+
+
+def get_list_activity(scope: RequestScopeDep) -> ListActivity:
+    return scope.list_activity
+
+
+TallyTasksDep = Annotated[TallyTasks, Depends(get_tally_tasks)]
+ListStepsDep = Annotated[ListSteps, Depends(get_list_steps)]
+AddStepDep = Annotated[AddStep, Depends(get_add_step)]
+AddStepsDep = Annotated[AddSteps, Depends(get_add_steps)]
+UpdateStepDep = Annotated[UpdateStep, Depends(get_update_step)]
+ReorderStepsDep = Annotated[ReorderSteps, Depends(get_reorder_steps)]
+DeleteStepDep = Annotated[DeleteStep, Depends(get_delete_step)]
+PostCommentDep = Annotated[PostComment, Depends(get_post_comment)]
+ListActivityDep = Annotated[ListActivity, Depends(get_list_activity)]

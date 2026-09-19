@@ -164,9 +164,8 @@ class Task:
             self.completed_at = now
         self.status = status
 
-    def touch(self, *, now: datetime) -> None:
-        """Something that belongs to the task changed (an attachment came or went): the task
-        itself is as it was, but it has been worked on."""
+    def touch(self, now: datetime) -> None:
+        """A step, comment or attachment changed: the task counts as updated."""
         self._touch(now)
 
     def _touch(self, now: datetime) -> None:

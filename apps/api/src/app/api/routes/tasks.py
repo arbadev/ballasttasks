@@ -15,8 +15,10 @@ from app.api.dependencies import (
     DeleteTaskDep,
     GetTaskDep,
     ListAttachmentsDep,
+    ListStepsDep,
     ListTasksDep,
     SummariseTasksDep,
+    TallyTasksDep,
     UpdateTaskDep,
 )
 from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
@@ -32,6 +34,7 @@ from app.api.schemas.tasks import (
     TaskUpdate,
 )
 from app.api.security import CurrentUserId, get_current_user_id
+from app.application.ports.task_tallies import TaskTally
 from app.application.use_cases.get_task import parse_task_reference
 from app.domain.task_key import TaskKey
 
@@ -99,8 +102,8 @@ async def create_task(
         importance=body.importance,
         created_by=user_id,
     )
-    # Nothing can be attached to a task before it exists.
-    return TaskResponse.of(task, attention.execute(task), attachments_count=0)
+    # A new task has no steps, comments or attachments: nothing to count.
+    return TaskResponse.of(task, attention.execute(task), TaskTally(), attachments_count=0)
 
 
 @router.get(
@@ -119,13 +122,16 @@ async def list_tasks(
     list_tasks: ListTasksDep,
     attention: AssessAttentionDep,
     attachments: ListAttachmentsDep,
+    tally_tasks: TallyTasksDep,
 ) -> TaskListResponse:
     query = params.to_query(user_id)
     page = await list_tasks.execute(query)
-    # One statement for the whole page, not one per task.
+    tallies = await tally_tasks.execute([task.id for task in page.items])
     counts = await attachments.count([task.id for task in page.items])
     items = [
-        TaskResponse.of(task, attention.execute(task), attachments_count=counts[task.id])
+        TaskResponse.of(
+            task, attention.execute(task), tallies[task.id], attachments_count=counts[task.id]
+        )
         for task in page.items
     ]
     return TaskListResponse.of(page, query, items)
@@ -154,7 +160,7 @@ async def summarise_tasks(
 
 @router.get(
     "/{id_or_key}",
-    summary="Get one task by its id or its key, with its attachments",
+    summary="Get one task by its id or its key, with its steps and attachments",
     response_model=TaskDetailResponse,
     responses={**NOT_FOUND},
 )
@@ -163,10 +169,14 @@ async def get_task(
     get_task: GetTaskDep,
     attention: AssessAttentionDep,
     attachments: ListAttachmentsDep,
+    tally_tasks: TallyTasksDep,
+    list_steps: ListStepsDep,
 ) -> TaskDetailResponse:
     task = await get_task.execute(reference)
-    return TaskDetailResponse.with_attachments(
-        task, attention.execute(task), await attachments.execute(task.id)
+    tallies = await tally_tasks.execute([task.id])
+    steps = await list_steps.execute(task.id)
+    return TaskDetailResponse.with_details(
+        task, attention.execute(task), tallies[task.id], steps, await attachments.execute(task.id)
     )
 
 
@@ -179,13 +189,18 @@ async def get_task(
 async def update_task(
     task_id: TaskId,
     body: TaskUpdate,
+    user_id: CurrentUserId,
     update_task: UpdateTaskDep,
     attention: AssessAttentionDep,
+    tally_tasks: TallyTasksDep,
     attachments: ListAttachmentsDep,
 ) -> TaskResponse:
-    task = await update_task.execute(task_id, body.to_changes())
+    task = await update_task.execute(task_id, body.to_changes(), actor_id=user_id)
+    tallies = await tally_tasks.execute([task.id])
     counts = await attachments.count([task.id])
-    return TaskResponse.of(task, attention.execute(task), attachments_count=counts[task.id])
+    return TaskResponse.of(
+        task, attention.execute(task), tallies[task.id], attachments_count=counts[task.id]
+    )
 
 
 @router.delete(

@@ -137,6 +137,8 @@ class InMemoryTaskRepository:
         self.users = users
         self.projects = projects
         self._tasks: dict[uuid.UUID, Task] = {}
+        # What references tasks ``ON DELETE CASCADE`` registers here (``tests/activity_fakes``).
+        self.on_delete: list[Callable[[uuid.UUID], None]] = []
         projects.open_tasks_in = self._open_tasks_in
 
     def _open_tasks_in(self, project_id: uuid.UUID) -> int:
@@ -206,6 +208,8 @@ class InMemoryTaskRepository:
         if task_id not in self._tasks:
             raise TaskNotFound(task_id)
         del self._tasks[task_id]
+        for forget in self.on_delete:
+            forget(task_id)
 
 
 class InMemoryAttachmentRepository:
