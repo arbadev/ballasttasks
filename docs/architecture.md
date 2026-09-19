@@ -230,9 +230,10 @@ Adapters in this setup:
 | Port | Adapters | Notes |
 | --- | --- | --- |
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
+| `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | Fire-and-forget jobs; unchanged by generation |
+| `StepGenerationJobs` | Celery with its Redis result backend, in-memory test fake | Only `enqueue(task_id)` and `get(task_id, job_id)`; task association and one-hour retention distinguish unknown from pending. `tests/contract/test_step_generation_jobs_contract.py` holds both adapters to the same contract |
 | `AttachmentRepository` | SQLAlchemy/PostgreSQL, in-memory fake | `tests/contract/test_attachment_repository_contract.py`; metadata belongs to one task, counts are batched, task deletion cascades rows |
 | `FileStorage` | Local disk (`local`), in-memory fake | Streaming `save`, `open`, idempotent `delete` only; `tests/contract/test_file_storage_contract.py`. Selected through `STORAGE__PROVIDER` and `infrastructure/storage/registry.py`; [ADR 0008](decisions/0008-file-storage.md) |
-| `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. Filters, sorts, paging and counts run in SQL (`infrastructure/db/repositories/task_queries.py`); the fake answers the same cases with the domain's rules, and both are held to literal expectations and to the design's urgency function. An unknown project is refused like an unknown assignee (`UnknownProjectError`). `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
 | `ProjectRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_project_repository_contract.py`. `add` raises `ProjectKeyTakenError` from the unique constraint, inside a savepoint. `allocate_task_key` is one `UPDATE ... RETURNING` on the project row; what needs two transactions at once is in `tests/integration/test_task_key_allocation.py` ([ADR 0005](decisions/0005-task-keys-and-urgency.md)) |
@@ -418,6 +419,79 @@ A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)
 | `task_activity` | UUID `id`, private bigint identity `seq`, `task_id` (FK tasks, cascade), `kind` constrained to log/comment, `text`, `actor_id` (FK users, restrict), `created_at`; feed index `(task_id, created_at, seq)` and partial comment-count index |
 
 Every step writer locks its task before reading positions. Activity is recorded in application use cases through `ActivityRecorder.record(entry)` in the same transaction as the change, never in controllers or triggers. Equal timestamps are ordered by recording sequence. Both tables arrive in revision `a1c5e7f90b24`, whose `upgrade` docstring is the authority for what happens to a database that already holds tasks: they gain only a creation log at their original timestamp, and no task is modified. See [ADR 0007](decisions/0007-steps-and-activity.md) for exact wording, ordering, migration and downgrade policy. Contract suites exercise the fake and PostgreSQL adapters; `test_steps_activity_api.py` asserts constant list query count and rollback, and `test_step_positions_concurrency.py` exercises concurrent writers.
+
+### Queued step generation
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `POST /tasks/{id_or_key}/step-generations` (no body) | `202` `StepGenerationResponse`, a new pending handle | `401`, `404` task missing, `422`, `429`, `503` queue/backend unavailable |
+| `GET /tasks/{id_or_key}/step-generations/{job_id}` | `200` `StepGenerationResponse` | `401`, `404` task or retained job missing/mismatched, `422`, `429`, `503` backend unavailable |
+
+`StepGenerationResponse` is `{id, task_id, state, titles, error}`. `state` is exactly
+`pending`, `running`, `success` or `failure`. Success has 1–20 trimmed, nonempty titles,
+1–200 characters each, with no NUL, and `error: null`; every other state has `titles: []`.
+Failure exposes only a fixed code: `invalid_output`, `provider_unavailable`, `timeout`
+or `worker_failed`. It never exposes the provider response, exception, traceback, hostname
+or credentials. Failures are normal poll responses (`200`); a missing
+job is **not** a successful empty result.
+
+- These routes use the normal shared-workspace authentication and rate limits. The task
+  must still exist on **every** request. Another task's job handle, an unknown handle and
+  an expired handle are all `404`. Deleting a task immediately makes its jobs inaccessible;
+  the worker also checks deletion before and after generating. A task deleted while a poll
+  is in flight is `404` too: the worker's internal `task_deleted` outcome is a missing
+  generation, never a failure code, so no response can carry it. That shared authenticated
+  allowance is the **only** bound on enqueue: there is no generation quota, per-task
+  in-flight cap or deduplication, so on a paid provider an authenticated caller inside the
+  allowance can start as many billable generations. The message expiry and the model
+  deadline below bound backlog and job duration, not spend.
+- Each POST is a new independent job, including retries/regeneration. Retain the returned
+  task id and job id while changing selection and poll that handle on return. There is no
+  server-side 'current selection', latest-job lookup or cancellation. Discarding/removing
+  proposals is client state. A client stops polling on a terminal state and otherwise
+  backs off: 2s, 4s, 8s, then every 10s until the deadline, and at the 10s bound for a
+  generation whose task is not the selected one. That keeps two concurrent generations
+  well inside the shipped authenticated budget (120 requests per 60s), which this feature
+  does not change and has no policy of its own. On `429` a client waits the `Retry-After`
+  seconds before its next poll instead of retrying immediately.
+- A reservation in the **existing Redis result backend**, expiring one hour after enqueue,
+  stores only the task id and enqueue timestamp. Native Celery results hold running state
+  and the safe outcome. The reservation distinguishes Celery's ambiguous `PENDING`
+  (which otherwise includes nonexistent jobs) and keeps association through worker death.
+  No SQL table or migration is needed. Redis data loss may make jobs `404`; results are
+  ephemeral proposals, not durable task content. Native results also expire after one hour
+  from completion, but are never exposed after the reservation expires.
+- Queue messages expire after five minutes. Pending/running jobs beyond that end-to-end
+  deadline poll as `failure/timeout`; late completions cannot replace that with success.
+  A completion recorded before the deadline remains available for the reservation's lifetime.
+  The model deadline is `min(AI__TIMEOUT_SECONDS, 240)` seconds; the Celery hard execution
+  limit is 250 seconds (use a prefork worker for hard-limit enforcement). There is no
+  automatic retry or duplicate acceptance. Enqueue acknowledgement loss can leave an
+  unreturned job running; it has no task-write effects and expires normally.
+- `app.worker` is the worker entrypoint; `bootstrap.build_worker` supplies the job callable.
+  A process builds its Celery application once: the worker passes its own into
+  `build_container`, so a job composes only the async handles it closes again. A job that
+  fails outside the model boundary still answers `worker_failed`, and logs one warning
+  naming the task id and a fixed category (`configuration`, `database`, `cache` or
+  `unexpected`) — never the exception, its message or a traceback.
+  The worker reads the task title, description and existing step titles in a short
+  `Container.request_scope()`, **closes it before awaiting the model**, then rechecks
+  existence in another short scope. `GenerateStepTitles` depends only on `LanguageModel`.
+  It treats task text as untrusted JSON context and accepts only a JSON array, not fenced
+  Markdown or executable text. The whole response is rejected if malformed, empty, over
+  32,768 characters, over 20 titles, or any title violates the step domain rule or contains
+  invalid Unicode (such as an unpaired surrogate escape). Titles are never repaired by
+  replacing invalid characters.
+- Generation and polling never write steps, touch task timestamps or add activity.
+  Accept chosen titles with the existing atomic `POST /tasks/{id_or_key}/steps/bulk`.
+  Its 100-step ceiling is checked at **acceptance**, including concurrent writers; no
+  generation reserves room or bypasses that rule. UI/HTTP service wiring is separate.
+
+Tests: `test_generate_step_titles.py` covers the model boundary; `test_generation_worker.py`
+proves the transaction is closed during generation; `test_step_generation_results.py`
+exercises native Redis result states/retention; `test_step_generation_served.py` runs real
+HTTP and a real Celery worker against PostgreSQL/Redis with a deterministic offline model
+and prints a redacted request/poll transcript with `-s`.
 
 ### Tasks reference users
 

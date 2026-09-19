@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # One image for both services (build context: apps/api):
 #   api:      default CMD (uvicorn on :8000)
-#   worker:   celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
+#   worker:   celery -A app.worker worker --loglevel=INFO
 #   migrate:  alembic upgrade head   (explicit step, run before starting the api)
 
 FROM python:3.14-slim AS builder

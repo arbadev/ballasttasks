@@ -6,6 +6,8 @@ The repository currently contains the foundation (the monorepo, the architecture
 
 A task also carries **steps** (`/tasks/{id_or_key}/steps`, added singly or in an atomic batch of up to 20, reordered, ticked and deleted), immutable **comments** (`/comments`) and an **activity timeline** (`/activity`) that also records attaching and removing. Every task representation carries its step, comment and attachment tallies, counted for a whole page in one query; the fields are listed in the [task contract](docs/architecture.md#task-contract). See [steps and activity](docs/architecture.md#steps-and-activity) and [ADR 0007](docs/decisions/0007-steps-and-activity.md).
 
+Step titles can also be **drafted by the language model** in the background: `POST /tasks/{id_or_key}/step-generations` queues the work and answers immediately with a job handle, `GET /tasks/{id_or_key}/step-generations/{job_id}` polls it, and the chosen titles become steps only through the bulk-add endpoint above; see [queued step generation](docs/architecture.md#queued-step-generation).
+
 Every route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md).
 
 ## Architecture at a glance
@@ -13,7 +15,7 @@ Every route except the health endpoints is **rate limited** (strict per-IP limit
 - **`apps/api`**: FastAPI + Celery, organised as ports and adapters. Use cases depend on small `typing.Protocol` ports; adapters are wired in one composition root, `bootstrap.py`. Layer rules are enforced by import-linter.
 - **`apps/web`**: Next.js. Components depend on service interfaces provided by one composition root, `providers.tsx`; only `client.ts` talks to the network.
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
-- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and the shared rate limit counters.
+- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and result backend, and the shared rate limit counters.
 
 Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md), [ADR 0007: steps and activity](docs/decisions/0007-steps-and-activity.md), [ADR 0008: file storage](docs/decisions/0008-file-storage.md).
 
