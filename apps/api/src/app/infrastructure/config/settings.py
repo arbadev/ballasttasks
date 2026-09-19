@@ -19,6 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DATABASE_SCHEME = "postgresql+psycopg://"
 REDIS_SCHEMES = ("redis://", "rediss://")
+HTTP_SCHEMES = ("https://", "http://")
 # RFC 7518 section 3.2: an HMAC key must be at least as long as the hash output.
 JWT_MIN_SECRET_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 
@@ -63,6 +64,28 @@ class RedisSettings(_Group):
 class AiSettings(_Group):
     provider: str = "fake"
     model: str = "fake-1"
+    # Whether a provider needs it is that provider's rule: its registry factory enforces it.
+    api_key: SecretStr | None = None
+    # None means the adapter's own default; set it to go through a proxy or a gateway.
+    base_url: str | None = None
+    # Total time one generation may take, connection retry and response body included.
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    # How long a ``check()`` result is reused: the public readiness endpoint must not turn
+    # every hit into a keyed provider call. 0 turns the cache off.
+    check_cache_seconds: float = Field(default=30.0, ge=0)
+
+    @field_validator("api_key", "base_url", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        """``AI__API_KEY=`` left empty in ``.env`` is the same as leaving it out."""
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("base_url")
+    @classmethod
+    def _require_http(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(HTTP_SCHEMES):
+            raise ValueError(f"AI__BASE_URL must start with one of {HTTP_SCHEMES}")
+        return value
 
 
 class CorsSettings(_Group):
@@ -84,6 +107,36 @@ class AuthSettings(_Group):
         return self
 
 
+class _RateLimitPolicySettings(_Group):
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(default=60, gt=0)
+
+
+class AuthRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=10, gt=0)
+
+
+class AuthenticatedRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=120, gt=0)
+
+
+class AnonymousRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=60, gt=0)
+
+
+class RateLimitSettings(_Group):
+    """Three policies; each variable overrides its own default (``RATE_LIMIT__AUTH__LIMIT``)."""
+
+    enabled: bool = True
+    # Only behind a reverse proxy that sets X-Forwarded-For itself: see api/rate_limit.py.
+    trust_proxy: bool = False
+    # Environments that share one Redis keep their counters apart with this.
+    key_prefix: str = Field(default="ratelimit", min_length=1)
+    auth: AuthRateLimitSettings = AuthRateLimitSettings()
+    authenticated: AuthenticatedRateLimitSettings = AuthenticatedRateLimitSettings()
+    anonymous: AnonymousRateLimitSettings = AnonymousRateLimitSettings()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__", frozen=True, extra="ignore", hide_input_in_errors=True
@@ -95,6 +148,7 @@ class Settings(BaseSettings):
     ai: AiSettings = AiSettings()
     auth: AuthSettings
     cors: CorsSettings = CorsSettings()
+    rate_limit: RateLimitSettings = RateLimitSettings()
 
 
 def load_settings(*, valid_ai_providers: Collection[str]) -> Settings:

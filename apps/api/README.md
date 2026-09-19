@@ -25,13 +25,14 @@ Swapping or adding an adapter = a new adapter file, one registration line
 uv sync                                   # install (locked)
 uv run pytest --cov                       # default suite: needs NO PostgreSQL/Redis, coverage >= 80%
 uv run pytest -m integration              # needs DATABASE__URL, REDIS__URL (live services) and AUTH__JWT_SECRET
+uv run pytest -m live                     # opt-in: calls the real AI provider (AI__PROVIDER + AI__API_KEY), skipped without a key
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests
 uv run lint-imports
 
 uv run alembic upgrade head               # migrations are an explicit step, never run by the app
 uv run alembic revision --autogenerate -m "message"   # new revision from the ORM models; review it by hand
-uv run uvicorn app.main:create_app --factory --reload
+uv run uvicorn app.main:create_app --factory --reload --no-proxy-headers
 uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 ```
 
@@ -44,6 +45,6 @@ One image (build context `apps/api`) serves three commands:
 
 | Service | Command |
 | --- | --- |
-| api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000` |
+| api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-proxy-headers` |
 | worker | `celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO` |
 | migrate | `alembic upgrade head` (run before the api starts) |

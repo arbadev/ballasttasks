@@ -28,17 +28,38 @@ def unauthorized(detail: str) -> HTTPException:
     return HTTPException(status.HTTP_401_UNAUTHORIZED, detail=detail, headers=BEARER_CHALLENGE)
 
 
-async def get_current_user(
+async def _authenticate(
     token: Annotated[str | None, Depends(oauth2_scheme)],
     use_case: GetCurrentUserDep,
-) -> User:
+) -> User | None:
+    """The active user the token belongs to, or None. FastAPI caches it per request, so
+    everything that asks who is calling resolves the caller once."""
     if token is None:
-        raise unauthorized("Not authenticated")
+        return None
     try:
         return await use_case.execute(token)
     except AuthenticationError:
+        return None
+
+
+async def get_current_user(
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+    user: Annotated[User | None, Depends(_authenticate)],
+) -> User:
+    if token is None:
+        raise unauthorized("Not authenticated")
+    if user is None:
         # One message for a bad token and for a vanished or deactivated user.
-        raise unauthorized("Could not validate credentials") from None
+        raise unauthorized("Could not validate credentials")
+    return user
+
+
+async def get_optional_user_id(
+    user: Annotated[User | None, Depends(_authenticate)],
+) -> uuid.UUID | None:
+    """For a dependency that must not answer 401 itself: the rate limiter counts a caller
+    it cannot identify by address instead, and leaves the 401 to the route."""
+    return None if user is None else user.id
 
 
 async def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) -> uuid.UUID:
@@ -47,3 +68,4 @@ async def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
+OptionalUserId = Annotated[uuid.UUID | None, Depends(get_optional_user_id)]

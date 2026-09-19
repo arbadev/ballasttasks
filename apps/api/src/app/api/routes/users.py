@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, status
 
 from app.api.dependencies import ListPeopleDep
+from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
 from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.users import PeopleResponse, PersonResponse
 from app.api.security import get_current_user_id
@@ -10,9 +11,10 @@ from app.api.security import get_current_user_id
 router = APIRouter(
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(get_current_user_id)],
+    dependencies=[Depends(limit_requests), Depends(get_current_user_id)],
     responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse, "description": "Not authenticated"}
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse, "description": "Not authenticated"},
+        **TOO_MANY_REQUESTS,
     },
 )
 

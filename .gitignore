@@ -40,3 +40,6 @@ Thumbs.db
 
 # Local agent settings (project skills under .claude/skills/ stay tracked)
 .claude/settings.local.json
+
+# Visual comparison output (npm run test:visual in apps/web)
+visual-results/

@@ -100,11 +100,17 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         }
 
     error, invalid = "ErrorResponse", "HTTPValidationError"
-    assert documented("/tasks", "post") == {"201": "TaskResponse", "401": error, "422": invalid}
+    assert documented("/tasks", "post") == {
+        "201": "TaskResponse",
+        "401": error,
+        "422": invalid,
+        "429": error,
+    }
     assert documented("/tasks", "get") == {
         "200": "TaskListResponse",
         "401": error,
         "422": invalid,
+        "429": error,
     }
     for method in ("get", "patch"):
         assert documented("/tasks/{id_or_key}", method) == {
@@ -112,12 +118,14 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
             "401": error,
             "404": error,
             "422": invalid,
+            "429": error,
         }
     assert documented("/tasks/{id_or_key}", "delete") == {
         "204": None,
         "401": error,
         "404": error,
         "422": invalid,
+        "429": error,
     }
 
 
@@ -142,9 +150,9 @@ async def test_openapi_documents_the_auth_contract(client: httpx.AsyncClient) ->
     register = schema["paths"]["/auth/register"]["post"]["responses"]
     login = schema["paths"]["/auth/login"]["post"]["responses"]
     me = schema["paths"]["/auth/me"]["get"]["responses"]
-    assert set(register) == {"201", "409", "422"}
-    assert set(login) == {"200", "401", "422"}
-    assert set(me) == {"200", "401"}
+    assert set(register) == {"201", "409", "422", "429"}
+    assert set(login) == {"200", "401", "422", "429"}
+    assert set(me) == {"200", "401", "429"}
     assert register["409"]["content"]["application/json"]["schema"] == error
     assert login["401"]["content"]["application/json"]["schema"] == error
     assert me["401"]["content"]["application/json"]["schema"] == error
@@ -234,13 +242,19 @@ async def test_openapi_documents_every_new_response(client: httpx.AsyncClient) -
         "200": "TaskSummaryResponse",
         "401": error,
         "422": invalid,
+        "429": error,
     }
-    assert documented("/projects", "get") == {"200": "ProjectListResponse", "401": error}
+    assert documented("/projects", "get") == {
+        "200": "ProjectListResponse",
+        "401": error,
+        "429": error,
+    }
     assert documented("/projects", "post") == {
         "201": "ProjectResponse",
         "401": error,
         "409": error,
         "422": invalid,
+        "429": error,
     }
     for method in ("get", "patch"):
         assert documented("/projects/{project_id}", method) == {
@@ -248,9 +262,15 @@ async def test_openapi_documents_every_new_response(client: httpx.AsyncClient) -
             "401": error,
             "404": error,
             "422": invalid,
+            "429": error,
         }
-    assert documented("/users", "get") == {"200": "PeopleResponse", "401": error}
-    assert documented("/auth/me", "patch") == {"200": "UserResponse", "401": error, "422": invalid}
+    assert documented("/users", "get") == {"200": "PeopleResponse", "401": error, "429": error}
+    assert documented("/auth/me", "patch") == {
+        "200": "UserResponse",
+        "401": error,
+        "422": invalid,
+        "429": error,
+    }
 
 
 async def test_openapi_documents_the_list_parameters(client: httpx.AsyncClient) -> None:

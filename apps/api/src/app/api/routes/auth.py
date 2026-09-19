@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.dependencies import AuthenticateUserDep, RegisterUserDep, UpdateProfileDep
+from app.api.rate_limit import TOO_MANY_REQUESTS, limit_auth_attempts, limit_requests
 from app.api.schemas.auth import ProfileUpdate, RegisterRequest, TokenResponse, UserResponse
 from app.api.schemas.errors import ErrorResponse
 from app.api.security import CurrentUser, unauthorized
 from app.application.errors import EmailAlreadyRegisteredError, InvalidCredentialsError
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"], responses={**TOO_MANY_REQUESTS})
 
 UNAUTHORIZED = {
     "model": ErrorResponse,
@@ -22,6 +23,7 @@ UNAUTHORIZED = {
     status_code=status.HTTP_201_CREATED,
     response_model=UserResponse,
     summary="Create a user account",
+    dependencies=[Depends(limit_auth_attempts)],
     responses={
         status.HTTP_409_CONFLICT: {
             "model": ErrorResponse,
@@ -43,6 +45,7 @@ async def register(body: RegisterRequest, register_user: RegisterUserDep) -> Use
     "/login",
     response_model=TokenResponse,
     summary="Exchange an email and password for an access token",
+    dependencies=[Depends(limit_auth_attempts)],
     description=(
         "OAuth2 password form (`application/x-www-form-urlencoded`): put the email in "
         "`username`. Every failure, whatever its cause, is the same 401."
@@ -69,6 +72,7 @@ async def login(
     "/me",
     response_model=UserResponse,
     summary="The user the bearer token belongs to",
+    dependencies=[Depends(limit_requests)],
     responses={
         status.HTTP_401_UNAUTHORIZED: {
             **UNAUTHORIZED,
@@ -84,6 +88,7 @@ async def me(user: CurrentUser) -> UserResponse:
     "/me",
     response_model=UserResponse,
     summary="Change your own full name and role label",
+    dependencies=[Depends(limit_requests)],
     responses={
         status.HTTP_401_UNAUTHORIZED: {
             **UNAUTHORIZED,
