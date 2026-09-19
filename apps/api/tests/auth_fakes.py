@@ -13,11 +13,15 @@ from app.domain.user import Person, User
 
 
 def a_user(
-    *, is_active: bool = True, full_name: str = "Grace Hopper", role_label: str | None = None
+    *,
+    is_active: bool = True,
+    full_name: str = "Grace Hopper",
+    role_label: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> User:
     """A user nobody logs in as: someone to create tasks or to be assigned them."""
     return User(
-        id=uuid.uuid4(),
+        id=user_id or uuid.uuid4(),
         email=f"{uuid.uuid4().hex}@example.com",
         full_name=full_name,
         hashed_password="not-a-real-hash",
