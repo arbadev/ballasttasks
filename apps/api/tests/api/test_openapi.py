@@ -132,6 +132,8 @@ async def test_openapi_documents_the_auth_contract(client: httpx.AsyncClient) ->
         "full_name",
         "is_active",
         "created_at",
+        "initials",
+        "role_label",
     }
     assert components["TokenResponse"]["properties"]["token_type"]["const"] == "bearer"
     assert components["RegisterRequest"]["properties"]["password"]["writeOnly"] is True
@@ -189,7 +191,9 @@ async def test_openapi_documents_the_design_model(client: httpx.AsyncClient) -> 
         "TaskSummaryResponse",
     } <= set(schemas)
     assert schemas["TaskPriority"]["enum"] == ["P0", "P1", "P2", "P3"]
-    assert schemas["AttentionResponse"]["properties"]["reasons"]["items"]["enum"] == [
+    reasons = schemas["AttentionResponse"]["properties"]["reasons"]
+    assert reasons["items"] == {"$ref": "#/components/schemas/AttentionReason"}
+    assert schemas["AttentionReason"]["enum"] == [
         "overdue",
         "p0_at_risk",
         "due_today",

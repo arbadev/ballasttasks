@@ -1,23 +1,42 @@
-"""Task CRUD. Any authenticated user can read and change any task (a shared team list)."""
+"""Tasks: CRUD, the filtered list and the numbers around it.
+
+Any authenticated user can read and change any task (one shared workspace). A task is
+addressed by its id or by its key (``BT-04``, in any case and padding).
+"""
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.dependencies import (
+    AssessAttentionDep,
     CreateTaskDep,
     DeleteTaskDep,
     GetTaskDep,
     ListTasksDep,
+    SummariseTasksDep,
     UpdateTaskDep,
 )
 from app.api.schemas.errors import ErrorResponse
-from app.api.schemas.tasks import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
+from app.api.schemas.tasks import (
+    TaskCreate,
+    TaskFilterParams,
+    TaskListParams,
+    TaskListResponse,
+    TaskResponse,
+    TaskSummaryResponse,
+    TaskUpdate,
+)
 from app.api.security import CurrentUserId, get_current_user_id
+from app.application.use_cases.get_task import parse_task_reference
+from app.domain.task_key import TaskKey
 
 NOT_FOUND: dict[int | str, dict[str, Any]] = {
-    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No task has that id"}
+    status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": "No task has that id or key",
+    }
 }
 
 router = APIRouter(
@@ -30,55 +49,128 @@ router = APIRouter(
 )
 
 
+def task_reference(id_or_key: str) -> uuid.UUID | TaskKey:
+    """``422`` (``InvalidTaskReferenceError``) when it is neither an id nor a key."""
+    return parse_task_reference(id_or_key)
+
+
+TaskReference = Annotated[uuid.UUID | TaskKey, Depends(task_reference)]
+
+
+async def task_id_of(reference: TaskReference, get_task: GetTaskDep) -> uuid.UUID:
+    """The id behind a reference: a key costs one lookup, an id costs none."""
+    if isinstance(reference, uuid.UUID):
+        return reference
+    return (await get_task.execute(reference)).id
+
+
+TaskId = Annotated[uuid.UUID, Depends(task_id_of)]
+
+
 @router.post(
     "",
     summary="Create a task",
+    description=(
+        "The task gets the next key of its project (`BT-01`, `BT-02`, ...). Without a "
+        "`project_id` it lands in the Inbox."
+    ),
     status_code=status.HTTP_201_CREATED,
     response_model=TaskResponse,
 )
 async def create_task(
-    body: TaskCreate, user_id: CurrentUserId, create_task: CreateTaskDep
+    body: TaskCreate,
+    user_id: CurrentUserId,
+    create_task: CreateTaskDep,
+    attention: AssessAttentionDep,
 ) -> TaskResponse:
     task = await create_task.execute(
         title=body.title,
         description=body.description,
         due_date=body.due_date,
         assignee_id=body.assignee_id,
+        project_id=body.project_id,
+        status=body.status,
+        priority=body.priority,
+        importance=body.importance,
         created_by=user_id,
     )
-    return TaskResponse.model_validate(task)
-
-
-@router.get("", summary="List every task, newest first", response_model=TaskListResponse)
-async def list_tasks(list_tasks: ListTasksDep) -> TaskListResponse:
-    tasks = await list_tasks.execute()
-    return TaskListResponse(items=[TaskResponse.model_validate(task) for task in tasks])
+    return TaskResponse.of(task, attention.execute(task))
 
 
 @router.get(
-    "/{task_id}", summary="Get one task", response_model=TaskResponse, responses={**NOT_FOUND}
+    "",
+    summary="List tasks: filtered, sorted and paged by the database",
+    description=(
+        "Defaults to the design's view: open tasks, most urgent first, 50 per page. Every "
+        "filter narrows the result; `total` counts what matches, whatever the page. Dates "
+        "are evaluated on the current UTC date."
+    ),
+    response_model=TaskListResponse,
 )
-async def get_task(task_id: uuid.UUID, get_task: GetTaskDep) -> TaskResponse:
-    return TaskResponse.model_validate(await get_task.execute(task_id))
+async def list_tasks(
+    params: Annotated[TaskListParams, Query()],
+    user_id: CurrentUserId,
+    list_tasks: ListTasksDep,
+    attention: AssessAttentionDep,
+) -> TaskListResponse:
+    query = params.to_query(user_id)
+    page = await list_tasks.execute(query)
+    items = [TaskResponse.of(task, attention.execute(task)) for task in page.items]
+    return TaskListResponse.of(page, query, items)
+
+
+# Declared before "/{id_or_key}", so "summary" is never read as a task reference.
+@router.get(
+    "/summary",
+    summary="The numbers around the list: sidebar counts and Attention signals",
+    description=(
+        "`counts` and `projects` describe the open tasks of the whole workspace, whatever is "
+        "filtered. `signals` describes the open tasks the filters select; `status` and "
+        "`signal` are accepted and ignored there, so the same query string as the list can be "
+        "sent, and choosing one chip never blanks the others."
+    ),
+    response_model=TaskSummaryResponse,
+)
+async def summarise_tasks(
+    params: Annotated[TaskFilterParams, Query()],
+    user_id: CurrentUserId,
+    summarise_tasks: SummariseTasksDep,
+) -> TaskSummaryResponse:
+    summary = await summarise_tasks.execute(params.to_filter(user_id), viewer_id=user_id)
+    return TaskSummaryResponse.of(summary)
+
+
+@router.get(
+    "/{id_or_key}",
+    summary="Get one task by its id or its key",
+    response_model=TaskResponse,
+    responses={**NOT_FOUND},
+)
+async def get_task(
+    reference: TaskReference, get_task: GetTaskDep, attention: AssessAttentionDep
+) -> TaskResponse:
+    task = await get_task.execute(reference)
+    return TaskResponse.of(task, attention.execute(task))
 
 
 @router.patch(
-    "/{task_id}",
-    summary="Change a task: edit it, assign it, or complete it with status=done",
+    "/{id_or_key}",
+    summary="Change a task: edit it, assign it, move it, or complete it with status=done",
     response_model=TaskResponse,
     responses={**NOT_FOUND},
 )
 async def update_task(
-    task_id: uuid.UUID, body: TaskUpdate, update_task: UpdateTaskDep
+    task_id: TaskId, body: TaskUpdate, update_task: UpdateTaskDep, attention: AssessAttentionDep
 ) -> TaskResponse:
-    return TaskResponse.model_validate(await update_task.execute(task_id, body.to_changes()))
+    task = await update_task.execute(task_id, body.to_changes())
+    return TaskResponse.of(task, attention.execute(task))
 
 
 @router.delete(
-    "/{task_id}",
+    "/{id_or_key}",
     summary="Delete a task",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={**NOT_FOUND},
 )
-async def delete_task(task_id: uuid.UUID, delete_task: DeleteTaskDep) -> None:
+async def delete_task(task_id: TaskId, delete_task: DeleteTaskDep) -> None:
     await delete_task.execute(task_id)

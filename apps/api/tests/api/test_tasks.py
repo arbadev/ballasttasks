@@ -110,7 +110,9 @@ async def test_create_accepts_the_optional_fields(
         pytest.param({"title": "t", "description": "a\x00b"}, id="description with a NUL"),
         pytest.param({"title": "t", "due_date": "next week"}, id="due_date not a date"),
         pytest.param({"title": "t", "assignee_id": "bob"}, id="assignee_id not a uuid"),
-        pytest.param({"title": "t", "status": "done"}, id="status is not set on create"),
+        # The design adds a task straight into a board column, so a status is accepted on
+        # create (ADR 0005); one outside the vocabulary is still refused.
+        pytest.param({"title": "t", "status": "archived"}, id="status outside the vocabulary"),
     ],
 )
 async def test_create_answers_422_with_the_validation_error_body(
