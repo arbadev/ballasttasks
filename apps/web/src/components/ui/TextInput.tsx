@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { useId } from "react";
 import { cn } from "@/lib/cn";
 
 interface TextInputProps {
@@ -13,10 +14,13 @@ interface TextInputProps {
 }
 
 export function TextInput({ label, value, onChange, type = "text", placeholder, icon: Icon, className }: TextInputProps) {
+  // Chrome flags a form field with neither an id nor a name.
+  const id = useId();
   return (
     <div className={cn("relative flex items-center", className)}>
       {Icon && <Icon aria-hidden="true" size={13} strokeWidth={2} className="pointer-events-none absolute left-2.5 text-fg-3" />}
       <input
+        id={id}
         type={type}
         aria-label={label}
         value={value}
