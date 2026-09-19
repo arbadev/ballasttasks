@@ -165,10 +165,15 @@ def test_a_stored_attachment_whose_fields_do_not_go_together_is_refused(
 
 # --- files ------------------------------------------------------------------------------------
 
-PDF_TYPE = sniff(b"%PDF-1.7\n....")
-PNG_TYPE = sniff(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
-assert PDF_TYPE is not None
-assert PNG_TYPE is not None
+
+def a_file_type(head: bytes) -> FileType:
+    file_type = sniff(head)
+    assert file_type is not None
+    return file_type
+
+
+PDF_TYPE = a_file_type(b"%PDF-1.7\n....")
+PNG_TYPE = a_file_type(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
 
 
 def a_stored_file(file_name: str | None, file_type: FileType = PDF_TYPE) -> Attachment:
@@ -241,7 +246,7 @@ def test_a_file_name_is_display_metadata_sanitised_and_honest_about_the_type(
 
 def test_a_name_that_claims_another_type_gets_the_extension_of_what_the_file_is() -> None:
     assert a_stored_file("report.pdf", PNG_TYPE).name == "report.pdf.png"
-    assert a_stored_file("photo.JPEG", sniff(b"\xff\xd8\xff\xe0")).name == "photo.JPEG"  # type: ignore[arg-type]
+    assert a_stored_file("photo.JPEG", a_file_type(b"\xff\xd8\xff\xe0")).name == "photo.JPEG"
 
 
 def test_a_long_file_name_is_cut_to_the_limit_and_keeps_its_extension() -> None:
