@@ -1030,6 +1030,71 @@ describe("add a task", () => {
   });
 });
 
+describe("authoritative move settlement", () => {
+  it.each([false, true])("retains a refused reverse hop after success (separate render: %s)", async (separateRender) => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let forward!: () => void;
+    let reverse!: () => void;
+    service.holds.set("progress", new Promise<void>((resolve) => (forward = resolve)));
+    if (separateRender) service.holds.set("todo", new Promise<void>((resolve) => (reverse = resolve)));
+    service.refuses = "todo";
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowLeft", shiftKey: true });
+    await act(async () => forward());
+    if (separateRender) {
+      // Give the successful save its own React commit before the reverse call refuses.
+      expect(service.tasks.find((task) => task.title === PRD)?.status).toBe("progress");
+      await act(async () => reverse());
+    }
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}". It is back in In Progress.`);
+    expect(titlesIn("In Progress")).toContain(PRD);
+    expect(moveCalls(service).map((call) => call[2])).toEqual(["progress", "todo"]);
+    service.refuses = null;
+    fireEvent.click(screen.getByRole("button", { name: `Retry moving "${PRD}"` }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(titlesIn("To Do")).toContain(PRD);
+    expect(moveCalls(service).map((call) => call[2])).toEqual(["progress", "todo", "todo"]);
+  });
+
+  it.each(["Retry", "Dismiss"])("restores board focus when target satisfaction removes a focused %s", async (action) => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.refuses = "testing";
+    renderWithServices(<WorkspaceProvider><BoardView /><Elsewhere /></WorkspaceProvider>, { taskService: service });
+    await screen.findByRole("region", { name: "To Do" });
+    drag(PRD, "Testing").drop();
+    drag(JWT, "Testing").drop();
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    const label = action === "Retry" ? `Retry moving "${PRD}"` : `Dismiss: could not move "${PRD}"`;
+    screen.getByRole("button", { name: label }).focus();
+
+    service.refuses = null;
+    // Invoke the external workspace contract without moving focus to the test-only control.
+    fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to Testing" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent(JWT);
+    expect(moveCalls(service)).toHaveLength(3); // two refused calls, one authoritative update, no retry
+    expect(openButton(PRD)).toHaveFocus();
+  });
+
+  it("does not steal unrelated focus when an external save settles an alert", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    renderWithServices(<WorkspaceProvider><BoardView /><Elsewhere /></WorkspaceProvider>, { taskService: service });
+    await screen.findByRole("region", { name: "To Do" });
+    drag(PRD, "Testing").drop();
+    await screen.findByRole("alert");
+    openButton(JWT).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to Testing" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(moveCalls(service)).toHaveLength(2);
+    expect(openButton(JWT)).toHaveFocus();
+  });
+});
+
 describe("dismissing an alert", () => {
   it("puts focus back on the card a move failure is about", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
