@@ -65,4 +65,4 @@ Negative, accepted:
 - We own the request and response shapes. When a provider changes its API, the stubbed tests keep passing; only the opt-in live tests (`uv run pytest -m live`) notice. They need a real key and have not been run in this change.
 - Readiness makes one outbound call per request when a real provider is configured. It is bounded by the 2 second timeout; caching the result is left for when it is needed.
 - The five categories are coarse: an unknown model id and a malformed body are both `LanguageModelInvalidResponseError`. The `reason` text distinguishes them for a log reader; a new category is added when a use case needs to branch on it.
-- The OpenRouter `401` fixture is the documented example body. A well-formed but revoked key was not observed, since no key was available; the mapping depends only on the status.
+- The OpenRouter `401` test fixture is the documented example body. With a key-shaped dummy, `401` was observed on both `GET /key` and `POST /chat/completions`, but the body was not inspected and no real or revoked key was available; the mapping depends only on the status.
