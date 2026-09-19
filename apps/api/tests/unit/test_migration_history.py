@@ -8,6 +8,7 @@ from tests.postgres import API_ROOT
 CREATE_USERS = "2dcaf48d517c"
 WIRE_TASKS_TO_USERS = "fa7b13ec7508"
 DESIGN_MODEL = "8b2f4c6d1a3e"
+STEPS_AND_ACTIVITY = "a1c5e7f90b24"
 
 
 def test_the_history_is_one_line_and_each_revision_follows_what_it_builds_on() -> None:
@@ -21,3 +22,4 @@ def test_the_history_is_one_line_and_each_revision_follows_what_it_builds_on() -
     history = [revision.revision for revision in oldest_first]
     assert history.index(CREATE_USERS) < history.index(WIRE_TASKS_TO_USERS)
     assert history.index(WIRE_TASKS_TO_USERS) < history.index(DESIGN_MODEL)
+    assert history.index(DESIGN_MODEL) < history.index(STEPS_AND_ACTIVITY)

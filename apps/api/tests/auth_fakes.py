@@ -80,6 +80,10 @@ class InMemoryUserDirectory:
         user = await self._users.get_by_id(user_id)
         return user is not None and user.is_active
 
+    async def full_name_of(self, user_id: uuid.UUID) -> str | None:
+        user = await self._users.get_by_id(user_id)
+        return None if user is None else user.full_name
+
     async def list_active(self) -> Sequence[Person]:
         active = [Person.of(user) for user in self._users.all() if user.is_active]
         return sorted(active, key=lambda person: (person.full_name.lower(), person.id))
