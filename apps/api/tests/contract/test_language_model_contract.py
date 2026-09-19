@@ -9,11 +9,14 @@ import pytest
 
 from app.application.ports.language_model import LanguageModel
 from app.infrastructure.ai.fake import FakeLanguageModel
+from tests.ai_stubs import gemini_happy_path, gemini_over, openrouter_happy_path, openrouter_over
 
 AdapterFactory = Callable[[], LanguageModel]
 
 ADAPTERS = [
     pytest.param(lambda: FakeLanguageModel(model="fake-1"), id="fake"),
+    pytest.param(lambda: openrouter_over(openrouter_happy_path), id="openrouter"),
+    pytest.param(lambda: gemini_over(gemini_happy_path), id="gemini"),
 ]
 
 

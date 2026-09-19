@@ -58,9 +58,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration' --strict-markers"
+addopts = "-m 'not integration and not live' --strict-markers"
 markers = [
     "integration: needs real PostgreSQL and Redis (run with `uv run pytest -m integration`)",
+    "live: calls a real AI provider and spends tokens; needs AI__PROVIDER and AI__API_KEY (run with `uv run pytest -m live`)",
 ]
 
 [tool.coverage.run]

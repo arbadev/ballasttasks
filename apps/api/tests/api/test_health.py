@@ -1,6 +1,19 @@
+from dataclasses import replace
+
 import httpx
+import pytest
 
 from app.api.schemas.health import HealthResponse, ReadinessResponse
+from app.bootstrap import build_container, load_settings
+from app.infrastructure.ai.health import LanguageModelHealthCheck
+from app.main import create_app
+from tests.ai_stubs import (
+    OPENROUTER_MODEL,
+    TEST_API_KEY,
+    answering,
+    openrouter_error,
+    openrouter_over,
+)
 from tests.api.conftest import ClientFactory
 from tests.fakes import RaisingHealthCheck, StubHealthCheck
 
@@ -63,3 +76,38 @@ async def test_ready_with_real_adapters_and_services_down_reports_each_component
         {"name": "redis", "status": "failed"},
         {"name": "ai", "status": "ok"},
     ]
+
+
+async def test_ready_reports_a_rejected_ai_key_as_failed_and_still_describes_the_model(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    """A real provider that refuses the key: 503, ``ai`` failed, no crash, no key in the body."""
+    model = openrouter_over(answering(401, openrouter_error(401, "Missing Authentication header")))
+    container = replace(
+        build_container(load_settings()),
+        language_model=model,
+        health_checks=(
+            StubHealthCheck("database"),
+            StubHealthCheck("redis"),
+            LanguageModelHealthCheck(model),
+        ),
+    )
+    app = create_app(container=container)
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "checks": [
+            {"name": "database", "status": "ok"},
+            {"name": "redis", "status": "ok"},
+            {"name": "ai", "status": "failed"},
+        ],
+        "ai": {"provider": "openrouter", "model": OPENROUTER_MODEL},
+    }
+    assert TEST_API_KEY not in response.text
