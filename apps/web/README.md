@@ -21,6 +21,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
+| `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
@@ -43,7 +44,7 @@ detail panel is still a placeholder, replaced by its slice:
 | Folder (owner) | Mounted as | Contents |
 | --- | --- | --- |
 | `src/features/tasks/list/` | `<ListView />` when the view is `list`, in every load state: it draws its own skeleton and load error | Built: the task rows and the quick-add input. |
-| `src/features/tasks/board/` | `<BoardView />` when the view is `board`, in every load state; it shows its own loading skeleton and load error | The four status columns with drag between them. |
+| `src/features/tasks/board/` | `<BoardView />` when the view is `board`, in every load state; it shows its own loading skeleton and load error | Built: the four status columns, with drag, keyboard and touch moves. |
 | `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
 
 Everything else (`model/`, `services/`, `workspace/`, `shell/`, `components/ui/`) is shared.
@@ -52,8 +53,8 @@ so the other two slices are unaffected.
 
 A view that replaces another hands the focus on: when the empty-project state saves its first
 task, its `onFirstTask` makes the shell set `ListView`'s `focusQuickAdd`, so the caret lands in
-the quick-add without the page scrolling. Only the list claims it today; the board slice wires
-the same prop for its own view.
+the quick-add without the page scrolling. The list is the only view that claims it: the board
+has no quick-add, so a first task saved while the board is showing takes no focus of its own.
 
 All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 
@@ -107,7 +108,7 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 | File | Responsibility |
 | --- | --- |
-| `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state and puts focus back on a card moved from the keyboard. |
+| `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state, reports a refused "Add a task", and keeps focus after a move made without a drag: on the card until the move settles, then on whatever took its place in the column it left (that column's heading if it is empty) if the move took the card off the board. |
 | `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once; a rejected move cancels queued moves, restores the last saved status and offers a retry of the newest target. |
 | `cardView.ts` | Pure: everything a card shows (due chip tone and mark, rail, priority tone, step and attachment labels), from `urgency` and `dueInfo`. |
 | `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
@@ -125,7 +126,8 @@ says; the header count keeps describing the list's filters. Both are the design'
 The design can only be dragged. Two additions make the same move reachable without a pointer
 drag: Shift+Left / Shift+Right on a focused card, announced through a polite live region, and
 a row of move buttons that appears while the keyboard is inside a card and is always present
-on a coarse pointer. At rest on a desktop the card is pixel-identical to the design.
+on a coarse pointer. At rest on a desktop the card is pixel-identical to the design, apart from
+the hot P0 mark's colour (the sanctioned contrast fix under "Visual tests").
 
 ## Commands
 
@@ -199,8 +201,8 @@ Both servers are reused when already running. When two checkouts run the suite a
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
 other's app.
 
-Screenshots, diffs, `report.json` and `list-report.json` (the measured percentages) land in the git-ignored
-`visual-results/`. Run `npx playwright install chromium` once beforehand.
+Screenshots, diffs and each suite's measured percentages (the report file named in its entry
+above) land in the git-ignored `visual-results/`. Run `npx playwright install chromium` once beforehand.
 
 ## Docker
 
