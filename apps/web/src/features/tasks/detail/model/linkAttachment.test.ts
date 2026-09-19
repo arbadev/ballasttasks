@@ -22,9 +22,21 @@ describe("linkAttachment", () => {
     expect(linkAttachment("example.com", "")).toMatchObject({ ok: true });
   });
 
+  it("keeps the query and the fragment of the address it was given", () => {
+    expect(linkAttachment("https://example.com/docs?tab=ports#adapters", "")).toEqual({
+      ok: true,
+      attachment: { kind: "link", name: "example.com/docs", meta: "example.com", url: "https://example.com/docs?tab=ports#adapters" },
+    });
+  });
+
   it("rejects blanks, prose and schemes that are not the web", () => {
-    for (const bad of ["", "   ", "not a link", "javascript:alert(1)", "ftp://files.example.com", "http://", "nodots"]) {
+    const notTheWeb = ["mailto:someone@example.com", "mailto:1@example.com", "tel:+34600000000", "tel:600000000", "urn:isbn:0451450523", "javascript:x@evil.com"];
+    for (const bad of ["", "   ", "not a link", "javascript:alert(1)", "ftp://files.example.com", "http://", "nodots", ...notTheWeb]) {
       expect(linkAttachment(bad, "x"), bad).toEqual({ ok: false, error: "Enter a web address, like https://example.com" });
     }
+  });
+
+  it("rejects an address carrying credentials, so none is ever stored on a task", () => {
+    expect(linkAttachment("https://user:secret@example.com/docs", "x")).toEqual({ ok: false, error: "Enter a web address, like https://example.com" });
   });
 });

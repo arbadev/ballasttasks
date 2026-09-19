@@ -13,7 +13,8 @@ export function linkAttachment(input: string, title: string): LinkResult {
   const text = input.trim();
   if (!text || /\s/.test(text)) return INVALID;
 
-  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text)?.[1].toLowerCase();
+  // A colon straight before digits is a port ("localhost:8000"), not a scheme.
+  const scheme = /^([a-z][a-z0-9+.-]*):(?!\d)/i.exec(text)?.[1].toLowerCase();
   if (scheme && scheme !== "http" && scheme !== "https") return INVALID;
 
   let url: URL;
@@ -23,6 +24,8 @@ export function linkAttachment(input: string, title: string): LinkResult {
     return INVALID;
   }
   if (!url.hostname.includes(".") && url.hostname !== "localhost") return INVALID;
+  // "mailto:a@example.com" parses as credentials on a host; a link here carries none.
+  if (url.username || url.password) return INVALID;
 
   const host = url.host.replace(/^www\./, "");
   const path = url.pathname.replace(/\/+$/, "");

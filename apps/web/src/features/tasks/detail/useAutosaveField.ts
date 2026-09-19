@@ -33,6 +33,9 @@ export function useAutosaveField<T>({ saved, save, delay = 0 }: Options<T>): Aut
   const [draft, setDraft] = useState<{ value: T } | null>(null);
   const [failed, setFailed] = useState<{ value: T } | null>(null);
   const pending = useRef<{ value: T; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+  /** The save started last: where the task is headed, which `saved` only catches up to later. */
+  const inFlight = useRef<{ id: number; value: T } | null>(null);
+  const started = useRef(0);
   const latest = useRef({ saved, save });
 
   useEffect(() => {
@@ -46,11 +49,25 @@ export function useAutosaveField<T>({ saved, save, delay = 0 }: Options<T>): Aut
     pending.current = null;
 
     const settleDraft = () => setDraft((d) => (d && Object.is(d.value, edit.value) ? null : d));
-    if (Object.is(edit.value, latest.current.saved)) return settleDraft();
-    latest.current.save(edit.value).then(settleDraft, () => {
+    const stored = inFlight.current ? inFlight.current.value : latest.current.saved;
+    if (Object.is(edit.value, stored)) return settleDraft();
+
+    const id = ++started.current;
+    inFlight.current = { id, value: edit.value };
+    /** Only the save started last has the say; an older one has been overtaken. */
+    const decides = () => {
+      if (inFlight.current?.id === id) inFlight.current = null;
       settleDraft();
-      setFailed({ value: edit.value });
-    });
+      return id === started.current;
+    };
+    latest.current.save(edit.value).then(
+      () => {
+        if (decides()) setFailed(null);
+      },
+      () => {
+        if (decides() && !pending.current) setFailed({ value: edit.value });
+      },
+    );
   }, []);
 
   const change = useCallback(

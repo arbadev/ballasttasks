@@ -1,8 +1,10 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { TasksApp } from "../shell/TasksApp";
+import { FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
-import { due, makeTask } from "@/test/tasks";
+import { NOW, due, makeTask } from "@/test/tasks";
+import { seedTasks } from "../services/seed";
 import { openTask, opener, renderDetail, settle } from "./testing/renderDetail";
 
 describe("opening and closing", () => {
@@ -156,6 +158,24 @@ describe("footer", () => {
     expect(screen.queryByText("open t4")).not.toBeInTheDocument();
   });
 
+  it("keeps the task and says so when the delete fails", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    taskService.remove = async (id: string) => {
+      taskService.calls.push(["remove", id]);
+      throw new Error("offline");
+    };
+    await renderDetail({ taskService });
+    openTask("t4");
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
+    await settle();
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not delete the task. Try again.");
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
   it("shows when the task was last saved, and when it was created and updated", async () => {
     await renderDetail();
     openTask("t4");
@@ -174,7 +194,7 @@ describe("New task, through the shell", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Untitled task" });
     const title = within(dialog).getByRole("textbox", { name: "Task name" }) as HTMLInputElement;
-    expect(title).toHaveFocus();
+    await waitFor(() => expect(title).toHaveFocus());
     expect(title.selectionStart).toBe(0);
     expect(title.selectionEnd).toBe("Untitled task".length);
     expect(within(dialog).getByTestId("detail-project")).toHaveTextContent("Inbox");
@@ -185,7 +205,9 @@ describe("New task, through the shell", () => {
     await screen.findByText("13 tasks");
     screen.getByRole("button", { name: "New task" }).focus();
     fireEvent.click(screen.getByRole("button", { name: "New task" }));
-    await screen.findByRole("dialog", { name: "Untitled task" });
+    const dialog = await screen.findByRole("dialog", { name: "Untitled task" });
+    // The panel is only open once its effects have run: they take focus and listen for Escape.
+    await waitFor(() => expect(within(dialog).getByRole("textbox", { name: "Task name" })).toHaveFocus());
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

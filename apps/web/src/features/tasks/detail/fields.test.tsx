@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeTaskService } from "@/test/fakeServices";
 import { NOW, due } from "@/test/tasks";
+import type { Task } from "../model/types";
 import { seedTasks } from "../services/seed";
 import type { TaskPatch } from "../services/types";
 import { AUTOSAVE_DELAY_MS } from "./useAutosaveField";
@@ -20,6 +21,23 @@ class FlakyTaskService extends FakeTaskService {
     }
     return super.update(id, patch, note);
   }
+}
+
+/** Holds every update open, so a test can interleave two saves and settle them in any order. */
+function deferUpdates(service: FakeTaskService) {
+  const original = service.update.bind(service);
+  const requests: { patch: TaskPatch; settle: (ok: boolean) => void }[] = [];
+  service.update = (id, patch, note) =>
+    new Promise<Task>((resolve, reject) => {
+      requests.push({
+        patch,
+        settle: (ok) => {
+          if (ok) void original(id, patch, note).then(resolve, reject);
+          else reject(new Error("offline"));
+        },
+      });
+    });
+  return requests;
 }
 
 const updates = (service: FakeTaskService) => service.calls.filter((c) => c[0] === "update");
@@ -127,6 +145,55 @@ describe("title and description autosave", () => {
 
     release();
     await settle();
+    expect(saveState()).toHaveTextContent(/^saved · /);
+  });
+
+  it("saves an edit made while an earlier save is still in flight, even one that restores the saved text", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t4");
+    const requests = deferUpdates(taskService);
+
+    fireEvent.change(title(), { target: { value: "Typed while offline" } });
+    fireEvent.blur(title());
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "Typed while offline" }]);
+
+    // Back to the text the task already holds, while the first save is still open.
+    fireEvent.change(title(), { target: { value: "JWT authentication" } });
+    fireEvent.blur(title());
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ title: "Typed while offline" }, { title: "JWT authentication" }]);
+
+    requests[0].settle(true);
+    await settle();
+    requests[1].settle(true);
+    await settle();
+
+    expect(title()).toHaveValue("JWT authentication");
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("JWT authentication");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("drops the failure of a save that a later, successful one has overtaken", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t4");
+    const requests = deferUpdates(taskService);
+
+    fireEvent.change(title(), { target: { value: "JWT auth" } });
+    fireEvent.blur(title());
+    await settle();
+    fireEvent.change(title(), { target: { value: "JWT auth, v2" } });
+    fireEvent.blur(title());
+    await settle();
+    expect(requests).toHaveLength(2);
+
+    requests[0].settle(false);
+    await settle();
+    requests[1].settle(true);
+    await settle();
+
+    expect(title()).toHaveValue("JWT auth, v2");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(saveState()).toHaveTextContent(/^saved · /);
   });
 

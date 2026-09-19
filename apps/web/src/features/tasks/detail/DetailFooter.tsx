@@ -18,7 +18,14 @@ export function DetailFooter({ task }: { task: Task }) {
   const commands = useTaskCommands();
   const { track, saveStatus } = useDetailSession();
   const [confirming, setConfirming] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+
+  const remove = () =>
+    void track(commands.remove(task.id)).catch(() => {
+      setConfirming(false);
+      setDeleteFailed(true);
+    });
 
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
@@ -34,7 +41,7 @@ export function DetailFooter({ task }: { task: Task }) {
           <PanelButton
             ref={confirmRef}
             variant="confirm"
-            onClick={() => void commands.remove(task.id).catch(() => setConfirming(false))}
+            onClick={remove}
             onKeyDown={(e) => {
               if (e.key !== "Escape") return;
               e.preventDefault();
@@ -48,9 +55,20 @@ export function DetailFooter({ task }: { task: Task }) {
           </PanelButton>
         </span>
       ) : (
-        <PanelButton variant="danger" onClick={() => setConfirming(true)}>
+        <PanelButton
+          variant="danger"
+          onClick={() => {
+            setDeleteFailed(false);
+            setConfirming(true);
+          }}
+        >
           Delete
         </PanelButton>
+      )}
+      {deleteFailed && (
+        <p role="alert" className="m-0 text-[12px] text-danger">
+          Could not delete the task. Try again.
+        </p>
       )}
       <span role="status" data-testid="save-state" className={cn("ml-auto font-mono text-[10.5px]", saveStatus === "failed" ? "text-danger" : "text-fg-3")}>
         {saveStatus === "idle" ? (
