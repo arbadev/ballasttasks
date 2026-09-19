@@ -7,7 +7,7 @@ on reruns, so tomorrow's invocation cannot reschedule yesterday's tasks.
 
 import asyncio
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.application.clock import Clock
 from app.application.demo_data import DEMO_PASSWORD, DEMO_PEOPLE, DEMO_TASKS, demo_id
@@ -58,7 +58,7 @@ class SeedDemo:
         if await self._projects.get_for_update(DEFAULT_PROJECT_ID) is None:
             raise DemoSeedConflictError
         existing = await self._projects.get_for_update(demo_id("ballast"))
-        anchor = self._clock() if existing is None else existing.created_at
+        anchor = (self._clock() if existing is None else existing.created_at).astimezone(UTC)
         if existing is not None and existing != _project(anchor):
             raise DemoSeedConflictError
         try:

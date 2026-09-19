@@ -25,6 +25,11 @@ NOW = datetime(2026, 9, 19, 12, tzinfo=UTC)
 # 21:00 in Chicago is already the next UTC day: the day every due date is anchored on.
 CHICAGO = ZoneInfo("America/Chicago")
 PAST_UTC_MIDNIGHT = datetime(2026, 9, 20, 2, tzinfo=UTC)
+# The oldest demo task is created 12 days before the anchor, so these two anchors put
+# part of the seeded history on the other side of a Chicago DST transition.
+AFTER_DST_ENDS = datetime(2026, 11, 5, 12, tzinfo=UTC)
+AFTER_DST_STARTS = datetime(2026, 3, 12, 12, tzinfo=UTC)
+OLDEST_TASK_AGE = timedelta(days=12)
 PASSWORD = "ballast-local-demo-only"
 
 
@@ -263,12 +268,24 @@ def test_rerun_is_byte_for_byte_unchanged_even_days_later(database: sa.Engine) -
     assert snapshot(database) == before
 
 
+def column_by_key(engine: sa.Engine, column: str) -> dict[str, Any]:
+    return {task["key"]: task[column] for task in snapshot(engine)["tasks"]}
+
+
 def due_dates(engine: sa.Engine) -> dict[str, date | None]:
-    return {task["key"]: task["due_date"] for task in snapshot(engine)["tasks"]}
+    return column_by_key(engine, "due_date")
 
 
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        pytest.param(PAST_UTC_MIDNIGHT, id="past-utc-midnight"),
+        pytest.param(AFTER_DST_ENDS, id="history-crosses-the-end-of-dst"),
+        pytest.param(AFTER_DST_STARTS, id="history-crosses-the-start-of-dst"),
+    ],
+)
 def test_rerun_is_unchanged_when_the_connection_time_zone_is_not_utc(
-    database: sa.Engine,
+    database: sa.Engine, anchor: datetime
 ) -> None:
     name = database.url.database
     with database.begin() as connection:
@@ -280,10 +297,11 @@ def test_rerun_is_unchanged_when_the_connection_time_zone_is_not_utc(
     assert stored is not None
     assert stored.utcoffset() != timedelta(0)
 
-    assert seed(PAST_UTC_MIDNIGHT) is True
+    assert seed(anchor) is True
     before = snapshot(database)
-    assert due_dates(database)["BT-01"] == date(2026, 9, 23)
-    assert seed(PAST_UTC_MIDNIGHT) is False
+    assert due_dates(database)["BT-01"] == anchor.date() + timedelta(days=3)
+    assert column_by_key(database, "created_at")["BT-12"] == anchor - OLDEST_TASK_AGE
+    assert seed(anchor) is False
     assert snapshot(database) == before
 
 
