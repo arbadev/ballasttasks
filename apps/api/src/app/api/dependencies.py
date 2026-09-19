@@ -38,6 +38,7 @@ from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
+from app.application.use_cases.step_generations import StepGenerations
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_profile import UpdateProfile
@@ -154,6 +155,9 @@ class RateLimiting(Protocol):
 
 
 class AppContainer(Protocol):
+    @property
+    def step_generations(self) -> StepGenerations: ...
+
     @property
     def request_scope(self) -> Callable[[], AbstractAsyncContextManager[RequestScope]]: ...
 

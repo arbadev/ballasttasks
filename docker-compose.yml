@@ -65,7 +65,7 @@ services:
 
   worker:
     <<: *api-image
-    command: celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
+    command: celery -A app.worker worker --loglevel=INFO
     depends_on:
       api:
         condition: service_healthy

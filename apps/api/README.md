@@ -32,11 +32,47 @@ uv run lint-imports
 uv run alembic upgrade head               # migrations are an explicit step, never run by the app
 uv run alembic revision --autogenerate -m "message"   # new revision from the ORM models; review it by hand
 uv run uvicorn app.main:create_app --factory --reload --no-proxy-headers
-uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
+uv run celery -A app.worker worker --loglevel=INFO
 ```
 
 Configuration is environment-only; every variable is documented in the repo-root `.env.example`.
 For local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
+
+## Draft step jobs
+
+Run the API and `uv run celery -A app.worker worker --loglevel=INFO` with the same
+`DATABASE__URL`, `REDIS__URL` and AI settings. The old
+`app.infrastructure.jobs.celery_app` entrypoint was replaced so both processes compose
+providers through `bootstrap.py`. No additional service or environment variable is needed.
+
+Authenticated `POST /tasks/{id_or_key}/step-generations` (no body) returns `202` with
+`{id, task_id, state: "pending", titles: [], error: null}` without calling the model in
+HTTP. Poll `GET /tasks/{id_or_key}/step-generations/{id}` (normally once per second).
+A success has `state: "success"` and 1–20 `titles`; a failure has `state: "failure"` and a
+safe error code. Retry/regenerate by POSTing again. Keep each handle with its task when
+changing selection. Unknown/deleted tasks, wrong-task jobs and expired jobs return `404`.
+A Redis/queue outage returns a safe `503`, not a false pending or empty success.
+
+Proposals expire one hour after enqueue. Unfinished jobs time out after five minutes.
+Generation never creates steps: send the chosen titles to the existing
+`POST /tasks/{id_or_key}/steps/bulk` to accept them (atomic, 100-step total ceiling).
+See [the HTTP/lifetime contract](../../docs/architecture.md#queued-step-generation).
+
+`AI__PROVIDER=fake` (default) produces three deterministic draft titles offline;
+`openrouter` and `gemini` use the existing provider-neutral `AI__MODEL`, `AI__API_KEY`,
+`AI__BASE_URL` and `AI__TIMEOUT_SECONDS` settings. The worker caps model time at 240
+seconds and its hard execution limit is 250 seconds; use Celery's default prefork pool
+in deployment. Never use eager mode in the API process.
+
+Offline real-worker proof (against your own PostgreSQL/Redis):
+
+```sh
+uv run pytest -m integration tests/integration/test_step_generation_served.py -s
+uv run pytest -m integration tests/integration/test_step_generation_results.py
+```
+
+The first test starts and reaps private HTTP/worker processes, uses a deterministic model
+(no paid calls), and prints only task-feature requests/responses, never login credentials.
 
 ## Docker
 
@@ -45,5 +81,5 @@ One image (build context `apps/api`) serves three commands:
 | Service | Command |
 | --- | --- |
 | api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-proxy-headers` |
-| worker | `celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO` |
+| worker | `celery -A app.worker worker --loglevel=INFO` |
 | migrate | `alembic upgrade head` (run before the api starts) |

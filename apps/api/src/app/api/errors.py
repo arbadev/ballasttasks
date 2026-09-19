@@ -21,6 +21,8 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.ports.step_generation_jobs import GenerationJobsUnavailable
+from app.application.step_generation import GenerationNotFound
 from app.domain.activity import InvalidActivityError
 from app.domain.project import InvalidProjectError
 from app.domain.step import InvalidStepError, InvalidStepOrderError
@@ -85,7 +87,13 @@ async def _validation_error_without_input(_: Request, error: Exception) -> JSONR
     )
 
 
+async def _generation_unavailable(_: Request, error: Exception) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(error)})
+
+
 def register_error_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(GenerationNotFound, _not_found)
+    app.add_exception_handler(GenerationJobsUnavailable, _generation_unavailable)
     app.add_exception_handler(RequestValidationError, _validation_error_without_input)
     app.add_exception_handler(TaskNotFound, _not_found)
     app.add_exception_handler(ProjectNotFound, _not_found)

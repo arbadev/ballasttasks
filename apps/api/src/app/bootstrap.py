@@ -8,11 +8,14 @@ change. No DI framework: the container is a plain frozen dataclass.
 here, so it never imports ``app.infrastructure`` itself.
 """
 
+import asyncio
+import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 
+from celery import Celery
 from httpx import AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -29,6 +32,7 @@ from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.people_directory import PeopleDirectory
 from app.application.ports.project_repository import ProjectRepository
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
+from app.application.ports.step_generation_jobs import StepGenerationJobs
 from app.application.ports.step_repository import StepRepository
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.task_tallies import TaskTallies
@@ -37,6 +41,7 @@ from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_identity_repository import UserIdentityRepository
 from app.application.ports.user_repository import UserRepository
 from app.application.sso import SsoConfig
+from app.application.step_generation import GenerationOutcome
 from app.application.use_cases.add_step import AddStep
 from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.assess_attention import AssessAttention
@@ -47,6 +52,7 @@ from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_step import DeleteStep
 from app.application.use_cases.delete_task import DeleteTask
+from app.application.use_cases.generate_step_titles import GenerateStepTitles
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
@@ -61,6 +67,7 @@ from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
+from app.application.use_cases.step_generations import StepGenerations
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_profile import UpdateProfile
@@ -90,6 +97,7 @@ from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.identity.registry import IDENTITY_PROVIDERS, build_identity_providers
 from app.infrastructure.jobs.factory import create_celery_app
 from app.infrastructure.jobs.queue import CeleryJobQueue
+from app.infrastructure.jobs.step_generations import CeleryStepGenerationJobs
 from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
 from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
@@ -323,6 +331,7 @@ class Container:
     health_checks: Sequence[HealthCheck]
     language_model: LanguageModel
     job_queue: JobQueue
+    step_generation_jobs: StepGenerationJobs
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     request_scope: RequestScopeFactory
@@ -333,6 +342,10 @@ class Container:
     identity_providers: Mapping[str, IdentityProvider]
     one_time_store: OneTimeStore
     sso: SsoConfig
+
+    @property
+    def step_generations(self) -> StepGenerations:
+        return StepGenerations(self.step_generation_jobs)
 
     @property
     def start_sso_sign_in(self) -> StartSsoSignIn:
@@ -360,6 +373,51 @@ def load_settings() -> Settings:
     )
 
 
+async def generate_steps_in_worker(container: Container, task_id: uuid.UUID) -> GenerationOutcome:
+    """Release the read transaction before the slow model call; drafts never write rows."""
+    async with container.request_scope() as scope:
+        task = await scope.tasks.get(task_id)
+        if task is None:
+            return GenerationOutcome(error="task_deleted")
+        existing = tuple(step.title for step in await scope.steps.list_for_task(task_id))
+    result = await GenerateStepTitles(
+        container.language_model, timeout_seconds=container.settings.ai.timeout_seconds
+    ).execute(title=task.title, description=task.description, existing_titles=existing)
+    # A deletion during generation also fails. A later deletion is checked on every poll.
+    async with container.request_scope() as scope:
+        if await scope.tasks.get(task_id) is None:
+            return GenerationOutcome(error="task_deleted")
+    return result
+
+
+def _run_generation(settings: Settings, task_id: str) -> dict[str, object]:
+    async def run() -> GenerationOutcome:
+        container = build_container(settings)
+        try:
+            return await generate_steps_in_worker(container, uuid.UUID(task_id))
+        finally:
+            await container.aclose()
+
+    try:
+        result = asyncio.run(run())
+    except Exception:
+        # Database/worker failures are as private as provider failures. Celery never
+        # receives an exception containing connection strings or response bodies.
+        result = GenerationOutcome(error="worker_failed")
+    return {"titles": list(result.titles), "error": result.error}
+
+
+def build_worker(settings: Settings) -> Celery:
+    def generate_steps(task_id: str) -> dict[str, object]:
+        return _run_generation(settings, task_id)
+
+    return create_celery_app(
+        broker_url=settings.redis.url,
+        result_backend=settings.redis.url,
+        generate_steps=generate_steps,
+    )
+
+
 def build_container(settings: Settings) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
@@ -369,10 +427,7 @@ def build_container(settings: Settings) -> Container:
     ai_http_client = create_http_client(timeout_seconds=settings.ai.timeout_seconds)
     language_model = build_language_model(settings.ai, ai_http_client)
     session_factory = create_session_factory(engine)
-    celery_app = create_celery_app(
-        broker_url=settings.redis.url,
-        result_backend=settings.redis.url,
-    )
+    celery_app = build_worker(settings)
     one_time_store = RedisOneTimeStore(redis)
     return Container(
         settings=settings,
@@ -384,6 +439,7 @@ def build_container(settings: Settings) -> Container:
         ),
         language_model=language_model,
         job_queue=CeleryJobQueue(celery_app),
+        step_generation_jobs=CeleryStepGenerationJobs(celery_app),
         engine=engine,
         session_factory=session_factory,
         request_scope=_request_scope_factory(
