@@ -90,7 +90,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
       )}
 
       {count === 0 && !adding && (
-        <p data-testid="attachments-empty" className="m-0 rounded-bt border border-dashed border-line-2 px-3.5 py-[18px] text-[12.5px] text-fg-3">
+        <p data-testid="attachments-empty" className="m-0 mt-2.5 rounded-bt border border-dashed border-line-2 px-3.5 py-[18px] text-[12.5px] text-fg-3">
           Nothing attached yet. Add a link to a PDF, a screenshot or a thread the assistant can read.
         </p>
       )}

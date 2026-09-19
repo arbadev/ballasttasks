@@ -58,6 +58,7 @@ export function LinkForm({ id, onAdd, onCancel }: LinkFormProps) {
           <input
             ref={urlRef}
             id={`${fieldId}-url`}
+            name="url"
             type="url"
             inputMode="url"
             autoComplete="off"
@@ -76,6 +77,7 @@ export function LinkForm({ id, onAdd, onCancel }: LinkFormProps) {
           <FieldLabel htmlFor={`${fieldId}-title`}>Title (optional)</FieldLabel>
           <input
             id={`${fieldId}-title`}
+            name="link-title"
             autoComplete="off"
             value={title}
             onChange={(e) => setTitle(e.target.value)}

@@ -46,13 +46,13 @@ export function PropertiesPanel({ task }: { task: Task }) {
     >
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor={`${id}-status`}>Status</FieldLabel>
-        <PropertySelect id={`${id}-status`} value={status.value} options={STATUS_OPTIONS} onChange={(v) => status.change(v as TaskStatus)} />
+        <PropertySelect id={`${id}-status`} name="status" value={status.value} options={STATUS_OPTIONS} onChange={(v) => status.change(v as TaskStatus)} />
         {status.failed && <SaveError what="status" onRetry={status.retry} />}
       </div>
 
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor={`${id}-assignee`}>Assignee</FieldLabel>
-        <PropertySelect id={`${id}-assignee`} value={assignee.value ?? ""} options={assigneeOptions} onChange={(v) => assignee.change(v || null)} />
+        <PropertySelect id={`${id}-assignee`} name="assignee" value={assignee.value ?? ""} options={assigneeOptions} onChange={(v) => assignee.change(v || null)} />
         {assignee.failed && <SaveError what="assignee" onRetry={assignee.retry} />}
       </div>
 
@@ -60,6 +60,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
         <FieldLabel htmlFor={`${id}-due`}>Due date</FieldLabel>
         <input
           id={`${id}-due`}
+          name="due"
           type="date"
           value={due.value ?? ""}
           onChange={(e) => due.change(e.target.value || null)}
@@ -71,12 +72,13 @@ export function PropertiesPanel({ task }: { task: Task }) {
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor={`${id}-prio`}>Priority</FieldLabel>
-          <PropertySelect id={`${id}-prio`} mono value={String(prio.value)} options={PRIORITY_OPTIONS} onChange={(v) => prio.change(Number(v) as Priority)} />
+          <PropertySelect id={`${id}-prio`} name="priority" mono value={String(prio.value)} options={PRIORITY_OPTIONS} onChange={(v) => prio.change(Number(v) as Priority)} />
         </div>
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor={`${id}-importance`}>Importance</FieldLabel>
           <input
             id={`${id}-importance`}
+            name="importance"
             type="number"
             min={0}
             max={100}
@@ -103,7 +105,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
 
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor={`${id}-project`}>Project</FieldLabel>
-        <PropertySelect id={`${id}-project`} value={project.value} options={projectOptions} onChange={project.change} />
+        <PropertySelect id={`${id}-project`} name="project" value={project.value} options={projectOptions} onChange={project.change} />
         {project.failed && <SaveError what="project" onRetry={project.retry} />}
       </div>
 

@@ -1,12 +1,27 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Avatar } from "@/components/ui/Avatar";
+import { cn } from "@/lib/cn";
 import { relativeTime } from "../model/time";
 import type { Person, Task } from "../model/types";
 import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
 import { BOX_INPUT, PanelButton, SECTION_LABEL } from "./controls";
 import { useDetailSession, useDraft } from "./DetailSession";
+
+const AVATAR_TONES = {
+  neutral: "bg-card-2 text-fg-2",
+  accent: "bg-acc-soft text-acc",
+  solid: "bg-acc text-acc-fg",
+};
+
+/** The timeline sets its initials a touch smaller (9px) than the shared 24px Avatar does. */
+function TimelineAvatar({ initials, tone, tracked = true }: { initials: string; tone: keyof typeof AVATAR_TONES; tracked?: boolean }) {
+  return (
+    <span aria-hidden="true" className={cn("grid size-6 flex-none place-items-center rounded-bt-av border border-line text-[9px] font-semibold", tracked && "tracking-[.02em]", AVATAR_TONES[tone])}>
+      {initials}
+    </span>
+  );
+}
 
 const ASSISTANT: Person = { id: "ai", name: "Assistant", initials: "AI", role: "system" };
 
@@ -22,7 +37,7 @@ export function ActivitySection({ task }: { task: Task }) {
 
   const entries = [...task.activity].sort((a, b) => a.at - b.at);
   const person = (id: string) => people.find((p) => p.id === id) ?? (id === ASSISTANT.id ? ASSISTANT : null);
-  const tone = (id: string) => (id === ASSISTANT.id ? "solid" : id === currentUser?.id ? "accent" : "neutral");
+  const tone = (id: string): keyof typeof AVATAR_TONES => (id === ASSISTANT.id ? "solid" : id === currentUser?.id ? "accent" : "neutral");
 
   const post = () => {
     const text = comment.trim();
@@ -47,7 +62,7 @@ export function ActivitySection({ task }: { task: Task }) {
             const who = person(entry.who);
             return (
               <li key={`${entry.at}-${i}`} data-kind={entry.type} className="flex items-start gap-2.5">
-                <Avatar initials={who?.initials ?? "?"} tone={tone(entry.who)} />
+                <TimelineAvatar initials={who?.initials ?? "?"} tone={tone(entry.who)} />
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex flex-wrap items-baseline gap-2 text-[12px] text-fg-3">
                     <span className="font-medium text-fg">{who?.name ?? "Unknown"}</span>
@@ -69,10 +84,11 @@ export function ActivitySection({ task }: { task: Task }) {
 
       <div className="flex items-start gap-2.5">
         <span className="flex h-[34px] flex-none items-center">
-          <Avatar initials={currentUser?.initials ?? ""} tone="accent" />
+          <TimelineAvatar initials={currentUser?.initials ?? ""} tone="accent" tracked={false} />
         </span>
         <textarea
           aria-label="Write a comment"
+          name="comment"
           placeholder="Write a comment — Enter to post"
           rows={1}
           value={comment}

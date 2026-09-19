@@ -22,6 +22,7 @@ export function TitleField({ task, inputRef }: { task: Task; inputRef: Ref<HTMLI
       <input
         ref={inputRef}
         aria-label="Task name"
+        name="title"
         placeholder="Task name"
         value={field.value}
         onChange={(e) => field.change(e.target.value)}
@@ -48,6 +49,7 @@ export function DescriptionField({ task }: { task: Task }) {
       <FieldLabel htmlFor={id}>Description</FieldLabel>
       <textarea
         id={id}
+        name="description"
         rows={4}
         placeholder="What does done look like?"
         value={field.value}

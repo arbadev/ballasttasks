@@ -54,7 +54,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
       </div>
 
       {total > 0 && (
-        <ul aria-label="Steps" className="m-0 flex list-none flex-col p-0">
+        <ul aria-label="Steps" className="m-0 flex list-none flex-col gap-2 p-0">
           {task.steps.map((step, i) => (
             <li
               key={step.id}
@@ -98,6 +98,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
         <span aria-hidden="true" className="size-4 flex-none rounded-bt-sm border-[1.5px] border-dashed border-line-2" />
         <input
           aria-label="Add a step"
+          name="new-step"
           placeholder="Add a step and press Enter"
           value={newStep}
           onChange={(e) => setNewStep(e.target.value)}

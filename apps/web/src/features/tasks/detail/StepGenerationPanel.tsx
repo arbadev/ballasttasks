@@ -60,7 +60,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
         <p className="m-0 mb-1.5 text-[12.5px] text-fg-2">
           Drafted from the title, description and attachments. Remove what doesn&apos;t fit — nothing is added until you say so.
         </p>
-        <ul aria-label="Proposed steps" className="m-0 flex list-none flex-col p-0">
+        <ul aria-label="Proposed steps" className="m-0 flex list-none flex-col gap-1.5 p-0">
           {generation.steps.map((step, i) => (
             <li
               key={step.id}

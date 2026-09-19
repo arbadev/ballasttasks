@@ -51,6 +51,7 @@ export function PanelButton({ variant, icon: Icon, iconSize = 13, iconStroke = 2
 
 interface PropertySelectProps {
   id: string;
+  name: string;
   value: string;
   options: readonly { value: string; label: string }[];
   onChange: (value: string) => void;
@@ -58,11 +59,12 @@ interface PropertySelectProps {
 }
 
 /** A native select in the panel's full-width dress. Its label is rendered by the caller. */
-export function PropertySelect({ id, value, options, onChange, mono }: PropertySelectProps) {
+export function PropertySelect({ id, name, value, options, onChange, mono }: PropertySelectProps) {
   return (
     <div className="relative flex items-center">
       <select
         id={id}
+        name={name}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
