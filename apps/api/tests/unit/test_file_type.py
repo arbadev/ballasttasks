@@ -1,6 +1,7 @@
 """What a file is, decided from its leading bytes and from nothing else."""
 
 import pytest
+
 from app.domain.file_type import FILE_TYPES, SNIFF_BYTES, sniff
 
 PDF = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj"

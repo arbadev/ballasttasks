@@ -18,7 +18,9 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application.clock import Clock, utc_now
+from app.application.file_changes import FileChanges, files_following_the_transaction
 from app.application.ports.attachment_repository import AttachmentRepository
+from app.application.ports.file_storage import FileStorage
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.job_queue import JobQueue
@@ -35,6 +37,7 @@ from app.application.ports.user_identity_repository import UserIdentityRepositor
 from app.application.ports.user_repository import UserRepository
 from app.application.sso import SsoConfig
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_file import AttachFile
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
@@ -49,6 +52,7 @@ from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
@@ -84,6 +88,7 @@ from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLim
 from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.security.jwt_token_service import JwtTokenService
+from app.infrastructure.storage.registry import build_file_storage
 
 __all__ = ["Container", "RequestScope", "Settings", "build_container", "load_settings"]
 
@@ -110,6 +115,9 @@ class RequestScope:
     people: PeopleDirectory
     # The links and files of tasks; the rows go with their task.
     attachments: AttachmentRepository
+    file_storage: FileStorage
+    file_changes: FileChanges
+    max_file_bytes: int
     # Single sign-on: the identities table shares the transaction; the enabled providers
     # and the one-time store are shared by every scope, like the hasher and the tokens.
     identities: UserIdentityRepository
@@ -160,7 +168,7 @@ class RequestScope:
 
     @property
     def delete_task(self) -> DeleteTask:
-        return DeleteTask(self.tasks)
+        return DeleteTask(self.tasks, self.attachments, self.file_changes)
 
     @property
     def summarise_tasks(self) -> SummariseTasks:
@@ -204,7 +212,22 @@ class RequestScope:
 
     @property
     def remove_attachment(self) -> RemoveAttachment:
-        return RemoveAttachment(self.tasks, self.attachments, clock=self.clock)
+        return RemoveAttachment(self.tasks, self.attachments, self.file_changes, clock=self.clock)
+
+    @property
+    def attach_file(self) -> AttachFile:
+        return AttachFile(
+            self.tasks,
+            self.attachments,
+            self.file_storage,
+            self.file_changes,
+            max_bytes=self.max_file_bytes,
+            clock=self.clock,
+        )
+
+    @property
+    def open_attachment_content(self) -> OpenAttachmentContent:
+        return OpenAttachmentContent(self.attachments, self.file_storage)
 
 
 RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
@@ -216,10 +239,15 @@ def _request_scope_factory(
     token_service: TokenService,
     identity_providers: Mapping[str, IdentityProvider],
     one_time_store: OneTimeStore,
+    file_storage: FileStorage,
+    max_file_bytes: int,
 ) -> RequestScopeFactory:
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
-        async with transactional_session(session_factory) as session:
+        async with (
+            files_following_the_transaction(file_storage) as files,
+            transactional_session(session_factory) as session,
+        ):
             directory = SqlAlchemyUserDirectory(session)
             yield RequestScope(
                 tasks=SqlAlchemyTaskRepository(session),
@@ -228,6 +256,9 @@ def _request_scope_factory(
                 projects=SqlAlchemyProjectRepository(session),
                 people=directory,
                 attachments=SqlAlchemyAttachmentRepository(session),
+                file_storage=file_storage,
+                file_changes=files,
+                max_file_bytes=max_file_bytes,
                 password_hasher=password_hasher,
                 token_service=token_service,
                 identities=SqlAlchemyUserIdentityRepository(session),
@@ -280,6 +311,7 @@ class Container:
     redis: Redis
     rate_limiting: RateLimiting
     ai_http_client: AsyncClient
+    file_storage: FileStorage
     # Single sign-on. Empty mapping = disabled: the routes answer 404 and list nothing.
     identity_providers: Mapping[str, IdentityProvider]
     one_time_store: OneTimeStore
@@ -314,6 +346,7 @@ def load_settings() -> Settings:
 def build_container(settings: Settings) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
+    file_storage = build_file_storage(settings.storage)
     identity_providers = build_identity_providers(settings)
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
@@ -347,10 +380,13 @@ def build_container(settings: Settings) -> Container:
             ),
             identity_providers,
             one_time_store,
+            file_storage,
+            settings.storage.max_bytes,
         ),
         redis=redis,
         rate_limiting=_rate_limiting(settings.rate_limit, redis),
         ai_http_client=ai_http_client,
+        file_storage=file_storage,
         identity_providers=identity_providers,
         one_time_store=one_time_store,
         sso=SsoConfig(

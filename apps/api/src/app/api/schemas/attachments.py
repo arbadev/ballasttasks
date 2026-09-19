@@ -36,6 +36,12 @@ class LinkCreate(BaseModel):
     )
 
 
+class FileUpload(BaseModel):
+    """Multipart body documentation; parsed incrementally, never buffered by FastAPI."""
+
+    file: bytes = Field(json_schema_extra={"format": "binary"})
+
+
 class AttachmentResponse(BaseModel):
     """Where a file is stored is never part of the contract; its bytes come from
     ``GET /tasks/{id_or_key}/attachments/{attachment_id}/content``."""

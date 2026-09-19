@@ -36,6 +36,13 @@ Tasks
 - FR-12. A summary gives the sidebar counts (all, mine, overdue, per project) and the four Attention signals (overdue, P0 at risk, due soon, need an owner) for the current filters.
 - FR-13. One shared workspace: any signed-in user sees and changes every task and project. Dates are evaluated on the UTC calendar day.
 
+Attachments
+
+- FR-14. A signed-in user attaches an absolute http(s) link to a task, with an optional name defaulting to the host. URLs over 2000 characters, credentials, relative references and other schemes are rejected.
+- FR-15. A signed-in user uploads a PDF, PNG, JPEG, GIF or WebP file. Leading bytes determine type, not the filename or supplied MIME type. Empty, unsupported and oversized files are refused without leaving a stored file. The size limit is checked while streaming, defaults to 10 MiB, and is configurable.
+- FR-16. Every task representation reports its attachment count; task detail includes its attachments. A signed-in user downloads stored files with their detected content type and sanitised display name, removes attachments, or deletes a task and all its attachments/files.
+- FR-17. File storage is replaceable through a small port and provider registry. Local-disk storage ships now with a persistent named API volume; cloud providers, virus scanning, previews and per-user permissions are out of scope. Storage failure windows and security limits are explicit in [ADR 0008](decisions/0008-file-storage.md).
+
 ## Non-functional requirements
 
 ## Milestones

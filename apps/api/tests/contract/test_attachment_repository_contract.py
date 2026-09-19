@@ -11,16 +11,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import pytest
-from app.application.ports.attachment_repository import AttachmentRepository
-from app.domain.attachment import AttachmentKind
-from app.infrastructure.db.repositories.attachment import SqlAlchemyAttachmentRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import AttachmentNotFound, TaskNotFound
+from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.user_repository import UserRepository
+from app.domain.attachment import AttachmentKind
 from app.domain.task import Task
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.attachment import SqlAlchemyAttachmentRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests.auth_fakes import InMemoryUserRepository, a_user

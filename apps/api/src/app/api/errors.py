@@ -13,13 +13,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.application.errors import (
+    AttachmentHasNoContent,
     AttachmentNotFound,
+    EmptyFileError,
+    FileTooLargeError,
     InvalidAssigneeError,
     InvalidTaskReferenceError,
     ProjectKeyTakenError,
     ProjectNotFound,
     TaskNotFound,
     UnknownProjectError,
+    UnsupportedFileTypeError,
 )
 from app.domain.attachment import InvalidAttachmentError
 from app.domain.project import InvalidProjectError
@@ -84,7 +88,18 @@ async def _validation_error_without_input(_: Request, error: Exception) -> JSONR
     )
 
 
+def _file_error(code: int) -> ExceptionHandler:
+    async def handler(_: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(status_code=code, content={"detail": str(error)})
+
+    return handler
+
+
 def register_error_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(AttachmentHasNoContent, _not_found)
+    app.add_exception_handler(EmptyFileError, _unprocessable("empty_file", ["body", "file"]))
+    app.add_exception_handler(FileTooLargeError, _file_error(413))
+    app.add_exception_handler(UnsupportedFileTypeError, _file_error(415))
     app.add_exception_handler(RequestValidationError, _validation_error_without_input)
     app.add_exception_handler(TaskNotFound, _not_found)
     app.add_exception_handler(ProjectNotFound, _not_found)

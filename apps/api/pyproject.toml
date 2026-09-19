@@ -87,7 +87,7 @@ source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx", "cryptography",
+    "jwt", "argon2", "httpx", "cryptography", "python_multipart",
 ]
 
 [[tool.importlinter.contracts]]
@@ -97,7 +97,7 @@ source_modules = ["app.application"]
 forbidden_modules = [
     "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx", "cryptography",
+    "jwt", "argon2", "httpx", "cryptography", "python_multipart",
 ]
 
 [[tool.importlinter.contracts]]

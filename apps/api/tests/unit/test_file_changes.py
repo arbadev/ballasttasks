@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncIterator
 
 import pytest
+
 from app.application.file_changes import FileChanges, files_following_the_transaction
 from app.infrastructure.storage.in_memory import InMemoryFileStorage
 

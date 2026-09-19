@@ -1,13 +1,14 @@
 """What only the local-disk adapter can get wrong: the file system under its root."""
 
-import os
 import asyncio
-import threading
+import os
 import stat
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+
 from app.application.ports.file_storage import (
     InvalidStorageKeyError,
     StorageKeyTakenError,
@@ -160,7 +161,9 @@ async def test_a_stream_that_dies_half_way_leaves_no_partial_file(
 
 
 async def test_cancellation_during_create_removes_the_file(
-    root: Path, storage: LocalDiskFileStorage, monkeypatch: pytest.MonkeyPatch,
+    root: Path,
+    storage: LocalDiskFileStorage,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     real_create = storage._create
     entered, release = threading.Event(), threading.Event()

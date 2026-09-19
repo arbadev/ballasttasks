@@ -19,6 +19,8 @@ from enum import StrEnum
 from typing import Self
 from urllib.parse import urlsplit
 
+from app.domain.file_type import FILE_TYPES, FileType
+from app.domain.storage_key import valid_storage_key
 from app.domain.user import CONTROL_CHARACTERS
 
 URL_MAX_LENGTH = 2000
@@ -77,6 +79,45 @@ class Attachment:
         # ``bool`` is an ``int`` in Python; ``True`` is not a size.
         if type(self.size_bytes) is not int or self.size_bytes <= 0:
             raise InvalidAttachmentError("size_bytes must be a positive whole number")
+
+        file_type = next((t for t in FILE_TYPES if t.content_type == self.content_type), None)
+        if file_type is None or file_type.is_image != (self.kind is AttachmentKind.IMAGE):
+            raise InvalidAttachmentError("kind and content_type must match an allowed file type")
+        if not valid_storage_key(self.storage_key or ""):
+            raise InvalidAttachmentError("invalid storage key")
+
+    @classmethod
+    def file(
+        cls,
+        *,
+        attachment_id: uuid.UUID,
+        task_id: uuid.UUID,
+        file_name: str | None,
+        file_type: FileType,
+        storage_key: str,
+        size_bytes: int,
+        created_by: uuid.UUID,
+        now: datetime,
+    ) -> Self:
+        name = (file_name or "").replace("\\", "/").split("/")[-1]
+        name = " ".join(HIDDEN_CHARACTER.sub("", name).split()).strip(" .") or "file"
+        extension = next((ext for ext in file_type.extensions if name.lower().endswith(ext)), None)
+        if extension is None:
+            extension = file_type.extension
+            name += extension
+        if len(name) > NAME_MAX_LENGTH:
+            name = name[: NAME_MAX_LENGTH - len(extension)] + extension
+        return cls(
+            id=attachment_id,
+            task_id=task_id,
+            kind=AttachmentKind.IMAGE if file_type.is_image else AttachmentKind.PDF,
+            name=name,
+            created_by=created_by,
+            created_at=now,
+            storage_key=storage_key,
+            content_type=file_type.content_type,
+            size_bytes=size_bytes,
+        )
 
     @classmethod
     def link(

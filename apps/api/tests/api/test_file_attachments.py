@@ -141,27 +141,40 @@ async def test_link_has_no_file(task_client: httpx.AsyncClient) -> None:
     assert response.status_code == 404
 
 
-@pytest.mark.parametrize("case", ["missing-boundary", "wrong-part", "two-files", "huge-header", "epilogue"])
+@pytest.mark.parametrize(
+    "case", ["missing-boundary", "wrong-part", "two-files", "huge-header", "epilogue"]
+)
 async def test_multipart_envelope_is_bounded_and_exact(
-    task_client: httpx.AsyncClient, request_scopes: RecordingRequestScopes, case: str,
+    task_client: httpx.AsyncClient,
+    request_scopes: RecordingRequestScopes,
+    case: str,
 ) -> None:
     task = await create_task(task_client)
     path = f"/tasks/{task['id']}/attachments/files"
     if case == "missing-boundary":
-        response = await task_client.post(path, content=PDF,
-                                          headers={"content-type": "multipart/form-data"})
+        response = await task_client.post(
+            path, content=PDF, headers={"content-type": "multipart/form-data"}
+        )
     elif case == "wrong-part":
         response = await task_client.post(path, files={"other": ("a.pdf", PDF)})
     elif case == "two-files":
-        response = await task_client.post(path, files=[("file", ("a.pdf", PDF)), ("file", ("b.pdf", PDF))])
+        response = await task_client.post(
+            path, files=[("file", ("a.pdf", PDF)), ("file", ("b.pdf", PDF))]
+        )
     else:
         name = b"x" * 20_000 if case == "huge-header" else b"a.pdf"
-        body = (b'--b\r\nContent-Disposition: form-data; name="file"; filename="' + name
-                + b'"\r\n\r\n' + PDF + b"\r\n--b--\r\n")
+        body = (
+            b'--b\r\nContent-Disposition: form-data; name="file"; filename="'
+            + name
+            + b'"\r\n\r\n'
+            + PDF
+            + b"\r\n--b--\r\n"
+        )
         if case == "epilogue":
             body += b"x" * 100_000
-        response = await task_client.post(path, content=body,
-                                          headers={"content-type": "multipart/form-data; boundary=b"})
+        response = await task_client.post(
+            path, content=body, headers={"content-type": "multipart/form-data; boundary=b"}
+        )
     assert response.status_code == 422
     assert request_scopes.storage.stored_keys() == []
 

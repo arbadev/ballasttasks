@@ -30,7 +30,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.14-slim AS runtime
 
 RUN groupadd --system --gid 1001 app \
-    && useradd --system --uid 1001 --gid app --no-create-home app
+    && useradd --system --uid 1001 --gid app --no-create-home app \
+    && mkdir -p /var/lib/ballasttasks/attachments \
+    && chown app:app /var/lib/ballasttasks/attachments \
+    && chmod 700 /var/lib/ballasttasks/attachments
 
 WORKDIR /app
 

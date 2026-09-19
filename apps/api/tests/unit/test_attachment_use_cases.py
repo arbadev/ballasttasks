@@ -4,15 +4,15 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.application.file_changes import FileChanges
-from app.infrastructure.storage.in_memory import InMemoryFileStorage
 
 from app.application.errors import AttachmentNotFound, TaskNotFound
+from app.application.file_changes import FileChanges
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.domain.attachment import AttachmentKind, InvalidAttachmentError
 from app.domain.task import Task
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import a_file, a_link, a_task
 from tests.fakes import (

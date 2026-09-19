@@ -7,9 +7,6 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.application.file_changes import FileChanges
-from app.application.use_cases.attach_file import AttachFile
-from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 
 from app.application.errors import (
     AttachmentContentMissing,
@@ -20,7 +17,10 @@ from app.application.errors import (
     TaskNotFound,
     UnsupportedFileTypeError,
 )
+from app.application.file_changes import FileChanges
+from app.application.use_cases.attach_file import AttachFile
 from app.application.use_cases.delete_task import DeleteTask
+from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.domain.attachment import Attachment, AttachmentKind
 from app.domain.task import Task

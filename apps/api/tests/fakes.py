@@ -6,9 +6,6 @@ from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequen
 from dataclasses import replace
 from datetime import date
 
-from app.application.ports.file_storage import StoredFile
-from app.infrastructure.storage.in_memory import InMemoryFileStorage
-
 from app.application.errors import (
     AttachmentNotFound,
     InvalidAssigneeError,
@@ -17,6 +14,7 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.ports.file_storage import StoredFile
 from app.application.ports.project_repository import ProjectOverview
 from app.application.task_query import (
     DueFilter,
@@ -39,6 +37,7 @@ from app.domain.project import (
 )
 from app.domain.task import Task
 from app.domain.task_key import TaskKey
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import CREATED
 

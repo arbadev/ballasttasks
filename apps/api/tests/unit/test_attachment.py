@@ -4,7 +4,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from app.domain.file_type import FileType, sniff
 
 from app.domain.attachment import (
     NAME_MAX_LENGTH,
@@ -13,6 +12,7 @@ from app.domain.attachment import (
     AttachmentKind,
     InvalidAttachmentError,
 )
+from app.domain.file_type import FileType, sniff
 
 NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 TASK_ID = uuid.uuid4()

@@ -173,6 +173,8 @@ Adapters in this setup:
 | Port | Adapters | Notes |
 | --- | --- | --- |
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
+| `AttachmentRepository` | SQLAlchemy/PostgreSQL, in-memory fake | `tests/contract/test_attachment_repository_contract.py`; metadata belongs to one task, counts are batched, task deletion cascades rows |
+| `FileStorage` | Local disk (`local`), in-memory fake | Streaming `save`, `open`, idempotent `delete` only; `tests/contract/test_file_storage_contract.py`. Selected through `STORAGE__PROVIDER` and `infrastructure/storage/registry.py`; [ADR 0008](decisions/0008-file-storage.md) |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. Filters, sorts, paging and counts run in SQL (`infrastructure/db/repositories/task_queries.py`); the fake answers the same cases with the domain's rules, and both are held to literal expectations and to the design's urgency function. An unknown project is refused like an unknown assignee (`UnknownProjectError`). `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
@@ -278,7 +280,7 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`.
 - **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
 - **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
-- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues three statements whatever it returns (the caller, the page, the total).
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues four statements for a nonempty page (the caller, page, total and batched attachment counts); empty pages need no count lookup.
 - **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
 - `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
@@ -289,6 +291,41 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
 - Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`, so `testing` is open work like `todo` and `in_progress`.
+
+### Task attachments
+
+Every task representation includes `attachments_count`. `GET /tasks/{id_or_key}` returns
+`TaskDetailResponse`, which also includes `attachments` in creation order. Counts use one
+batched query, never one query per task. `AttachmentResponse` exposes id, task_id, kind
+(`link`, `pdf`, `image`), name, created_by, created_at, url, content_type and size_bytes;
+file storage keys remain internal. Attaching/removing touches the task's `updated_at`.
+
+| Route | Success | Errors (standard bodies) |
+| --- | --- | --- |
+| `POST /tasks/{id_or_key}/attachments/links` | 201 `AttachmentResponse` | 401, 404, 422, 429 |
+| `POST /tasks/{id_or_key}/attachments/files` | 201 `AttachmentResponse` | 401, 404, 413, 415, 422, 429 |
+| `GET /tasks/{id_or_key}/attachments/{attachment_id}/content` | 200 streamed file | 401, 404 (also links/missing bytes), 422, 429 |
+| `DELETE /tasks/{id_or_key}/attachments/{attachment_id}` | 204 | 401, 404, 422, 429 |
+
+Links accept only absolute http(s) URLs, at most 2000 characters, without credentials;
+optional name defaults to the host. URLs are never fetched. File upload accepts exactly
+one multipart `file` part. Parsing and size enforcement are incremental, including before
+any framework spooling; the default limit is 10 MiB (`STORAGE__MAX_BYTES`). Signatures
+allow PDF/PNG/JPEG/GIF/WebP, not client-provided MIME types. Names are sanitised display
+metadata, not keys. Downloads carry an encoded attachment Content-Disposition and nosniff.
+
+`FileStorage` is a small application Protocol, whose registry-selected adapter is built
+only in `bootstrap.py`. `FileChanges` wraps `transactional_session`: compensate new writes
+on rollback and defer removals until after commit. Removing a task also removes all of
+its stored files. No static mount. The API's named `attachments-data` volume persists the
+local root from `STORAGE__LOCAL_DIRECTORY`. Local-disk guarantees, failure windows and the
+cloud-adapter checklist are in [ADR 0008](decisions/0008-file-storage.md).
+
+Revision `c4a9e7d21b65` adds one table after user identities. Existing rows are untouched:
+counts start at zero, no backfill. Downgrade drops only attachment metadata; operators
+must remove orphaned files. `tests/integration/test_attachments_migration.py` proves
+upgrade with populated rows and downgrade. Transaction cleanup, including failed commit,
+and real TCP HTTP are covered by `tests/integration/test_file_attachments.py`.
 
 ### Tasks reference users
 

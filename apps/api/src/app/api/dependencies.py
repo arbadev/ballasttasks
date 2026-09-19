@@ -16,6 +16,7 @@ from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.sso import SsoConfig
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_file import AttachFile
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
@@ -30,6 +31,7 @@ from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
@@ -105,6 +107,12 @@ class RequestScope(Protocol):
 
     @property
     def remove_attachment(self) -> RemoveAttachment: ...
+
+    @property
+    def attach_file(self) -> AttachFile: ...
+
+    @property
+    def open_attachment_content(self) -> OpenAttachmentContent: ...
 
 
 class RateLimiting(Protocol):
@@ -309,6 +317,16 @@ def get_remove_attachment(scope: RequestScopeDep) -> RemoveAttachment:
     return scope.remove_attachment
 
 
+def get_attach_file(scope: RequestScopeDep) -> AttachFile:
+    return scope.attach_file
+
+
+def get_open_attachment_content(scope: RequestScopeDep) -> OpenAttachmentContent:
+    return scope.open_attachment_content
+
+
+AttachFileDep = Annotated[AttachFile, Depends(get_attach_file)]
+OpenAttachmentContentDep = Annotated[OpenAttachmentContent, Depends(get_open_attachment_content)]
 AttachLinkDep = Annotated[AttachLink, Depends(get_attach_link)]
 ListAttachmentsDep = Annotated[ListAttachments, Depends(get_list_attachments)]
 RemoveAttachmentDep = Annotated[RemoveAttachment, Depends(get_remove_attachment)]

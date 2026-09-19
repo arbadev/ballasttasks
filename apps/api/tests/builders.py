@@ -5,7 +5,6 @@ import uuid
 from datetime import UTC, datetime
 
 from app.domain.attachment import Attachment, AttachmentKind
-
 from app.domain.project import DEFAULT_PROJECT_ID, Project
 from app.domain.task import Task
 

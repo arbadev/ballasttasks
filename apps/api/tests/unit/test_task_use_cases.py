@@ -2,8 +2,6 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from app.application.file_changes import FileChanges
-from app.infrastructure.storage.in_memory import InMemoryFileStorage
 
 from app.application.errors import (
     InvalidAssigneeError,
@@ -11,6 +9,7 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.file_changes import FileChanges
 from app.application.task_query import TaskQuery
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
@@ -20,6 +19,7 @@ from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from tests.auth_fakes import InMemoryUserDirectory, InMemoryUserRepository, a_user
 from tests.builders import a_project, a_task
 from tests.fakes import (

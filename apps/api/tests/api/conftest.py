@@ -9,10 +9,12 @@ from fastapi import FastAPI
 
 from app.api.security import get_current_user_id
 from app.application.clock import Clock, utc_now
+from app.application.file_changes import FileChanges
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.infrastructure.identity.fake import FakeIdentityProvider
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from app.main import create_app
 from tests.auth_fakes import (
     FakePasswordHasher,
@@ -104,6 +106,8 @@ class RecordingRequestScopes:
         self.auth = auth
         self.attachments = attachments
         self.sso = sso
+        self.storage = InMemoryFileStorage()
+        self.max_file_bytes = 10 * 1024 * 1024
         self.events: list[str] = []
         # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
         self.clock: Clock = utc_now
@@ -111,6 +115,7 @@ class RecordingRequestScopes:
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
         self.events.append("begin")
+        files = FileChanges(self.storage)
         try:
             yield RequestScope(
                 tasks=self.tasks,
@@ -119,6 +124,9 @@ class RecordingRequestScopes:
                 projects=self.tasks.projects,
                 people=InMemoryUserDirectory(self.auth.users),
                 attachments=self.attachments,
+                file_storage=self.storage,
+                file_changes=files,
+                max_file_bytes=self.max_file_bytes,
                 clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
@@ -127,9 +135,11 @@ class RecordingRequestScopes:
                 one_time_store=self.sso.store,
             )
         except BaseException:
+            await files.rolled_back()
             self.events.append("rollback")
             raise
         self.events.append("commit")
+        await files.committed()
 
 
 @pytest.fixture

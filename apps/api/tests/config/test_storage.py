@@ -22,7 +22,9 @@ def test_limit_is_positive(value: int) -> None:
         StorageSettings(max_bytes=value)
 
 
-async def test_storage_settings_and_registry(minimal_env: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_storage_settings_and_registry(
+    minimal_env: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     minimal_env.setenv("STORAGE__LOCAL_DIRECTORY", str(tmp_path))
     minimal_env.setenv("STORAGE__MAX_BYTES", "128")
     container = build_container(load_settings())
