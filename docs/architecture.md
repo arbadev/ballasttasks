@@ -14,7 +14,7 @@ The reasons behind the two structural choices are recorded in
 ```mermaid
 flowchart LR
     browser([Browser]) --> web[web<br/>Next.js :3000]
-    browser -->|GET /health, /health/ready| api[api<br/>FastAPI :8000]
+    browser -->|/health, /health/ready, /auth/*| api[api<br/>FastAPI :8000]
     api --> db[(db<br/>PostgreSQL)]
     api --> redis[(redis)]
     worker[worker<br/>Celery] --> redis
@@ -101,6 +101,9 @@ Adapters in this setup:
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` only | No real provider SDK and no API key in this setup |
+| `UserRepository` | SQLAlchemy (PostgreSQL), in-memory fake for tests | `add` raises `EmailAlreadyRegisteredError`, also when a concurrent `add` wins: the unique constraint is the guarantee |
+| `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
+| `TokenService` | JWT (`PyJWT`, HMAC), in-memory fake for tests | Tokens carry only `sub`, `iat`, `exp`; `decode` raises `InvalidTokenError` |
 
 ## Composition roots
 
@@ -167,6 +170,26 @@ Rules:
 - Pydantic model names (these become the OpenAPI component names the frontend types import): `HealthResponse`, `ReadinessResponse`, `ComponentStatus`, `AiInfo`. The `503` response must be declared in the route's `responses=` with the same `ReadinessResponse` model so it appears in OpenAPI.
 - Check names are exactly `database`, `redis`, `ai`. The frontend labels them "Database", "Redis", "AI"; "API" status on the page comes from `GET /health`.
 
+## Authentication
+
+Users register and log in under `/auth`; every other feature learns who is calling through one seam and nothing else.
+
+```mermaid
+flowchart LR
+    route[feature route] -->|CurrentUserId| seam[api/security.py<br/>get_current_user_id]
+    seam --> usecase[GetCurrentUser]
+    usecase --> tokens[TokenService port]
+    usecase --> users[UserRepository port]
+```
+
+- **The seam**: `apps/api/src/app/api/security.py` exposes `get_current_user_id` and `CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]`. A feature route asks for `CurrentUserId` and gets a UUID. It never sees a JWT, a `User` or the users table, and its API tests supply a caller with `app.dependency_overrides[get_current_user_id]`.
+- **Endpoints**: `POST /auth/register` (`201` `UserResponse`, `409` duplicate email), `POST /auth/login` (OAuth2 password form, so Swagger's Authorize button works; `200` `TokenResponse`), `GET /auth/me` (`200` `UserResponse`). The health endpoints stay public.
+- **Errors**: non-validation errors use `ErrorResponse` (`{"detail": "..."}`). Every `401` carries `WWW-Authenticate: Bearer`. Login failures (unknown email, wrong password, inactive user) are one identical `401`, and an unknown email still pays for one hash, so neither body nor timing enumerates accounts. A bad token and a deactivated or deleted user are likewise one `401`; the user is re-read on every request, so deactivation is immediate.
+- **Nothing secret leaves**: `UserResponse` has no hash field; `422` bodies omit pydantic's `input` (for a missing field it is the whole request body, password included); the engine sets `hide_parameters`, so SQL echo under `APP__DEBUG` never prints the bound hash; `AUTH__JWT_SECRET` is a `SecretStr`.
+- **Email** is normalised (trimmed, lower-cased) by the `User` entity, so uniqueness is a plain constraint, `uq_users_email`. The use case checks first for a friendly early answer; the constraint, mapped by the repository to `EmailAlreadyRegisteredError`, is what makes concurrent registrations safe.
+- **Settings**: the `auth` group (`AUTH__JWT_SECRET`, `AUTH__JWT_ALGORITHM`, `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES`). Startup fails when the secret is missing or shorter than the algorithm's digest (RFC 7518 section 3.2). Only HMAC algorithms are accepted, and decoding pins the configured one, which rules out `alg=none` and algorithm confusion.
+- Out of scope by decision: refresh tokens, password reset, email verification, roles.
+
 ## SOLID mapping
 
 | Principle | Concrete mechanism | Where it is enforced |
@@ -200,6 +223,6 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected | Environment variables only |
-| Integration | Real adapters against real PostgreSQL and Redis | The running compose stack: `make test-integration`; never SQLite |
+| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database, and that the ORM models match the migrations | The running compose stack: `make test-integration`; never SQLite. Tests that write rows run in a scratch database (`tests/support/database.py`) that is created, migrated and dropped, never in the developer's data |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.

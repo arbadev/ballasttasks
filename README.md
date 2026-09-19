@@ -2,7 +2,7 @@
 
 A task management app: a Python REST API with a web frontend, built as a Clean Architecture exercise.
 
-The repository currently contains the **foundation only**: the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them. Product features (tasks, authentication, pagination, filtering, rate limiting, seed data) arrive in later phases.
+The repository contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and **JWT authentication** (register, login, current user). The other product features (tasks, pagination, filtering, rate limiting, seed data) arrive in later phases.
 
 ## Architecture at a glance
 
@@ -40,6 +40,8 @@ That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no ot
 | Swagger UI | <http://localhost:8000/docs> |
 | Liveness | <http://localhost:8000/health> |
 | Readiness (database, redis, ai) | <http://localhost:8000/health/ready> |
+
+To try authentication, open Swagger UI, call `POST /auth/register`, then press **Authorize** and enter the same email (as `username`) and password: Swagger logs in through `POST /auth/login` and sends the bearer token on every later call, such as `GET /auth/me`. Details: [docs/architecture.md](docs/architecture.md#authentication).
 
 Stop with `Ctrl+C`, then `make down` (`docker compose down`; add `-v` to also drop the database volume).
 
