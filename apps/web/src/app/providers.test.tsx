@@ -50,10 +50,10 @@ describe("Providers", () => {
     expect(await screen.findByText(/api is unreachable/i)).toBeInTheDocument();
   });
 
-  it("wires the in-memory task services by default, sharing one store", async () => {
+  it("wires the in-memory task services only in explicit demo mode, sharing one store", async () => {
     const { result } = renderHook(
       () => ({ tasks: useTaskService(), directory: useDirectoryService(), generation: useStepGenerationService(), clock: useClock() }),
-      { wrapper: Providers },
+      { wrapper: ({ children }) => <Providers demo>{children}</Providers> },
     );
 
     expect(await result.current.tasks.list()).toHaveLength(16);
@@ -70,6 +70,15 @@ describe("Providers", () => {
     }
     // Accepted through one service, visible through the other: they share a store.
     expect((await result.current.tasks.get("t16"))?.steps).toHaveLength(3);
+  });
+
+  it("selects real HTTP task services by default, never supplying seeded tasks", async () => {
+    server.use(http.get(`${API_URL}/tasks`, ({ request }) => {
+      expect(new URL(request.url).searchParams.get("status")).toBe("all");
+      return HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 });
+    }));
+    const { result } = renderHook(() => useTaskService(), { wrapper: Providers });
+    expect(await result.current.list()).toEqual([]);
   });
 
   it("keeps the same services across re-renders", () => {

@@ -28,8 +28,34 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 The two "only module" rules are enforced by ESLint (`eslint.config.mjs`), not by convention.
 Icons come from `lucide-react`, the design system's icon set.
 
-The task services are in-memory for now. An HTTP-backed `TaskService` is a new class plus one
-line in `providers.tsx`; no component changes, because none of them knows which one it has.
+The default services are HTTP-backed. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects
+in-memory design fixtures; visual comparison tooling opts into that mode, never silently
+falls back to it after an API error. Unit tests can still inject individual services.
+
+## Authentication and HTTP integration
+
+`/` presents password sign-in/registration; `/auth/callback` exchanges an SSO one-time code
+in a POST body after clearing it from the browser URL. Enabled providers come from the API.
+The bearer credential lives **only in memory**. Full reloads and new tabs require sign-in
+again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
+Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
+to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
+
+`client.ts` attaches bearer headers, carries Retry-After, uploads multipart files and returns
+authenticated download blobs (never bearer URLs). It fences both late responses and queued
+work from an obsolete session. Client disposal does not undo an already accepted mutation.
+Generation handles belong to tasks; observation pauses when not selected/visible/subscribed,
+uses 2/4/8/10-second delays, respects Retry-After and stops at terminal results. Proposals
+are accepted through one atomic bulk endpoint; an ambiguous acceptance must be checked by
+reloading the task, not blindly retried. The API's 100-step ceiling remains authoritative.
+
+SWR was evaluated via Context7's `/vercel/swr` and `/vercel/swr-site` official sources,
+with the 2.5.1 tag checked against React 19. It is not added: the existing workspace and
+service seams own data, and a second cache would duplicate mutation/auth coordination.
+References: [cache](https://swr.vercel.app/docs/advanced/cache),
+[revalidation](https://swr.vercel.app/docs/revalidation),
+[mutation](https://swr.vercel.app/docs/mutation),
+[error handling](https://swr.vercel.app/docs/error-handling).
 
 Due dates are calendar days, `YYYY-MM-DD` strings, not `Date` objects: the same arithmetic
 and labels as the design, but serialisable and the shape an API date column has.

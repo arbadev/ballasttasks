@@ -5,6 +5,9 @@ import { rowView } from "./rowView";
 const view = (overrides: Parameters<typeof makeTask>[0], index = 0) => rowView(makeTask(overrides), NOW, index);
 
 describe("rowView: the due label and its tone", () => {
+  it("uses server tallies for summaries without fabricating steps or attachments", () => {
+    expect(view({ steps: [], attachments: [], tally: { steps: 4, done: 2, attachments: 3, comments: 1 }, detailLoaded: false })).toMatchObject({ stepsLabel: "2/4", attachmentCount: 3 });
+  });
   it("an overdue open task is danger, with the alert icon and a danger rail", () => {
     expect(view({ due: due(-2) })).toMatchObject({ dueLabel: "Overdue · 2d", dueTone: "danger", dueIcon: "overdue", rail: "danger" });
   });

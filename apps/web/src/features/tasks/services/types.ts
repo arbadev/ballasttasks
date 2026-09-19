@@ -32,8 +32,8 @@ export interface TaskService {
   get(id: string): Promise<Task | null>;
   create(input: NewTask): Promise<Task>;
   /**
-   * Plain edits are silent. An assignee change is logged as "Assigned to ..." / "Unassigned"
-   * unless `note` is given, in which case the note is logged instead.
+   * The server owns activity wording: assignment, due-date and priority changes log events.
+   * `note` is a deprecated caller hint, never a custom event or comment.
    */
   update(id: string, patch: TaskPatch, note?: string): Promise<Task>;
   /** Logs "Moved A → B". Moving to the current status changes nothing. */
@@ -48,6 +48,11 @@ export interface TaskService {
   addComment(id: string, text: string): Promise<Task>;
   /** Logs "Attached <name>". */
   addAttachment(id: string, attachment: Attachment): Promise<Task>;
+  /** Optional only for older demo/test adapters; HTTP implements all storage operations. */
+  uploadAttachment?(id: string, file: File): Promise<Task>;
+  downloadAttachment?(id: string, attachmentId: string): Promise<Blob>;
+  removeAttachment?(id: string, attachmentId: string): Promise<Task>;
+  acceptSteps?(id: string, titles: string[]): Promise<Task>;
   remove(id: string): Promise<void>;
 }
 
@@ -86,17 +91,17 @@ export interface ProposedStep {
 }
 
 export type Generation =
-  | { taskId: string; phase: "running" }
-  | { taskId: string; phase: "proposed"; steps: ProposedStep[] };
+  | { taskId: string; phase: "running"; notice?: string }
+  | { taskId: string; phase: "proposed"; steps: ProposedStep[]; accepting?: boolean; notice?: string }
+  | { taskId: string; phase: "error"; message: string };
 
 /**
- * Drafts steps for a task. One generation is in flight at a time: it is `running`, then
- * `proposed` with steps the user can prune, then accepted into the task or discarded.
- * A generation never outlives its task: once the task is gone, `accept` and `discard` clear
- * it without touching anything else.
+ * Drafts are proposals only. HTTP handles belong to tasks and survive changing selection;
+ * current() observes the selected task. Acceptance is one atomic bulk operation.
+ * Discard is local only: it does not cancel a server job.
  */
 export interface StepGenerationService {
-  /** Starting the task that is already running is a no-op; another task replaces the run. */
+  /** Starts a new independent job; UI disables repeated submission while pending. */
   start(taskId: string): Promise<void>;
   current(): Generation | null;
   /** Calls `listener` on every change; returns the unsubscribe function. */
@@ -105,4 +110,9 @@ export interface StepGenerationService {
   /** Appends the proposed steps to the task. Resolves to null unless a proposal is waiting. */
   accept(): Promise<Task | null>;
   discard(): Promise<void>;
+  /** Additive observation/lifetime seams; older explicit demo doubles may omit them. */
+  select?(taskId: string | null): void;
+  setVisible?(visible: boolean): void;
+  forget?(taskId: string): void;
+  dispose?(): void;
 }

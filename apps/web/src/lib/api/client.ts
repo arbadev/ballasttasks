@@ -1,4 +1,4 @@
-export type ApiErrorKind = "http" | "network";
+export type ApiErrorKind = "http" | "network" | "session";
 
 interface ApiErrorOptions {
   kind: ApiErrorKind;
@@ -45,6 +45,10 @@ export interface HttpTransport extends HttpClient {
 
 interface Credentials {
   token(): string | null;
+  /** Session epoch fences every completion, including old public login requests. */
+  version?(): number;
+  /** Session-scoped data clients cannot send queued work after that session ends. */
+  expectedVersion?: number;
   unauthorized?(): void;
 }
 
@@ -75,9 +79,11 @@ export class ApiClient implements HttpTransport {
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const version = this.credentials?.version?.();
     const response = await this.send(path, options);
     if (response.status === 204) return undefined as T;
     const body = await readJson(response);
+    this.assertSession(version);
     if (body === undefined) {
       throw new ApiError("The API returned an invalid response.", {
         kind: "http", status: response.status,
@@ -87,11 +93,16 @@ export class ApiClient implements HttpTransport {
   }
 
   async download(path: string): Promise<Blob> {
+    const version = this.credentials?.version?.();
     const response = await this.send(path, {}, "application/octet-stream");
-    return response.blob();
+    const blob = await response.blob();
+    this.assertSession(version);
+    return blob;
   }
 
   private async send(path: string, options: RequestOptions, accept = "application/json"): Promise<Response> {
+    const version = this.credentials?.version?.();
+    this.assertSession(version);
     const token = options.authenticated === false ? null : this.credentials?.token();
     const headers: Record<string, string> = { Accept: accept };
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -112,8 +123,10 @@ export class ApiClient implements HttpTransport {
       // A native error can contain a sensitive URL. Do not retain it as a cause.
       throw new ApiError("Could not reach the API. Try again.", { kind: "network", status: null });
     }
+    this.assertSession(version);
     if (!response.ok) {
       const errorBody = path.startsWith("/auth/") ? undefined : await readJson(response);
+      this.assertSession(version);
       // A delayed 401 from the previous session must not sign out a new one.
       if (response.status === 401 && token && token === this.credentials?.token()) {
         this.credentials.unauthorized?.();
@@ -124,5 +137,12 @@ export class ApiClient implements HttpTransport {
       });
     }
     return response;
+  }
+
+  private assertSession(version: number | undefined): void {
+    const current = this.credentials?.version?.();
+    if (version !== current || (this.credentials?.expectedVersion !== undefined && this.credentials.expectedVersion !== current)) {
+      throw new ApiError("This session has ended. Sign in again.", { kind: "session", status: null });
+    }
   }
 }

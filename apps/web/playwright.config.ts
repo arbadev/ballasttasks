@@ -35,7 +35,8 @@ export default defineConfig({
       // The tasks UI is in-memory; the API URL only has to be well-formed.
       command: `node node_modules/next/dist/bin/next dev --port ${appPort} --hostname 127.0.0.1`,
       url: APP_URL,
-      env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:47899" },
+      // Design comparisons deliberately exercise the explicit offline fixture adapter.
+      env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:47899", NEXT_PUBLIC_SERVICE_MODE: "demo" },
       reuseExistingServer: true,
       timeout: 120_000,
     },

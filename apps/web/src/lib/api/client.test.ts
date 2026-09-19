@@ -120,6 +120,16 @@ describe("ApiClient", () => {
     expect(error.cause).toBeUndefined();
   });
 
+  it("refuses queued work from a previous session before it reaches the network", async () => {
+    let version = 1;
+    const handler = vi.fn(() => HttpResponse.json({}));
+    server.use(http.post(`${BASE_URL}/tasks`, handler));
+    const client = new ApiClient(BASE_URL, { token: () => "new-user-token", version: () => version, expectedVersion: 1 });
+    version = 2;
+    await expect(client.request("/tasks", { method: "POST", body: { title: "old-user-edit" } })).rejects.toMatchObject({ kind: "session" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("returns the parsed JSON body on a 2xx response", async () => {
     server.use(http.get(`${BASE_URL}/thing`, () => HttpResponse.json({ value: 42 })));
 

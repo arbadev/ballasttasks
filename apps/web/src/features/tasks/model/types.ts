@@ -16,6 +16,11 @@ export interface Step {
 export type AttachmentKind = "pdf" | "image" | "link";
 
 export interface Attachment {
+  /** Server identity; absent only in explicit demo fixtures. */
+  id?: string;
+  url?: string;
+  contentType?: string;
+  sizeBytes?: number;
   kind: AttachmentKind;
   name: string;
   /** Secondary line: size and type for files, the host for links. */
@@ -53,6 +58,11 @@ export interface Project {
 
 export interface Task {
   id: string;
+  /** Immutable key allocated by the API, never synthesized in the browser. */
+  key?: string;
+  /** List summaries do not fabricate child rows. Load these on selection. */
+  detailLoaded?: boolean;
+  tally?: { steps: number; done: number; attachments: number; comments: number };
   title: string;
   description: string;
   status: TaskStatus;

@@ -1,6 +1,7 @@
 "use client";
 
-import { Activity, Check, CircleAlert, List, User, type LucideIcon } from "lucide-react";
+import { Activity, Check, CircleAlert, List, LogOut, User, type LucideIcon } from "lucide-react";
+import { useAuthService } from "@/app/providers";
 import type { ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { IconButton } from "@/components/ui/IconButton";
@@ -29,6 +30,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ id, open, onNavigate }: SidebarProps) {
+  const auth = useAuthService();
   const { state, actions } = useWorkspace();
   const { people, projects, currentUser } = useDirectory();
   const now = useNow();
@@ -118,6 +120,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
             </div>
           </>
         )}
+        {auth && currentUser && <IconButton icon={LogOut} label="Sign out" onClick={() => auth.logout()} />}
         <IconButton icon={Activity} label="System status" href="/status" className="ml-auto" />
       </div>
     </aside>

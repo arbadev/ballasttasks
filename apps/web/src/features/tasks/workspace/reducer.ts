@@ -24,6 +24,9 @@ export interface WorkspaceState {
   sort: SortBy;
   view: View;
   selectedId: string | null;
+  /** Changes made while a list reload is in flight win over that older response. */
+  duringLoad?: Record<string, Task | null>;
+  detailLoad?: LoadState;
 }
 
 export type WorkspaceAction =
@@ -31,6 +34,9 @@ export type WorkspaceAction =
   | { type: "tasksLoaded"; tasks: Task[] }
   | { type: "loadFailed"; message: string }
   | { type: "taskSaved"; task: Task }
+  | { type: "detailStarted" }
+  | { type: "detailLoaded"; task: Task; expected: Task }
+  | { type: "detailFailed"; id: string; message: string }
   | { type: "taskRemoved"; id: string }
   | { type: "scopeSelected"; scope: Scope }
   | { type: "projectToggled"; project: ProjectFilter }
@@ -64,20 +70,34 @@ function withQuery(state: WorkspaceState, patch: Partial<TaskQuery>): WorkspaceS
 export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   switch (action.type) {
     case "loadStarted":
-      return { ...state, load: { status: "loading" } };
-    case "tasksLoaded":
-      return { ...state, load: { status: "ready" }, tasks: action.tasks };
+      return { ...state, load: { status: "loading" }, duringLoad: {} };
+    case "tasksLoaded": {
+      const tasks = new Map(action.tasks.map((task) => [task.id, task]));
+      for (const [id, task] of Object.entries(state.duringLoad ?? {})) {
+        if (task) tasks.set(id, task);
+        else tasks.delete(id);
+      }
+      return { ...state, load: { status: "ready" }, tasks: [...tasks.values()], duringLoad: undefined };
+    }
+    case "detailStarted":
+      return { ...state, detailLoad: { status: "loading" } };
+    case "detailFailed":
+      return state.selectedId === action.id ? { ...state, detailLoad: { status: "error", message: action.message } } : state;
+    case "detailLoaded":
+      if (state.selectedId !== action.task.id || state.tasks.find((task) => task.id === action.task.id) !== action.expected) return state;
+      return { ...workspaceReducer(state, { type: "taskSaved", task: action.task }), detailLoad: { status: "ready" } };
     case "loadFailed":
       return { ...state, load: { status: "error", message: action.message } };
     case "taskSaved": {
       const known = state.tasks.some((t) => t.id === action.task.id);
       const tasks = known ? state.tasks.map((t) => (t.id === action.task.id ? action.task : t)) : [action.task, ...state.tasks];
-      return { ...state, tasks };
+      return { ...state, tasks, duringLoad: state.load.status === "loading" ? { ...state.duringLoad, [action.task.id]: action.task } : state.duringLoad };
     }
     case "taskRemoved":
       return {
         ...state,
         tasks: state.tasks.filter((t) => t.id !== action.id),
+        duringLoad: state.load.status === "loading" ? { ...state.duringLoad, [action.id]: null } : state.duringLoad,
         selectedId: state.selectedId === action.id ? null : state.selectedId,
       };
     case "scopeSelected":
@@ -102,7 +122,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     case "viewChanged":
       return state.view === action.view ? state : { ...state, view: action.view };
     case "taskSelected":
-      return state.selectedId === action.id ? state : { ...state, selectedId: action.id };
+      return state.selectedId === action.id ? state : { ...state, selectedId: action.id, detailLoad: undefined };
     case "selectionCleared":
       return state.selectedId === null ? state : { ...state, selectedId: null };
   }
