@@ -60,6 +60,7 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
 
       <button
         type="button"
+        data-column-add=""
         onClick={onAddTask}
         className="inline-flex h-[30px] cursor-pointer items-center gap-1.5 self-start rounded-bt-sm px-2 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card hover:text-fg"
       >

@@ -609,7 +609,7 @@ describe("concurrent board attempts", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("does not revive a late add failure after a newer move succeeds", async () => {
+  it("reports a refused add that was in flight while a move succeeded", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     let release = () => {};
     service.holdCreate = new Promise<void>((resolve) => (release = resolve));
@@ -618,10 +618,43 @@ describe("concurrent board attempts", () => {
 
     fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
     drag(PRD, "In Progress").drop();
-    await waitFor(() => expect(moveCalls(service)).toHaveLength(1));
+    await waitFor(() => expect(titlesIn("In Progress")).toContain(PRD));
     await act(async () => release());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(titlesIn("In Progress")).toContain(PRD);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+  });
+
+  it("reports a refused add and a refused move that overlapped, side by side", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    service.failNextMove = true;
+    drag(PRD, "In Progress").drop();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`);
+    await act(async () => release());
+
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+      expect.stringContaining(`Could not move "${PRD}". It is back in To Do.`),
+      expect.stringContaining("Could not add a task to Testing."),
+    ]);
+  });
+
+  it("reports a refused add when no move happens at all", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    await act(async () => release());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
   });
 
   it("still reports a refused move that was in flight while an unrelated add succeeded", async () => {
@@ -769,7 +802,7 @@ describe("add a task", () => {
     expect(titlesIn("Testing")).toContain("Untitled task");
   });
 
-  it("does not bring the add-a-task failure back once a move has taken over the alert", async () => {
+  it("keeps the add-a-task failure on screen while a move failure comes and goes beside it", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     service.failNextCreate = true;
     await renderBoard({ taskService: service });
@@ -779,11 +812,75 @@ describe("add a task", () => {
 
     service.failNextMove = true;
     drag(PRD, "Testing").drop();
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`));
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
 
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(screen.getAllByRole("alert")[0]).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+  });
+});
+
+describe("dismissing an alert", () => {
+  it("puts focus back on the card a move failure is about", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "Testing").drop();
+    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: "Dismiss" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(openButton(PRD)).toHaveFocus();
+  });
+
+  it("falls back to the column heading when the card is no longer on the board", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "Testing").drop();
+    const alert = await screen.findByRole("alert");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "docker" } });
+    expect(screen.queryByRole("article", { name: PRD })).not.toBeInTheDocument();
+
+    const dismiss = within(alert).getByRole("button", { name: "Dismiss" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+
+    expect(within(column("To Do")).getByRole("heading", { level: 2 })).toHaveFocus();
+  });
+
+  it("keeps the other alert and stays off the body when one of two is dismissed", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "In Progress").drop();
+    drag(JWT, "In Progress").drop();
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+
+    const dismiss = within(screen.getAllByRole("alert")[0]).getByRole("button", { name: "Dismiss" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
+    expect(openButton(PRD)).toHaveFocus();
+  });
+
+  it("puts focus back on the Add a task the failure is about", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: "Dismiss" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(column("Testing")).getByRole("button", { name: "Add a task" })).toHaveFocus();
   });
 });
 

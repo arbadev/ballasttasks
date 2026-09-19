@@ -68,6 +68,8 @@ function Board() {
 
   const cardButton = (taskId: string) => grid.current?.querySelector<HTMLElement>(`[data-card-open=${JSON.stringify(taskId)}]`) ?? null;
   const cardsIn = (status: TaskStatus) => [...(grid.current?.querySelectorAll<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-card-open]`) ?? [])];
+  const columnHeading = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-heading]`) ?? null;
+  const columnAdd = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-add]`) ?? null;
 
   useEffect(() => {
     const pending = focusAfterMove.current;
@@ -85,8 +87,7 @@ function Board() {
     if (!done) return;
     // The move took the card off the board: focus what took its place in the column it left.
     const left = cardsIn(pending.column);
-    const heading = grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(pending.column)}] [data-column-heading]`);
-    (left[Math.max(0, Math.min(pending.index, left.length - 1))] ?? heading)?.focus();
+    (left[Math.max(0, Math.min(pending.index, left.length - 1))] ?? columnHeading(pending.column))?.focus();
   });
 
   const endDrag = () => {
@@ -104,24 +105,28 @@ function Board() {
     });
   };
 
-  /** A move that happens replaces whatever the board was reporting, so nothing older comes back. */
-  const startMove = (taskId: string, to: TaskStatus) => {
-    const move = moves.move(taskId, to);
-    if (move !== null) {
-      ++attempt.current;
-      setAddFailedIn(null);
-    }
-    return move;
-  };
-
   const moveWithoutDrag = (taskId: string, from: TaskStatus, to: TaskStatus) => {
     const index = cardsIn(from).findIndex((c) => c.dataset.cardOpen === taskId);
-    const move = startMove(taskId, to);
+    const move = moves.move(taskId, to);
     if (move !== null) focusAfterMove.current = { move, taskId, column: from, index };
   };
 
   /** Retry is a button press: its alert goes away, so focus goes to the card it moves. */
   const retryMove = (failure: MoveFailure) => moveWithoutDrag(failure.taskId, failure.from, failure.to);
+
+  /**
+   * Dismissing takes the pressed button off the screen, so focus goes first to what the alert
+   * was about: the card, the column it is in, or the "Add a task" that was refused.
+   */
+  const dismissMove = (failure: MoveFailure) => {
+    (cardButton(failure.taskId) ?? columnHeading(failure.from))?.focus();
+    moves.dismissFailure(failure.taskId);
+  };
+
+  const dismissAdd = (status: TaskStatus) => {
+    columnAdd(status)?.focus();
+    setAddFailedIn(null);
+  };
 
   return (
     <>
@@ -134,11 +139,11 @@ function Board() {
           key={failure.taskId}
           message={`Could not move "${failure.title}". It is back in ${statusName(failure.from)}.`}
           onRetry={() => retryMove(failure)}
-          onDismiss={() => moves.dismissFailure(failure.taskId)}
+          onDismiss={() => dismissMove(failure)}
         />
       ))}
       {addFailedIn && (
-        <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => setAddFailedIn(null)} />
+        <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => dismissAdd(addFailedIn)} />
       )}
 
       <div ref={grid} className={BOARD_GRID}>
@@ -159,7 +164,7 @@ function Board() {
                 const id = draggedId ?? event.dataTransfer.getData(DRAG_TYPE);
                 // A dragged card is where the pointer put it: this move does not take focus.
                 if (id === focusAfterMove.current?.taskId) focusAfterMove.current = null;
-                if (id) startMove(id, status.id);
+                if (id) moves.move(id, status.id);
                 endDrag();
               }}
               onAddTask={() => addTask(status.id)}

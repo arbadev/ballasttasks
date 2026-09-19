@@ -124,7 +124,10 @@ always raises its own alert, whatever any other card did, and only that card's n
 dismissal takes it away, so two refused cards show two alerts. Settlement tickets are kept per
 task as well, so answers batched with another task cannot erase the signal that restores keyboard
 focus. "Add a task" is the board's own attempt rather than a card's: starting it clears the move
-alerts already on screen, and it never silences a move whose answer is still to come.
+alerts already on screen, but neither operation ever silences the other's answer, so an add and a
+move can each report their own refusal side by side. Dismissing an alert hands focus to what it
+was about — the card, its column's heading once the card is off the board, or that column's
+"Add a task" — so the keyboard is never left on the body.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.
