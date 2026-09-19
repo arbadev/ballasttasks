@@ -54,7 +54,7 @@ def snapshot(engine: sa.Engine) -> dict[str, list[dict[str, Any]]]:
                     sa.text(f"SELECT * FROM {table} ORDER BY id")
                 ).mappings()
             ]
-            for table in ("users", "projects", "tasks")
+            for table in ("users", "projects", "tasks", "task_activity", "task_steps")
         }
 
 
@@ -194,6 +194,13 @@ def test_design_workspace_and_real_password_login(database: sa.Engine) -> None:
         "The Pydantic models own the contract — run npm run gen:api after every change."
     )
     after = snapshot(database)
+    assert len(after["task_activity"]) == 16
+    for task in after["tasks"]:
+        [creation] = [event for event in after["task_activity"] if event["task_id"] == task["id"]]
+        assert creation["kind"] == "log"
+        assert creation["text"] == "Created the task"
+        assert creation["actor_id"] == task["created_by"]
+        assert creation["created_at"] == task["created_at"]
     inbox = next(p for p in after["projects"] if p["id"] == DEFAULT_PROJECT_ID)
     assert {k: v for k, v in inbox.items() if k != "next_task_number"} == {
         k: v for k, v in before["projects"][0].items() if k != "next_task_number"
@@ -303,6 +310,7 @@ def test_conflicting_existing_records_are_not_repurposed(
         "UPDATE projects SET name = 'Edited' WHERE key = 'BT'",
         "UPDATE tasks SET title = 'Edited' WHERE key = 'BT-01'",
         "DELETE FROM tasks WHERE key = 'BT-01'",
+        "DELETE FROM task_activity WHERE task_id = (SELECT id FROM tasks WHERE key = 'BT-01')",
     ],
 )
 def test_edits_password_changes_and_partial_seeds_are_preserved(

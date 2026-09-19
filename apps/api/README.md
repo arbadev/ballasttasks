@@ -75,9 +75,11 @@ adds Assistant (`system`, no password sign-in), so all four design people are vi
 Role labels grant no permissions. API initials are derived: Assistant is `AS`, not the
 design's manually supplied `AI`. Design `progress` becomes API `in_progress`; completed
 tasks use their last update time as `completed_at`, creators come from the design's
-creation activity, and empty descriptions become `null`. Only current API fields are
-seeded: not steps, attachments or activity. Descriptions are historical design sample
-copy, not a claim that the features they describe are implemented.
+creation activity, and empty descriptions become `null`. This seed covers task metadata
+and each task's required `Created the task` event through `ActivityRecorder` (ADR 0007),
+attributed to its creator at the original creation time. It does not insert the design's
+historical steps, comments, status-change history or attachments. Descriptions are
+historical design sample copy, not a claim that those features are implemented.
 
 Dates are relative to the injected UTC clock at first invocation: 1 overdue, 2 P0 at risk,
 4 due soon, 2 needing an owner, and 7 open tasks assigned to Andres. Existing Inbox
@@ -88,7 +90,8 @@ metadata and tasks stay intact; every new key is allocated through the project r
 Concurrent invocations serialise on the existing Inbox row. Stable demo IDs and the demo
 project's creation timestamp identify and date the seed. An intact rerun says `Demo
 unchanged` without rewriting hashes, dates or rows. A conflicting email, ID or project
-key, edited demo record/password, or partial/deleted seed is refused, not repaired; all
+key, edited demo record/password, or partial/deleted seed (including creation events) is
+refused, not repaired; all
 in-flight inserts and counters roll back. Unrelated records are never deleted or reset.
 Use a separate fresh local database if you need the original scenarios again after edits
 or as dates age. Failure returns a nonzero exit status without printing credentials.

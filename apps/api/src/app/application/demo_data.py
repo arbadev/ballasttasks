@@ -1,7 +1,8 @@
 """Ballast Tasks v2 demo: the API-supported fields of the web's design fixture.
 
 Descriptions are historical sample task copy, not promises of implemented features.
-Steps, activity and attachment metadata have no persistence contract in this slice.
+This seed covers task metadata and the required creation events, not historical steps,
+comments, status-change history or attachments.
 """
 
 import uuid

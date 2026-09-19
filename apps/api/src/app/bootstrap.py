@@ -137,7 +137,13 @@ class RequestScope:
     @property
     def seed_demo(self) -> SeedDemo:
         return SeedDemo(
-            self.users, self.projects, self.tasks, self.password_hasher, clock=self.clock
+            self.users,
+            self.projects,
+            self.tasks,
+            self.password_hasher,
+            self.activity,
+            self.activity_feed,
+            clock=self.clock,
         )
 
     @property
