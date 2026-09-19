@@ -63,6 +63,7 @@ async def test_the_people_list_never_carries_an_email_or_a_hash(
 
     assert user.email not in text
     assert "example.com" not in text
+    assert user.hashed_password is not None
     assert user.hashed_password not in text
     assert "email" not in text
 

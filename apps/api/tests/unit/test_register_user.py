@@ -41,6 +41,7 @@ async def test_stores_a_hash_and_never_the_password(register: RegisterUser) -> N
         email="ada@example.com", full_name="Ada Lovelace", password="correct horse"
     )
 
+    assert user.hashed_password is not None
     assert user.hashed_password != "correct horse"
     assert FakePasswordHasher().verify("correct horse", user.hashed_password)
 

@@ -69,6 +69,18 @@ async def test_an_added_user_is_found_by_id_and_by_email_with_every_field(
     assert await users.get_by_email(user.email) == user
 
 
+async def test_a_user_without_a_password_round_trips_without_one(users: UserRepository) -> None:
+    """Somebody who only ever signed in through an identity provider."""
+    user = make_user(hashed_password=None)
+
+    await users.add(user)
+
+    found = await users.get_by_email(user.email)
+    assert found == user
+    assert found is not None
+    assert found.hashed_password is None
+
+
 async def test_an_inactive_user_round_trips_as_inactive(users: UserRepository) -> None:
     user = make_user(is_active=False)
 
