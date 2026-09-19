@@ -21,8 +21,15 @@ interface PendingFocus {
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
 }
 
+interface ListViewProps {
+  /** Set when this list replaces the empty-project state: the quick-add takes the focus over. */
+  focusQuickAdd?: boolean;
+  /** Called once the focus has moved, so the claim is spent and no later mount takes it. */
+  onQuickAddFocused?: () => void;
+}
+
 /** The list view: quick-add, then the visible tasks in the workspace's order, one row each. */
-export function ListView() {
+export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewProps = {}) {
   const { state, actions } = useWorkspace();
   const tasks = useVisibleTasks();
   const { people, projects, currentUser } = useDirectory();
@@ -52,6 +59,14 @@ export function ListView() {
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
     (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
   }, [tasks]);
+
+  // The empty-project state hands the focus over when its first task turns it into this list;
+  // the field keeps the caret and the page stays where it is.
+  useEffect(() => {
+    if (!focusQuickAdd) return;
+    quickAddRef.current?.focus({ preventScroll: true });
+    onQuickAddFocused?.();
+  }, [focusQuickAdd, onQuickAddFocused]);
 
   const toggle = useCallback(
     (task: Task, index: number) => {

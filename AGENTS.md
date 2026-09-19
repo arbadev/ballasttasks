@@ -16,7 +16,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **PostgreSQL only**, including tests. No SQLite. A table = an ORM model in `infrastructure/db/models/` plus one Alembic revision (`--autogenerate`, then reviewed by hand).
 - **Tasks reference users and a project**: `tasks.created_by` and `tasks.assignee_id` are foreign keys to `users.id`, and `tasks.project_id` to `projects.id` (see "Tasks reference users" and "Projects and task keys" in `docs/architecture.md`), so anything that writes a task row, tests and seed data included, stores its users first and gives the row a project, a unique `key`, a priority and an importance (`apps/api/tests/postgres.py`: `INSERT_USER`, `user_row`, `TASK_PROJECT_COLUMNS`; entities: `apps/api/tests/builders.py`). The Inbox project (`DEFAULT_PROJECT_ID`) exists in every migrated database. Task use cases learn about users only through the `UserDirectory` port.
 - **Task keys** (`BT-04`) come only from `ProjectRepository.allocate_task_key` and never change; a project's key never changes either ([ADR 0005](docs/decisions/0005-task-keys-and-urgency.md)).
-- **Steps and activity** ([ADR 0007](docs/decisions/0007-steps-and-activity.md)): a task holds at most 100 steps (`MAX_STEPS_PER_TASK`, checked in `domain/step.py`) at dense positions, and every step writer locks its task with `get_for_update` before it reads them. A change that really altered something records one entry through the `ActivityRecorder` port from inside the use case, in the same unit of work — never from a route, never from a database trigger — and the sentence comes from `domain/activity_log.py`, the only module that spells one; a no-op logs nothing.
+- **Steps and activity** ([ADR 0007](docs/decisions/0007-steps-and-activity.md)): a task holds at most 100 steps (`MAX_STEPS_PER_TASK`, checked in `domain/step.py`) at dense positions, and every step writer locks its task with `get_for_update` before it reads them. Record the events specified in ADR 0007 through the `ActivityRecorder` port inside the use case and the same unit of work — never from a route or database trigger. Wording lives in `domain/activity_log.py`; silent edits and no-ops log nothing, and one patch may record several changed events.
 - **Time and the design's rules**: nothing reads the system clock or `CURRENT_DATE`; use cases take a `Clock` and pass `today` (UTC) down. The design's urgency, due-date and signal rules exist twice, in `domain/attention.py` and in SQL (`infrastructure/db/repositories/task_queries.py`); change both together, and `apps/api/tests/urgency_cases.py` (a literal port of the design's function) is what both are tested against.
 - **Transactions**: repositories never commit. `Container.request_scope()` is the unit of work (one session, commit or rollback in one place); see "Unit of work" in `docs/architecture.md`.
 - **Auth seam**: routes get the caller only through `CurrentUserId` (`api/security.py`); API tests set it with `app.dependency_overrides[get_current_user_id]`. No other module touches the app's JWTs, and no response, log line or error ever carries a password, a hash or a token.
@@ -40,13 +40,13 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
-| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
+| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks, project creation against committed baselines; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
 | `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
 
 ## Repo map
 
 - `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `api`, `bootstrap.py`, `main.py`).
-- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
+- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/features/projects/` project creation, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
 - `docs/`: `PRD.md`, `architecture.md`, `ai-usage.md`, `decisions/` (ADRs).
 - Root: `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, `.env.example`.
 
