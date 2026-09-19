@@ -13,6 +13,7 @@ Celery + Redis. PostgreSQL everywhere, including tests.
 | `app.api` | routes, Pydantic schemas (the HTTP contract), dependencies | `application` |
 | `app.bootstrap` | composition root: the only importer of concrete adapters | everything |
 | `app.main` | `create_app()`: settings -> bootstrap -> routes | `bootstrap`, `api` |
+| `app.worker` | `celery_app`: settings -> bootstrap -> the worker's Celery app | `bootstrap` |
 
 Swapping or adding an adapter = a new adapter file, one registration line, one line in the
 port's contract suite (`tests/contract/`), and an env change. Where each kind of adapter is

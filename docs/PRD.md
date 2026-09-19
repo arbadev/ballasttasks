@@ -43,7 +43,13 @@ Steps, comments and activity
 - FR-16. Every task representation carries `steps_total`, `steps_done` and `comments_count`; reading one task also returns its ordered steps. Listing computes counts without a query per task.
 - FR-17. Task creation, status moves (including completion/reopening), assignment/clearing, due-date changes, priority changes, step addition/completion and bulk acceptance append automatic activity in the same transaction. No-op changes log nothing. Wording follows the design where it logs the event; the required design-styled extensions are listed in [ADR 0007](decisions/0007-steps-and-activity.md).
 - FR-18. A signed-in user posts an immutable comment of 1–2000 trimmed characters, rejecting NUL. A task's timeline combines comments and logs, newest first, paginated with `items`, `total`, `limit` (default 50, max 200) and `offset`; every entry identifies its actor by id, full name and initials, never email. Deleting a task deletes its timeline.
-- FR-19. Existing tasks retain all their data and receive only a creation entry attributed to the original creator at creation time; earlier unrecorded changes are not invented. Attachments, AI step generation, comment editing/deletion, mentions, notifications and real-time updates are outside this piece.
+- FR-19. Existing tasks retain all their data and receive only a creation entry attributed to the original creator at creation time; earlier unrecorded changes are not invented. Attachments, comment editing/deletion, mentions, notifications and real-time updates are outside this piece.
+
+Draft step generation
+
+- FR-20. A signed-in user asks a task for draft step titles. The request queues background work and answers at once with a job handle in a `pending` state; no step is created and the model is never called while the request is open. Polling that handle reports `pending`, `running`, `success` with 1–20 proposed titles, or `failure` with a safe reason (`invalid_output`, `provider_unavailable`, `timeout`, `worker_failed`) that never carries a provider response or credential.
+- FR-21. A handle belongs to its task and stays readable for an hour, so it survives selecting another task and returning; another task's handle, an unknown one and an expired one are all unknown. A generation that does not finish within five minutes is reported as a timed-out failure. Asking again is how a user retries or regenerates; nothing cancels a running generation.
+- FR-22. Generating proposes nothing into the task: the user accepts the chosen titles through FR-15, which is where the 100-step ceiling is checked. Removing or discarding proposals before accepting them changes nothing on the server.
 
 ## Non-functional requirements
 
