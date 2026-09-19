@@ -26,6 +26,8 @@ class ControlledLanguageModel(FakeLanguageModel):
             return "[]"
         if title == "malformed":
             return "__import__('os').system('never execute this')"
+        if title == "invalid_unicode":
+            return '["\\ud800"]'
         if title == "oversized":
             return json.dumps(["x" * 201])
         if title == "too_many":

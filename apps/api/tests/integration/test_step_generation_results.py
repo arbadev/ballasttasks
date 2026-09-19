@@ -71,6 +71,7 @@ def test_native_states_unknown_retention_and_lost_worker() -> None:
         ("FAILURE", RuntimeError("PRIVATE-PROVIDER-SECRET"), "worker_failed"),
         ("REVOKED", RuntimeError("PRIVATE-PROVIDER-SECRET"), "worker_failed"),
         ("SUCCESS", {"titles": [], "error": None}, "worker_failed"),
+        ("SUCCESS", {"titles": ["\ud800"], "error": None}, "worker_failed"),
         ("SUCCESS", ["unexpected shape"], "worker_failed"),
         ("SUCCESS", {"titles": ["ok"], "error": "unknown-private-error"}, "worker_failed"),
         ("SUCCESS", {"titles": ["ok"], "error": "invalid_output"}, "invalid_output"),

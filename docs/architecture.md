@@ -408,7 +408,9 @@ job is **not** a successful empty result.
   existence in another short scope. `GenerateStepTitles` depends only on `LanguageModel`.
   It treats task text as untrusted JSON context and accepts only a JSON array, not fenced
   Markdown or executable text. The whole response is rejected if malformed, empty, over
-  32,768 characters, over 20 titles, or any title violates the step domain rule.
+  32,768 characters, over 20 titles, or any title violates the step domain rule or contains
+  invalid Unicode (such as an unpaired surrogate escape). Titles are never repaired by
+  replacing invalid characters.
 - Generation and polling never write steps, touch task timestamps or add activity.
   Accept chosen titles with the existing atomic `POST /tasks/{id_or_key}/steps/bulk`.
   Its 100-step ceiling is checked at **acceptance**, including concurrent writers; no

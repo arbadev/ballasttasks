@@ -64,6 +64,8 @@ async def test_prompt_is_bounded_task_context_and_candidates_are_normalised() ->
         "[true]",
         '["ok", " "]',
         '["\\u0000"]',
+        '["\\ud800"]',
+        '["ok", "\\udfff"]',
         json.dumps(["x" * 201]),
         json.dumps(["x"] * 21),
         "x" * 32769,

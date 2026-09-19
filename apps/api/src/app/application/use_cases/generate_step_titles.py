@@ -26,7 +26,12 @@ def valid_titles(values: object) -> tuple[str, ...]:
         raise ValueError("expected a bounded nonempty array")
     if any(not isinstance(value, str) for value in values):
         raise ValueError("expected titles")
-    return tuple(valid_step_title(value) for value in values)
+    titles = tuple(valid_step_title(value) for value in values)
+    for title in titles:
+        # json.loads accepts lone surrogate escapes, but HTTP and PostgreSQL cannot
+        # represent them. Reject rather than replace characters in a proposed title.
+        title.encode("utf-8")
+    return titles
 
 
 def parse_titles(text: str) -> tuple[str, ...]:

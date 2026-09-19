@@ -181,6 +181,7 @@ def test_queued_generation_lifecycle_and_safe_failures(
             ("empty", "invalid_output"),
             ("malformed", "invalid_output"),
             ("oversized", "invalid_output"),
+            ("invalid_unicode", "invalid_output"),
             ("too_many", "invalid_output"),
             ("provider_error", "provider_unavailable"),
             ("timeout", "timeout"),
