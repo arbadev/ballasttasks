@@ -1,6 +1,9 @@
 import os
+from collections.abc import Iterator
 
 import pytest
+
+from tests.postgres import run_alembic, temporary_database
 
 # Closed local port: connections are refused immediately, so "service down" is fast and offline.
 DOWN_DATABASE_URL = "postgresql+psycopg://user:pass@127.0.0.1:1/down"
@@ -24,3 +27,11 @@ def minimal_env(clean_env: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     clean_env.setenv("DATABASE__URL", DOWN_DATABASE_URL)
     clean_env.setenv("REDIS__URL", DOWN_REDIS_URL)
     return clean_env
+
+
+@pytest.fixture(scope="session")
+def migrated_database_url() -> Iterator[str]:
+    """A throwaway database brought from empty to ``alembic upgrade head`` (integration)."""
+    with temporary_database() as database_url:
+        run_alembic(database_url, "upgrade", "head")
+        yield database_url

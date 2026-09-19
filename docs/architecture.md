@@ -14,7 +14,7 @@ The reasons behind the two structural choices are recorded in
 ```mermaid
 flowchart LR
     browser([Browser]) --> web[web<br/>Next.js :3000]
-    browser -->|GET /health, /health/ready| api[api<br/>FastAPI :8000]
+    browser -->|/health, /health/ready, /tasks| api[api<br/>FastAPI :8000]
     api --> db[(db<br/>PostgreSQL)]
     api --> redis[(redis)]
     worker[worker<br/>Celery] --> redis
@@ -90,6 +90,17 @@ class LanguageModel(Protocol):
     def model(self) -> str: ...         # e.g. "fake-1"
 
     def complete(self, prompt: str) -> str: ...
+
+
+class TaskRepository(Protocol):
+    """Stores tasks. Returned tasks are detached: a change is stored only by update."""
+
+    async def add(self, task: Task) -> None: ...
+    async def get(self, task_id: UUID) -> Task | None: ...
+    async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
+    async def list(self) -> Sequence[Task]: ...        # newest first
+    async def update(self, task: Task) -> None: ...    # raises TaskNotFound
+    async def delete(self, task_id: UUID) -> None: ... # raises TaskNotFound
 ```
 
 The Protocol files are the source of truth for exact signatures; if this section and the code disagree, the code wins and this section is corrected in the same commit.
@@ -101,6 +112,7 @@ Adapters in this setup:
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` only | No real provider SDK and no API key in this setup |
+| `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker |
 
 ## Composition roots
 
@@ -112,6 +124,15 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 - Holds the registries: a mapping from `AI__PROVIDER` value to `LanguageModel` factory, and the ordered list of `HealthCheck` adapters.
 - An unknown `AI__PROVIDER` fails at startup with an explicit error, not at first use.
 - Tests build the app through the same function with fakes passed in, so no test patches a module global.
+
+### Unit of work: one transaction per request
+
+Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`) opens one `AsyncSession` from the container's `session_factory`, binds every repository to it, exposes the use cases on top of them as a `RequestScope`, and commits when the block ends normally or rolls back when it raises. The commit/rollback itself is `transactional_session` in `infrastructure/db/unit_of_work.py`, whose module docstring is the authority for this mechanism.
+
+- The HTTP layer enters the scope once per request through `get_request_scope` in `api/dependencies.py`. It is declared with `Depends(..., scope="function")`, so the transaction ends before the response is sent: a commit that fails becomes an error response.
+- A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session.
+- Outside HTTP (a Celery job, a script) the same `container.request_scope()` is the unit of work.
+- Tables arrive only through Alembic revisions. ORM models live in `infrastructure/db/models/`; importing that package registers them on `Base.metadata`, which has a naming convention so every constraint has a stable name.
 
 ### Frontend: `apps/web/src/app/providers.tsx`
 
@@ -167,6 +188,27 @@ Rules:
 - Pydantic model names (these become the OpenAPI component names the frontend types import): `HealthResponse`, `ReadinessResponse`, `ComponentStatus`, `AiInfo`. The `503` response must be declared in the route's `responses=` with the same `ReadinessResponse` model so it appears in OpenAPI.
 - Check names are exactly `database`, `redis`, `ai`. The frontend labels them "Database", "Redis", "AI"; "API" status on the page comes from `GET /health`.
 
+### Task contract
+
+Every task route depends on `CurrentUserId` from `api/security.py`, the seam between tasks and authentication: `get_current_user_id` returns the caller's user id (a UUID) or answers `401`. Task routes never see a token, a `User` or the users table.
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `POST /tasks` | `201` `TaskResponse` | `401`, `422` |
+| `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...]}`, newest first | `401` |
+| `GET /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` |
+| `PATCH /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` |
+| `DELETE /tasks/{task_id}` | `204`, no body | `401`, `404`, `422` |
+
+- `TaskResponse`: `id`, `title`, `description`, `status` (`todo | in_progress | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`.
+- `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
+- `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title` and `status` reject `null`. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
+- The list is an envelope on purpose: pagination can add fields next to `items` without breaking clients.
+- Any authenticated user can read and change any task (a shared team list); there is no ownership model.
+- Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
+- Title and description reject the NUL character (PostgreSQL text cannot hold it).
+- Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`.
+
 ## SOLID mapping
 
 | Principle | Concrete mechanism | Where it is enforced |
@@ -200,6 +242,6 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected | Environment variables only |
-| Integration | Real adapters against real PostgreSQL and Redis | The running compose stack: `make test-integration`; never SQLite |
+| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.
