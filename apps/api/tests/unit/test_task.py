@@ -279,8 +279,8 @@ def test_priorities_are_p0_to_p3_and_rank_from_most_to_least_urgent() -> None:
 
 
 def test_prioritise_changes_the_priority_and_touches_updated_at() -> None:
+    assert new_task(priority=TaskPriority.P3).priority is TaskPriority.P3
     task = new_task(priority=TaskPriority.P3)
-    assert task.priority is TaskPriority.P3
 
     task.prioritise(TaskPriority.P0, now=LATER)
 

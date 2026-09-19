@@ -13,7 +13,7 @@ against the other adapter, and the urgency order against the design's own functi
 """
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
@@ -503,7 +503,7 @@ async def test_the_default_query_is_the_open_tasks_most_urgent_first(
     assert list(page.items) == [workspace.tasks[title] for title in OPEN]
 
 
-FILTERS = {
+FILTERS: dict[str, tuple[Callable[[Workspace], TaskFilter], list[str]]] = {
     "everything": (lambda w: TaskFilter(statuses=None), [*OPEN, "done-late", "done-today"]),
     "one-status": (
         lambda w: TaskFilter(statuses=frozenset({TaskStatus.DONE})),

@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime
 
 import pytest
 import sqlalchemy
-from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.errors import InvalidAssigneeError, StoredTaskInvalid
@@ -17,6 +16,7 @@ from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.task import Task, TaskStatus
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
 from app.infrastructure.db.session import create_session_factory

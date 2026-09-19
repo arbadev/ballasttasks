@@ -242,7 +242,8 @@ async def test_the_default_listing_reads_the_open_tasks_through_the_partial_inde
     )
     sql = str(
         default_listing.compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+            dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+            compile_kwargs={"literal_binds": True},
         )
     )
 

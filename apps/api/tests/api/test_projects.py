@@ -137,7 +137,7 @@ async def test_patch_changes_only_the_given_fields(task_client: httpx.AsyncClien
     assert (renamed.json()["name"], renamed.json()["color"]) == ("Ballast", "acc")
     assert (cleared.json()["name"], cleared.json()["color"]) == ("Ballast", None)
     assert cleared.json()["key"] == "BT"
-    assert cleared.json()["updated_at"] >= created["updated_at"]  # type: ignore[operator]
+    assert cleared.json()["updated_at"] >= created["updated_at"]
 
 
 @pytest.mark.parametrize(

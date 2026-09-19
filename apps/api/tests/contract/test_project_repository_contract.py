@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import pytest
-from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import ProjectKeyTakenError, ProjectNotFound, UnknownProjectError
@@ -24,6 +23,7 @@ from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import TaskStatus
 from app.domain.task_key import TaskKey
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests.auth_fakes import InMemoryUserRepository, a_user

@@ -8,6 +8,7 @@ What each filter and sort MEANS is pinned once, for every adapter, in
 import itertools
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import httpx
 import pytest
@@ -47,10 +48,10 @@ async def ballast(request_scopes: RecordingRequestScopes) -> str:
     return str(project.id)
 
 
-async def create(client: httpx.AsyncClient, **body: object) -> dict[str, object]:
+async def create(client: httpx.AsyncClient, **body: object) -> dict[str, Any]:
     response = await client.post("/tasks", json={"title": "Write the report"} | body)
     assert response.status_code == 201, response.text
-    created: dict[str, object] = response.json()
+    created: dict[str, Any] = response.json()
     return created
 
 

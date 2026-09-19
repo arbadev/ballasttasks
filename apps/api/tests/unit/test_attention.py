@@ -71,7 +71,7 @@ def test_a_calm_task_needs_no_attention() -> None:
         is_p0_at_risk=False,
         needs_owner=False,
         days_until_due=30,
-        urgency=pytest.approx(50 + 5 + 3),
+        urgency=58.0,  # 200 - 30 * 5, then importance 50 / 10, then P2: (3 - 2) * 3
         reasons=(),
     )
 

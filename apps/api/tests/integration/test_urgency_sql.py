@@ -8,8 +8,6 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
-from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
-from app.infrastructure.db.repositories.task_queries import signal_condition, urgency_score
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +15,9 @@ from app.application.task_query import TaskSignal
 from app.domain.attention import assess
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.models.task import TaskModel
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
+from app.infrastructure.db.repositories.task_queries import signal_condition, urgency_score
 from tests.builders import a_project
 from tests.postgres import INSERT_USER, user_row
 from tests.urgency_cases import CASES, TODAY
