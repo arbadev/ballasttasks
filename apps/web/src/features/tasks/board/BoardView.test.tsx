@@ -492,8 +492,9 @@ describe("moving without a drag", () => {
     await waitFor(() => expect(openButton("Third overdue")).toHaveFocus());
   });
 
-  it("keeps the newer of two chained moves when the older answer comes back last", async () => {
+  it("serializes two rapid moves of the same card and keeps the newer target", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
+    const calls = vi.spyOn(service, "move");
     let release = () => {};
     service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
     await renderBoard({ taskService: service });
@@ -501,11 +502,83 @@ describe("moving without a drag", () => {
     fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
     fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
     expect(titlesIn("Testing")).toContain(PRD);
+    // The second service call cannot start while the first is still held.
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
 
     await act(async () => release());
-    await waitFor(() => expect(moveCalls(service)).toHaveLength(2));
+    await waitFor(() => expect(moveCalls(service)).toEqual([["move", "t5", "progress"], ["move", "t5", "testing"]]));
+    expect(calls.mock.calls).toEqual([["t5", "progress"], ["t5", "testing"]]);
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
     expect(titlesIn("In Progress")).not.toContain(PRD);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("supersedes an intermediate queued target without sending it to the service", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    const calls = vi.spyOn(service, "move");
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    expect(titlesIn("Done")).toContain(PRD);
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
+
+    await act(async () => release());
+    await waitFor(() => expect(moveCalls(service)).toEqual([["move", "t5", "progress"], ["move", "t5", "done"]]));
+    expect(calls.mock.calls).toEqual([["t5", "progress"], ["t5", "done"]]);
+    expect(titlesIn("Done")).toContain(PRD);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("returns to the starting column with no net status change after rapid forward and back moves", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    const calls = vi.spyOn(service, "move");
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowLeft", shiftKey: true });
+    expect(titlesIn("To Do")).toContain(PRD);
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
+
+    await act(async () => release());
+    await waitFor(() => expect(moveCalls(service)).toEqual([["move", "t5", "progress"], ["move", "t5", "todo"]]));
+    expect(calls.mock.calls).toEqual([["t5", "progress"], ["t5", "todo"]]);
+    expect((await service.get("t5"))?.status).toBe("todo");
+    expect(titlesIn("To Do")).toContain(PRD);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("cancels queued moves when the in-flight move fails and rolls back to its true starting status", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    const calls = vi.spyOn(service, "move");
+    service.refuses = "progress";
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    expect(titlesIn("Testing")).toContain(PRD);
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
+
+    await act(async () => release());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in To Do.`);
+    expect(titlesIn("To Do")).toContain(PRD);
+    expect(titlesIn("In Progress")).not.toContain(PRD);
+    expect(titlesIn("Testing")).not.toContain(PRD);
+    expect((await service.get("t5"))?.status).toBe("todo");
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+
+    service.refuses = null;
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+    expect(calls.mock.calls).toEqual([["t5", "progress"], ["t5", "testing"]]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
