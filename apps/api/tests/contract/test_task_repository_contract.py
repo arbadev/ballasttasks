@@ -85,6 +85,33 @@ async def test_a_minimal_task_round_trips_its_empty_fields(repository: TaskRepos
     assert stored.created_at.utcoffset() == timedelta(0)
 
 
+async def test_get_for_update_of_an_unknown_id_returns_none(repository: TaskRepository) -> None:
+    assert await repository.get_for_update(uuid.uuid4()) is None
+
+
+async def test_get_for_update_returns_the_stored_task(repository: TaskRepository) -> None:
+    task = a_task()
+    await repository.add(task)
+
+    assert await repository.get_for_update(task.id) == task
+
+
+async def test_a_task_loaded_for_update_is_stored_only_by_update(
+    repository: TaskRepository,
+) -> None:
+    task = a_task()
+    await repository.add(task)
+    later = CREATED + timedelta(days=1)
+
+    loaded = await repository.get_for_update(task.id)
+    assert loaded is not None
+    loaded.move_to(TaskStatus.DONE, now=later)
+    assert await repository.get(task.id) == task
+
+    await repository.update(loaded)
+    assert await repository.get(task.id) == loaded
+
+
 async def test_list_is_empty_when_nothing_was_added(repository: TaskRepository) -> None:
     assert list(await repository.list()) == []
 

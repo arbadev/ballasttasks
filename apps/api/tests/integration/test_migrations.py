@@ -1,6 +1,7 @@
 """Alembic is the only way tables arrive: prove it from an empty database."""
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 import pytest
 import sqlalchemy
@@ -76,6 +77,30 @@ def test_the_database_rejects_a_status_outside_the_vocabulary(
         connection.execute(insert, {"status": "todo"})
     with pytest.raises(sqlalchemy.exc.IntegrityError), empty_database.begin() as connection:
         connection.execute(insert, {"status": "archived"})
+
+
+@pytest.mark.parametrize(
+    ("status", "completed_at"),
+    [
+        pytest.param("in_progress", datetime(2026, 1, 5, tzinfo=UTC), id="completed, not done"),
+        pytest.param("done", None, id="done, not completed"),
+    ],
+)
+def test_the_database_rejects_a_completed_at_that_does_not_follow_the_status(
+    empty_database: sqlalchemy.Engine, status: str, completed_at: datetime | None
+) -> None:
+    upgrade(empty_database)
+
+    insert = sqlalchemy.text(
+        "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at, completed_at) "
+        "VALUES (gen_random_uuid(), 't', :status, gen_random_uuid(), now(), now(), "
+        "CAST(:completed_at AS timestamptz))"
+    )
+    with empty_database.begin() as connection:
+        connection.execute(insert, {"status": "done", "completed_at": datetime.now(UTC)})
+        connection.execute(insert, {"status": "todo", "completed_at": None})
+    with pytest.raises(sqlalchemy.exc.IntegrityError), empty_database.begin() as connection:
+        connection.execute(insert, {"status": status, "completed_at": completed_at})
 
 
 def test_downgrade_to_base_removes_the_tables(empty_database: sqlalchemy.Engine) -> None:

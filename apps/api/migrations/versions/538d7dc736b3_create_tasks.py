@@ -35,6 +35,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "status IN ('todo', 'in_progress', 'done')", name=op.f("ck_tasks_status")
         ),
+        sa.CheckConstraint(
+            "(status = 'done') = (completed_at IS NOT NULL)",
+            name=op.f("ck_tasks_completed_at_follows_status"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_tasks")),
     )
     op.create_index(op.f("ix_tasks_due_date"), "tasks", ["due_date"], unique=False)

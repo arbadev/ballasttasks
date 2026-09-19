@@ -11,14 +11,21 @@ _STATUS_VALUES = ", ".join(f"'{status.value}'" for status in TaskStatus)
 
 
 class TaskModel(Base):
-    """Persistence shape of a task. The rules live in ``app.domain.task``, not here.
+    """Persistence shape of a task. The rules live in ``app.domain.task``, not here; the
+    CHECK constraints only stop a row no task could be rebuilt from.
 
     ``created_by`` and ``assignee_id`` are plain UUIDs: the foreign keys to users arrive
     with the users table.
     """
 
     __tablename__ = "tasks"
-    __table_args__ = (CheckConstraint(f"status IN ({_STATUS_VALUES})", name="status"),)
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_STATUS_VALUES})", name="status"),
+        CheckConstraint(
+            f"(status = '{TaskStatus.DONE.value}') = (completed_at IS NOT NULL)",
+            name="completed_at_follows_status",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     title: Mapped[str] = mapped_column(String(TITLE_MAX_LENGTH))

@@ -4,8 +4,8 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors import TaskNotFound
-from app.domain.task import Task, TaskStatus
+from app.application.errors import StoredTaskInvalid, TaskNotFound
+from app.domain.task import InvalidTaskError, Task, TaskStatus
 from app.infrastructure.db.models.task import TaskModel
 
 _FIELDS = (
@@ -38,6 +38,12 @@ class SqlAlchemyTaskRepository:
         row = await self._session.get(TaskModel, task_id)
         return None if row is None else _to_task(row)
 
+    async def get_for_update(self, task_id: uuid.UUID) -> Task | None:
+        row = await self._session.get(
+            TaskModel, task_id, with_for_update=True, populate_existing=True
+        )
+        return None if row is None else _to_task(row)
+
     async def list(self) -> Sequence[Task]:
         rows = await self._session.scalars(
             select(TaskModel).order_by(TaskModel.created_at.desc(), TaskModel.id.desc())
@@ -67,8 +73,11 @@ def _copy_onto(row: TaskModel, task: Task) -> TaskModel:
 
 
 def _to_task(row: TaskModel) -> Task:
-    return Task(
-        id=row.id,
-        status=TaskStatus(row.status),
-        **{field: getattr(row, field) for field in _FIELDS},
-    )
+    try:
+        return Task(
+            id=row.id,
+            status=TaskStatus(row.status),
+            **{field: getattr(row, field) for field in _FIELDS},
+        )
+    except InvalidTaskError as error:
+        raise StoredTaskInvalid(row.id) from error

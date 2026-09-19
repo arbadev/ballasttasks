@@ -97,6 +97,7 @@ class TaskRepository(Protocol):
 
     async def add(self, task: Task) -> None: ...
     async def get(self, task_id: UUID) -> Task | None: ...
+    async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
     async def list(self) -> Sequence[Task]: ...        # newest first
     async def update(self, task: Task) -> None: ...    # raises TaskNotFound
     async def delete(self, task_id: UUID) -> None: ... # raises TaskNotFound
@@ -204,7 +205,9 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title` and `status` reject `null`. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
 - The list is an envelope on purpose: pagination can add fields next to `items` without breaking clients.
 - Any authenticated user can read and change any task (a shared team list); there is no ownership model.
-- Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only.
+- Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
+- Title and description reject the NUL character (PostgreSQL text cannot hold it).
+- Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`.
 
 ## SOLID mapping
 

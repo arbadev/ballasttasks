@@ -7,7 +7,8 @@ from fastapi import FastAPI
 
 from app.api.schemas.tasks import TaskListResponse, TaskResponse
 from app.api.security import get_current_user_id
-from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH
+from app.application.errors import StoredTaskInvalid
+from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH, Task
 from tests.api.conftest import USER_ID, RecordingRequestScopes
 from tests.fakes import InMemoryTaskRepository
 
@@ -78,6 +79,8 @@ async def test_create_accepts_the_optional_fields(task_client: httpx.AsyncClient
         pytest.param({"title": "   "}, id="title blank (domain rule)"),
         pytest.param({"title": "x" * (TITLE_MAX_LENGTH + 1)}, id="title too long"),
         pytest.param({"title": "t", "description": "x" * (DESCRIPTION_MAX_LENGTH + 1)}, id="desc"),
+        pytest.param({"title": "a\x00b"}, id="title with a NUL character"),
+        pytest.param({"title": "t", "description": "a\x00b"}, id="description with a NUL"),
         pytest.param({"title": "t", "due_date": "next week"}, id="due_date not a date"),
         pytest.param({"title": "t", "assignee_id": "bob"}, id="assignee_id not a uuid"),
         pytest.param({"title": "t", "status": "done"}, id="status is not set on create"),
@@ -236,6 +239,8 @@ async def test_patch_with_an_empty_body_changes_nothing(task_client: httpx.Async
         pytest.param({"title": None}, id="title cannot be null"),
         pytest.param({"title": "   "}, id="title blank (domain rule)"),
         pytest.param({"title": "x" * (TITLE_MAX_LENGTH + 1)}, id="title too long"),
+        pytest.param({"title": "a\x00b"}, id="title with a NUL character"),
+        pytest.param({"description": "a\x00b"}, id="description with a NUL character"),
         pytest.param({"status": None}, id="status cannot be null"),
         pytest.param({"status": "archived"}, id="status outside the vocabulary"),
         pytest.param({"assignee_id": "bob"}, id="assignee_id not a uuid"),
@@ -253,6 +258,25 @@ async def test_patch_answers_422_and_leaves_the_task_unchanged(
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
     assert (await task_client.get(f"/tasks/{created['id']}")).json() == created
+
+
+async def test_a_stored_task_that_breaks_a_domain_rule_is_a_server_error_not_a_422(
+    tasks_app: FastAPI,
+    task_client: httpx.AsyncClient,
+    tasks: InMemoryTaskRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = await create(task_client)
+
+    async def broken_row(task_id: uuid.UUID) -> Task | None:
+        raise StoredTaskInvalid(task_id)
+
+    monkeypatch.setattr(tasks, "get", broken_row)
+    transport = httpx.ASGITransport(app=tasks_app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/tasks/{created['id']}")
+
+    assert response.status_code == 500
 
 
 # --- DELETE /tasks/{id} --------------------------------------------------------------------

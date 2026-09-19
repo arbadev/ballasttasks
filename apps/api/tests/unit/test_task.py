@@ -79,6 +79,24 @@ def test_description_length_is_bounded() -> None:
         new_task(description="x" * (DESCRIPTION_MAX_LENGTH + 1))
 
 
+def test_a_nul_character_is_rejected_in_the_title_and_the_description() -> None:
+    with pytest.raises(InvalidTaskError, match="title"):
+        new_task(title="Write\x00the report")
+    with pytest.raises(InvalidTaskError, match="description"):
+        new_task(description="Q1\x00numbers")
+
+
+def test_retitle_and_describe_reject_a_nul_character() -> None:
+    task = new_task()
+
+    with pytest.raises(InvalidTaskError, match="title"):
+        task.retitle("Write\x00the report", now=LATER)
+    with pytest.raises(InvalidTaskError, match="description"):
+        task.describe("Q1\x00numbers", now=LATER)
+
+    assert task == new_task(task_id=task.id)
+
+
 def test_timestamps_must_be_timezone_aware() -> None:
     with pytest.raises(InvalidTaskError, match="timezone"):
         new_task(now=datetime(2026, 1, 5, 9, 0))

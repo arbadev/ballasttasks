@@ -39,7 +39,7 @@ class UpdateTask:
 
     async def execute(self, task_id: uuid.UUID, changes: TaskChanges) -> Task:
         """Raises ``TaskNotFound``, or ``InvalidTaskError`` before anything is stored."""
-        task = await self._tasks.get(task_id)
+        task = await self._tasks.get_for_update(task_id)
         if task is None:
             raise TaskNotFound(task_id)
         if changes == TaskChanges():

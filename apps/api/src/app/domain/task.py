@@ -105,6 +105,7 @@ class Task:
 
 
 def _valid_title(title: str) -> str:
+    _check_no_nul("title", title)
     stripped = title.strip()
     if not stripped:
         raise InvalidTaskError("title must not be blank")
@@ -114,8 +115,16 @@ def _valid_title(title: str) -> str:
 
 
 def _check_description(description: str | None) -> None:
-    if description is not None and len(description) > DESCRIPTION_MAX_LENGTH:
+    if description is None:
+        return
+    _check_no_nul("description", description)
+    if len(description) > DESCRIPTION_MAX_LENGTH:
         raise InvalidTaskError(f"description must be at most {DESCRIPTION_MAX_LENGTH} characters")
+
+
+def _check_no_nul(field: str, text: str) -> None:
+    if "\x00" in text:
+        raise InvalidTaskError(f"{field} must not contain the NUL character")
 
 
 def _check_aware(moment: datetime | None) -> None:

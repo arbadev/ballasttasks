@@ -52,6 +52,10 @@ class InMemoryTaskRepository:
         task = self._tasks.get(task_id)
         return None if task is None else replace(task)
 
+    async def get_for_update(self, task_id: uuid.UUID) -> Task | None:
+        # No transactions here, so there is never a second writer to wait for.
+        return await self.get(task_id)
+
     async def list(self) -> Sequence[Task]:
         newest_first = sorted(
             self._tasks.values(), key=lambda task: (task.created_at, task.id), reverse=True
