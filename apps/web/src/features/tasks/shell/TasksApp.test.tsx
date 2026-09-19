@@ -4,7 +4,7 @@ import { FakeTaskService } from "@/test/fakeServices";
 import { NOW, makeTask } from "@/test/tasks";
 import { seedTasks } from "../services/seed";
 import { TasksApp } from "./TasksApp";
-import { renderWithServices } from "./testing";
+import { renderWithServices } from "@/test/renderWithServices";
 
 async function renderApp(options?: Parameters<typeof renderWithServices>[1]) {
   const view = renderWithServices(<TasksApp />, options);
