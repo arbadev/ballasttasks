@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
-import { Button } from "@/components/ui/Button";
 import { BoardView } from "../board/BoardView";
 import { TaskDetail } from "../detail/TaskDetail";
 import { ListView } from "../list/ListView";
@@ -21,7 +20,7 @@ export function TasksApp() {
 }
 
 function Shell() {
-  const { state, actions } = useWorkspace();
+  const { state } = useWorkspace();
   const navigationId = useId();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
@@ -45,22 +44,8 @@ function Shell() {
         <Header navigationId={navigationId} navigationOpen={navigationOpen} onOpenNavigation={() => setNavigationOpen(true)} />
         <FilterToolbar />
         <AttentionStrip />
-        {state.view === "list" && state.load.status === "loading" && (
-          <p role="status" className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">
-            Loading tasks…
-          </p>
-        )}
-        {state.view === "list" && state.load.status === "error" && (
-          <div role="alert" className="flex flex-col items-start gap-3 px-6 py-14 text-[13px] text-fg-2 max-md:px-4">
-            <p className="m-0">
-              Could not load the tasks. <span className="text-fg-3">{state.load.message}</span>
-            </p>
-            <Button variant="ghost" onClick={actions.reload} className="border border-line bg-card text-fg-2">
-              Retry
-            </Button>
-          </div>
-        )}
-        {state.view === "list" ? state.load.status === "ready" && <ListView /> : <BoardView />}
+        {/* Each view owns its loading and error states. */}
+        {state.view === "list" ? <ListView /> : <BoardView />}
       </main>
       <TaskDetail />
     </div>

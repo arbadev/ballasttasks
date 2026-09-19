@@ -7,14 +7,15 @@ Ballast Tasks is a monorepo with two applications that share one HTTP contract:
 
 This document is the authority for the rules summarised in [`AGENTS.md`](../AGENTS.md).
 The reasons behind the two structural choices are recorded in
-[ADR 0001](decisions/0001-monorepo.md) and [ADR 0002](decisions/0002-ports-and-adapters.md).
+[ADR 0001](decisions/0001-monorepo.md) and [ADR 0002](decisions/0002-ports-and-adapters.md);
+single sign-on is [ADR 0006](decisions/0006-single-sign-on.md).
 
 ## System overview
 
 ```mermaid
 flowchart LR
     browser([Browser]) --> web[web<br/>Next.js :3000]
-    browser -->|/health, /health/ready, /auth/*, /tasks| api[api<br/>FastAPI :8000]
+    browser -->|/health, /health/ready, /auth/*, /auth/sso/*, /tasks, /projects, /users| api[api<br/>FastAPI :8000]
     api --> db[(db<br/>PostgreSQL)]
     api --> redis[(redis)]
     worker[worker<br/>Celery] --> redis
@@ -98,10 +99,25 @@ class TaskRepository(Protocol):
 
     async def add(self, task: Task) -> None: ...       # raises InvalidAssigneeError
     async def get(self, task_id: UUID) -> Task | None: ...
+    async def get_by_key(self, key: TaskKey) -> Task | None: ...
     async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
-    async def list(self) -> Sequence[Task]: ...        # newest first
-    async def update(self, task: Task) -> None: ...    # raises TaskNotFound, InvalidAssigneeError
+    async def search(self, query: TaskQuery, *, today: date) -> TaskPage: ...  # one page + the total
+    async def count_open(self, *, viewer_id: UUID, today: date) -> TaskCounts: ...
+    async def count_signals(self, task_filter: TaskFilter, *, today: date) -> SignalCounts: ...
+    async def update(self, task: Task) -> None: ...    # raises TaskNotFound, InvalidAssigneeError, UnknownProjectError
     async def delete(self, task_id: UUID) -> None: ... # raises TaskNotFound
+
+
+class ProjectRepository(Protocol):
+    """Stores projects and hands out task keys. Every store starts with the Inbox."""
+
+    async def add(self, project: Project) -> None: ...            # raises ProjectKeyTakenError
+    async def get(self, project_id: UUID) -> Project | None: ...
+    async def get_for_update(self, project_id: UUID) -> Project | None: ...
+    async def overview(self, project_id: UUID) -> ProjectOverview | None: ...  # project + open-task count
+    async def overviews(self) -> Sequence[ProjectOverview]: ...   # by name, one statement
+    async def update(self, project: Project) -> None: ...         # raises ProjectNotFound
+    async def allocate_task_key(self, project_id: UUID) -> TaskKey: ...  # no duplicates, no gaps; raises UnknownProjectError
 
 
 class RateLimiter(Protocol):
@@ -115,7 +131,40 @@ class UserDirectory(Protocol):
     """The one thing the task use cases may ask about users."""
 
     async def is_active_user(self, user_id: UUID) -> bool: ...  # unknown and inactive are both False
+
+
+class PeopleDirectory(Protocol):
+    """Who a task can be given to, as other users may see them: a Person has no email."""
+
+    async def list_active(self) -> Sequence[Person]: ...  # by full name, then id
+
+
+class IdentityProvider(Protocol):
+    """An external identity provider, driven with the authorization-code flow."""
+
+    @property
+    def name(self) -> str: ...          # "google" | "fake": the URL segment and the stored provider key
+
+    async def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str: ...
+    async def exchange(self, *, code: str, redirect_uri: str, nonce: str) -> VerifiedIdentity: ...
+    # VerifiedIdentity: provider, subject, email, email_verified, full_name
+    # raises IdentityCodeRejectedError, IdentityProviderUnavailableError
+
+
+class UserIdentityRepository(Protocol):
+    async def find_user_id(self, provider: str, subject: str) -> UUID | None: ...
+    async def link(self, user_id: UUID, provider: str, subject: str, *, linked_at: datetime) -> None: ...
+    # raises IdentityAlreadyLinkedError
+
+
+class OneTimeStore(Protocol):
+    """Short-lived values that can be read exactly once."""
+
+    async def put(self, key: str, value: str, *, ttl: timedelta) -> None: ...
+    async def take(self, key: str) -> str | None: ...   # atomic read-and-delete
 ```
+
+`TaskRepository` has no clock: every question that depends on the date takes `today` from the use case (see [Time](#time)). `TaskQuery`, `TaskFilter`, `TaskPage` and the count types are plain values in `application/task_query.py`.
 
 The Protocol files are the source of truth for exact signatures; if this section and the code disagree, the code wins and this section is corrected in the same commit.
 
@@ -126,12 +175,17 @@ Adapters in this setup:
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
-| `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
+| `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. Filters, sorts, paging and counts run in SQL (`infrastructure/db/repositories/task_queries.py`); the fake answers the same cases with the domain's rules, and both are held to literal expectations and to the design's urgency function. An unknown project is refused like an unknown assignee (`UnknownProjectError`). `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
+| `ProjectRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_project_repository_contract.py`. `add` raises `ProjectKeyTakenError` from the unique constraint, inside a savepoint. `allocate_task_key` is one `UPDATE ... RETURNING` on the project row; what needs two transactions at once is in `tests/integration/test_task_key_allocation.py` ([ADR 0005](decisions/0005-task-keys-and-urgency.md)) |
+| `PeopleDirectory` | The same SQLAlchemy class as `UserDirectory` (it selects three columns, never the email or the hash), in-memory fake | Both pass `tests/contract/test_people_directory_contract.py`. A separate port so a double of one does not have to implement the other |
 | `UserDirectory` | SQLAlchemy on PostgreSQL (`SELECT EXISTS`, no row loaded), in-memory fake over the users fake | Both pass `tests/contract/test_user_directory_contract.py`. It is how `CreateTask` and `UpdateTask` validate an assignee without importing an auth use case or the `UserRepository` |
 | `UserRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_user_repository_contract.py`. `add` raises `EmailAlreadyRegisteredError`, also when a concurrent transaction wins: the unique constraint is the guarantee, and the insert runs in a savepoint so the rest of the unit of work survives the rejection |
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
 | `RateLimiter` | Redis (one Lua script per hit), in-memory, and `FailOpenRateLimiter`, which wraps the first with the second | All three pass `tests/contract/test_rate_limiter_contract.py`; the Redis run is under the `integration` marker. The in-memory adapter serves the tests and stands in while Redis is unreachable |
 | `TokenService` | JWT (`PyJWT`, HMAC), in-memory fake for tests | Tokens carry only `sub`, `iat`, `exp`; `decode` raises `InvalidTokenError` |
+| `IdentityProvider` | `google` (`httpx`, OpenID Connect with discovery, ID token verified with `PyJWT` against Google's cached keys), `fake` (no credentials; tests and local demos, refused when `APP__ENV=production`) | Both pass `tests/contract/test_identity_provider_contract.py`; Google runs against a stand-in Google (`httpx.MockTransport`, local signing keys). Registered in `infrastructure/identity/registry.py`, switched on by `SSO__ENABLED_PROVIDERS`; each factory names the variable it misses and stops startup |
+| `UserIdentityRepository` | SQLAlchemy on PostgreSQL, in-memory fake | Both pass `tests/contract/test_user_identity_repository_contract.py`. `link` raises `IdentityAlreadyLinkedError`, also when a concurrent transaction wins: the two unique constraints are the guarantee, in a savepoint |
+| `OneTimeStore` | Redis (`SET PX` / `GETDEL`), in-memory fake with a clock | Both pass `tests/contract/test_one_time_store_contract.py`. Holds the state of a sign-in and the one-time exchange code, keyed by SHA-256 digests |
 
 ## Composition roots
 
@@ -140,7 +194,7 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 ### Backend: `apps/api/src/app/bootstrap.py`
 
 - Loads settings once, builds the adapters, and hands them to the use cases and the FastAPI app.
-- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters.
+- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it.
 - An unknown `AI__PROVIDER` fails at startup with an explicit error, not at first use.
 - Tests build the app through the same function with fakes passed in, so no test patches a module global.
 
@@ -149,6 +203,7 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`) opens one `AsyncSession` from the container's `session_factory`, binds every repository to it, exposes the use cases on top of them as a `RequestScope`, and commits when the block ends normally or rolls back when it raises. The commit/rollback itself is `transactional_session` in `infrastructure/db/unit_of_work.py`, whose module docstring is the authority for this mechanism.
 
 - The HTTP layer enters the scope once per request through `get_request_scope` in `api/dependencies.py`. It is declared with `Depends(..., scope="function")`, so the transaction ends before the response is sent: a commit that fails becomes an error response.
+- `RequestScope.clock` is the one clock every date-dependent use case receives; API tests replace it to pin "today".
 - A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session. Tasks and users share the scope, so resolving the caller (`GetCurrentUser`) and the task work of one request run in the same transaction.
 - Outside HTTP (a Celery job, a script) the same `container.request_scope()` is the unit of work.
 - Tables arrive only through Alembic revisions. ORM models live in `infrastructure/db/models/`; importing that package registers them on `Base.metadata`, which has a naming convention so every constraint has a stable name.
@@ -213,21 +268,27 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 
 | Route | Success | Errors |
 | --- | --- | --- |
-| `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user) |
-| `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...]}`, newest first | `401` |
-| `GET /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` |
-| `PATCH /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user) |
-| `DELETE /tasks/{task_id}` | `204`, no body | `401`, `404`, `422` |
+| `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user, project does not exist) |
+| `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset"}` | `401`, `422` (a parameter it does not understand) |
+| `GET /tasks/summary` | `200` `TaskSummaryResponse`: `counts`, `projects`, `signals` | `401`, `422` |
+| `GET /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (neither an id nor a key) |
+| `PATCH /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user, the project changes to one that does not exist) |
+| `DELETE /tasks/{id_or_key}` | `204`, no body | `401`, `404`, `422` |
 
-- `TaskResponse`: `id`, `title`, `description`, `status` (`todo | in_progress | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`.
+- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`.
+- **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
+- **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues three statements whatever it returns (the caller, the page, the total).
+- **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
+- `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
-- `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title` and `status` reject `null`. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
+- `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title`, `status`, `priority`, `importance` and `project_id` reject `null`, and there is no `key` to send. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
 - **Assignee**: an `assignee_id` that `POST` sets or `PATCH` changes must be an active user. Otherwise the answer is `422` with `{"type": "invalid_assignee", "loc": ["body", "assignee_id"], "msg": "assignee_id must be the id of an active user"}`, the same body for an unknown id and for a deactivated user. `CreateTask` and `UpdateTask` ask the `UserDirectory` port; the foreign key below is the race-safe backstop, and the repository maps its violation to the same `InvalidAssigneeError`, so a user who vanishes between the check and the write is still a `422`, never a `500`. `PATCH` checks the assignee only when the assignment changes: a body that names the `assignee_id` the task already has is accepted even if that user has since been deactivated (a form that saves the whole task sends it back), while a body that changes the assignee to an unknown or inactive user is the `422` above. So a task whose assignee was deactivated later can still be edited, completed or reassigned.
-- The list is an envelope on purpose: pagination can add fields next to `items` without breaking clients.
-- Any authenticated user can read and change any task (a shared team list); there is no ownership model.
+- The list is an envelope on purpose: pagination added `total`, `limit` and `offset` next to `items` without breaking clients.
+- Any authenticated user can read and change any task and any project (one shared workspace, accepted for now); there is no ownership or membership model.
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
-- Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`.
+- Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`, so `testing` is open work like `todo` and `in_progress`.
 
 ### Tasks reference users
 
@@ -239,6 +300,34 @@ Two foreign keys to `users.id`, both indexed, each with a deliberate `ON DELETE`
 | `tasks.assignee_id` (`fk_tasks_assignee_id_users`) | `SET NULL` | When an assignee goes away the task stays and becomes unassigned |
 
 The revision also upgrades a database that already holds tasks written while both columns were unchecked UUIDs. No task is deleted and the upgrade does not fail: an `assignee_id` that matches no user becomes `NULL` (what `SET NULL` would have done); a `created_by` that matches no user keeps its id, and an inactive placeholder user (`unknown-<id>@placeholder.invalid`, a hash no password matches) is inserted under that id, so `GET /tasks` answers what it did before. `downgrade` removes those placeholders again. Proven in `tests/integration/test_tasks_users_migration.py`.
+
+### Projects and task keys
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `POST /projects` | `201` `ProjectResponse` | `401`, `409` (the key is taken), `422` |
+| `GET /projects` | `200` `ProjectListResponse`: `{"items": [ProjectResponse, ...]}`, by name | `401` |
+| `GET /projects/{project_id}` | `200` `ProjectResponse` | `401`, `404`, `422` |
+| `PATCH /projects/{project_id}` | `200` `ProjectResponse` | `401`, `404`, `422` |
+
+- `ProjectResponse`: `id`, `name`, `key` (2 to 5 upper-case letters, unique), `color` (an optional design token such as `acc`), `open_tasks`, `created_at`, `updated_at`. Every project and its count come from one statement.
+- The key is fixed once the project exists, because every task it created carries it; `PATCH` changes `name` and `color` only. Projects are not deleted (`tasks.project_id` is `ON DELETE RESTRICT`).
+- Every database has the **Inbox** (key `IN`, a fixed id, `DEFAULT_PROJECT_ID`): the migration creates it, and a task created without a project lands there, as in the design.
+
+Revision `8b2f4c6d1a3e` (its docstring is the authority) brings all of this in one step and upgrades a database that already holds tasks: no task is deleted or edited, the three old statuses stay valid, every existing task moves into the Inbox and gets `IN-01`, `IN-02`, ... in creation order (`created_at`, then `id`) with the Inbox counter continuing after them, priority `P2`, importance 50; existing users get no role label. `downgrade` drops what the old schema cannot hold and folds `testing` into `in_progress`. Proven in `tests/integration/test_design_model_migration.py`.
+
+### People
+
+- `GET /users` (authenticated): `{"items": [{"id", "full_name", "initials", "role_label"}, ...]}`, the active users by name, for the assignee picker and "My tasks". No email address of another user is ever exposed: `Person` has no such field and the query does not select the column.
+- `initials` are derived in the domain (`initials_of`): first letter of the first and of the last word, upper-cased.
+- `role_label` is free text a user writes about themselves (`backend`, `owner`). It is a label, not an authorisation role: nothing is allowed or refused because of it.
+- `PATCH /auth/me` lets a user set their own `full_name` and `role_label` (`null` or blank clears it) and nothing else; `UserResponse` gained `initials` and `role_label`.
+
+### Time
+
+Every rule that depends on "now" takes the clock as a dependency (`application/clock.py`; `RequestScope.clock` in production, a pinned clock in tests); neither the domain nor the repositories read the system time, and SQL receives `today` as a bound parameter, never `CURRENT_DATE`. Timestamps are timezone-aware UTC.
+
+**Known limitation**: "today", "overdue" and "due soon" are evaluated on the UTC calendar day (`today_utc`) for everybody. A user west of Greenwich sees a task turn overdue before their own midnight, one east of it after. Per-user time zones are out of scope.
 
 ## Authentication
 
@@ -253,7 +342,7 @@ flowchart LR
 ```
 
 - **The seam**: `apps/api/src/app/api/security.py` exposes `get_current_user_id` and `CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]`. A feature route asks for `CurrentUserId` and gets a UUID. It never sees a JWT, a `User` or the users table, and its API tests supply a caller with `app.dependency_overrides[get_current_user_id]`.
-- **Endpoints**: `POST /auth/register` (`201` `UserResponse`, `409` duplicate email), `POST /auth/login` (OAuth2 password form, so Swagger's Authorize button works; `200` `TokenResponse`), `GET /auth/me` (`200` `UserResponse`). The health endpoints stay public.
+- **Endpoints**: `POST /auth/register` (`201` `UserResponse`, `409` duplicate email), `POST /auth/login` (OAuth2 password form, so Swagger's Authorize button works; `200` `TokenResponse`), `GET /auth/me` (`200` `UserResponse`), `PATCH /auth/me` (`200` `UserResponse`; see [People](#people)). The health endpoints stay public.
 - **Errors**: non-validation errors use `ErrorResponse` (`{"detail": "..."}`). Every `401` carries `WWW-Authenticate: Bearer`. Login failures (unknown email, wrong password, inactive user) are one identical `401`, and an unknown email still pays for one hash, so neither body nor timing enumerates accounts. A login password over the 128-character registration maximum is that same `401` before any hashing, for known and unknown emails alike. A bad token and a deactivated or deleted user are likewise one `401`; the user is re-read on every request, so deactivation is immediate.
 - **Nothing secret leaves**: `UserResponse` has no hash field; `422` bodies omit pydantic's `input` (for a missing field it is the whole request body, password included); the engine sets `hide_parameters`, so SQL echo under `APP__DEBUG` never prints the bound hash; `AUTH__JWT_SECRET` is a `SecretStr`, and every settings model sets `hide_input_in_errors`, so a startup error names the rejected variable but never echoes its value (a too-short key, a database or Redis URL with a password).
 - **Email** is normalised (trimmed, lower-cased) by the `User` entity, so uniqueness is a plain constraint, `uq_users_email`. The use case checks first for a friendly early answer; the constraint, mapped by the repository to `EmailAlreadyRegisteredError`, is what makes concurrent registrations safe.
@@ -261,11 +350,29 @@ flowchart LR
 - **Settings**: the `auth` group (`AUTH__JWT_SECRET`, `AUTH__JWT_ALGORITHM`, `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES`). Startup fails when the secret is missing or shorter than the algorithm's digest (RFC 7518 section 3.2). Only HMAC algorithms are accepted, and decoding pins the configured one, which rules out `alg=none` and algorithm confusion.
 - Out of scope by decision: refresh tokens, password reset, email verification, roles.
 
+### Single sign-on
+
+A second way in, next to password login; the reasons, the flow diagram and the threats considered are in [ADR 0006](decisions/0006-single-sign-on.md). It ends in the same access token, so nothing behind `CurrentUserId` knows it exists.
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `GET /auth/sso/providers` | `200` `SsoProvidersResponse`: `{"providers": [{"name": "google"}]}`, empty while disabled | |
+| `GET /auth/sso/{provider}/start` | `303` to the provider, plus the `sso_binding` cookie (HttpOnly, SameSite=Lax, `Path=<path of SSO__API_PUBLIC_BASE_URL>/auth/sso`, 5 minutes) | `404` unknown or disabled provider |
+| `GET /auth/sso/{provider}/callback` | `303` to `SSO__WEB_CALLBACK_URL?code=<one-time code>` | `303` to `SSO__WEB_CALLBACK_URL?error=sso_failed` (or `provider_unavailable`) for every failure; `404` unknown or disabled provider |
+| `POST /auth/sso/exchange` `{"code": "..."}` | `200` `TokenResponse`, the body of `POST /auth/login` | `401` for every failure, `422` |
+
+- **Use cases**: `StartSsoSignIn` (state, nonce and browser binding into the `OneTimeStore`), `CompleteSsoSignIn` (spends the state, asks the `IdentityProvider`, runs `SignInWithIdentity`, issues the exchange code), `SignInWithIdentity` (find by `(provider, subject)`, else link by VERIFIED email, else create with no password; unverified emails and inactive users are refused), `RedeemSsoCode` (code -> access token, once).
+- **Rate limiting**: the callback and the exchange present a credential and spend the strict `auth` budget by client IP, like login; listing providers and starting a flow spend the general one. Every route declares the `429`.
+- **Redirect targets come from settings only**: `SSO__API_PUBLIC_BASE_URL` (the provider's `redirect_uri` is this plus the callback route's path) and `SSO__WEB_CALLBACK_URL`. Nothing in a request can name another.
+- **The access token never travels in a URL**: the callback redirects with a one-time code (single use, 60 seconds), and the web app swaps it with a `POST`.
+- **Users without a password**: `users.hashed_password` is nullable; a user created by single sign-on has none and password login answers them its uniform `401`. Identities live in `user_identities` (unique `(provider, subject)`, unique `(user_id, provider)`, `ON DELETE CASCADE`).
+- **Settings**: the `sso` group (`SSO__ENABLED_PROVIDERS`, `SSO__GOOGLE_CLIENT_ID`, `SSO__GOOGLE_CLIENT_SECRET` as a `SecretStr`, `SSO__API_PUBLIC_BASE_URL`, `SSO__WEB_CALLBACK_URL`). Disabled by default, so `docker compose up` needs no credentials.
+
 ## Rate limiting
 
 Decision, algorithm and limits of the protection: [ADR 0004](decisions/0004-rate-limiting.md).
 
-- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (`POST /auth/login` and `POST /auth/register`, the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
+- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (the routes that take a credential: `POST /auth/login`, `POST /auth/register`, and the [single sign-on](#single-sign-on) callback and exchange; the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
 - **Contract**: over the limit is `429` `ErrorResponse` with `Retry-After`; every response of a limited route (errors too) carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds from now). The limiter runs first, so `429` wins over `401` and `422`.
 - **Who is calling**: `get_optional_user_id` in `api/security.py` (same seam, same per-request resolution as `CurrentUserId`, but `None` instead of a `401`). Client IP is the connection's peer; `X-Forwarded-For` (last entry) only with `RATE_LIMIT__TRUST_PROXY=true`.
 - **Wiring**: `bootstrap.py` builds `Container.rate_limiting` (the limiter plus the three policies and flags from the `rate_limit` settings group); the API reads it through the `RateLimiting` Protocol in `api/dependencies.py`. API tests replace the limiter with the in-memory adapter on a clock they move.
@@ -288,7 +395,7 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 1. Write nothing in existing modules yet. Create the adapter's test module and add the new adapter to the port's contract suite parameters. Run the suite and confirm it fails.
 2. Implement the adapter in its own module under `infrastructure`. It imports the port's types, never the other way round.
 3. Run the port's contract suite until the new adapter passes every case the existing adapters pass.
-4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads; for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
+4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
 5. If it needs configuration, add a typed field to the matching group in `settings.py` and a documented line in `.env.example`.
 6. Run `make lint` and `make test`, then commit.
 
@@ -323,7 +430,7 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected, a rejected secret never echoed in the error | Environment variables only |
-| Live | The real AI provider accepts the key and generates text | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`; deselected by default, skipped without a key |
-| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
+| Live | A real third party answers as the adapter expects: the AI provider accepts the key and generates text; Google's discovery and token endpoints have the shape the sign-in adapter reads | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`, or `SSO__GOOGLE_CLIENT_ID` and `SSO__GOOGLE_CLIENT_SECRET`; deselected by default, skipped without credentials |
+| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`); the single sign-on browser flow over real HTTP against a uvicorn server, with the fake provider (`tests/integration/test_sso_flow.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.

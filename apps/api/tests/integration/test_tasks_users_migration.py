@@ -10,7 +10,14 @@ from collections.abc import Iterator
 import pytest
 import sqlalchemy
 
-from tests.postgres import INSERT_USER, run_alembic, temporary_database, user_row
+from tests.postgres import (
+    INSERT_USER,
+    TASK_PROJECT_COLUMNS,
+    TASK_PROJECT_VALUES,
+    run_alembic,
+    temporary_database,
+    user_row,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -20,6 +27,13 @@ INSERT_TASK = sqlalchemy.text(
     "INSERT INTO tasks (id, title, status, created_by, assignee_id, created_at, updated_at) "
     "VALUES (:id, :title, 'todo', :created_by, :assignee_id, "
     "'2026-01-05T09:00:00+00:00', '2026-01-05T09:00:00+00:00')"
+)
+# The same row at ``head``, where a task also needs a project and a key.
+INSERT_TASK_AT_HEAD = sqlalchemy.text(
+    "INSERT INTO tasks (id, title, status, created_by, assignee_id, created_at, updated_at, "
+    f"{TASK_PROJECT_COLUMNS}) "
+    "VALUES (:id, :title, 'todo', :created_by, :assignee_id, "
+    f"'2026-01-05T09:00:00+00:00', '2026-01-05T09:00:00+00:00', {TASK_PROJECT_VALUES})"
 )
 TASKS = sqlalchemy.text(
     "SELECT id, title, status, created_by, assignee_id, created_at, updated_at FROM tasks"
@@ -61,6 +75,8 @@ def test_tasks_reference_users_with_a_deliberate_on_delete_rule(
     assert foreign_keys == {
         "fk_tasks_created_by_users": (["created_by"], "users", ["id"], "RESTRICT"),
         "fk_tasks_assignee_id_users": (["assignee_id"], "users", ["id"], "SET NULL"),
+        # Added later, with the design's model: a project that has tasks cannot be deleted.
+        "fk_tasks_project_id_projects": (["project_id"], "projects", ["id"], "RESTRICT"),
     }
 
 
@@ -85,7 +101,7 @@ def test_the_database_refuses_a_task_for_a_user_who_does_not_exist(
     for created_by, assignee_id in ((uuid.uuid4(), None), (creator["id"], uuid.uuid4())):
         with pytest.raises(sqlalchemy.exc.IntegrityError), database.begin() as connection:
             connection.execute(
-                INSERT_TASK,
+                INSERT_TASK_AT_HEAD,
                 {
                     "id": uuid.uuid4(),
                     "title": "t",
@@ -104,7 +120,7 @@ def test_deleting_an_assignee_unassigns_the_task_and_deleting_a_creator_is_refus
     with database.begin() as connection:
         connection.execute(INSERT_USER, [creator, assignee])
         connection.execute(
-            INSERT_TASK,
+            INSERT_TASK_AT_HEAD,
             {
                 "id": uuid.uuid4(),
                 "title": "kept",

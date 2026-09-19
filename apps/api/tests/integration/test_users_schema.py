@@ -43,6 +43,7 @@ def test_upgrade_head_from_an_empty_database_creates_users(migrated_database_url
                 "hashed_password",
                 "is_active",
                 "created_at",
+                "role_label",
             }
     finally:
         engine.dispose()
@@ -60,7 +61,8 @@ def test_the_database_itself_refuses_a_duplicate_email(migrated_database_url: st
 
 
 def test_there_is_one_head_and_users_follow_tasks() -> None:
-    """One linear history: baseline -> create_tasks -> create_users -> wire_tasks_to_users."""
+    """One linear history: baseline -> create_tasks -> create_users -> wire_tasks_to_users
+    -> add_user_identities."""
     scripts = _script_directory()
 
     assert len(scripts.get_heads()) == 1
@@ -70,4 +72,6 @@ def test_there_is_one_head_and_users_follow_tasks() -> None:
         "create tasks",
         "create users",
         "wire tasks to users",
+        "design task model",
+        "add user identities",
     ]
