@@ -44,7 +44,7 @@ export function ActivitySection({ task }: { task: Task }) {
     if (!text) return;
     setComment("");
     setFailed(false);
-    void track(commands.addComment(task.id, text)).catch(() => {
+    void track(task.id, commands.addComment(task.id, text)).catch(() => {
       setComment(text);
       setFailed(true);
     });

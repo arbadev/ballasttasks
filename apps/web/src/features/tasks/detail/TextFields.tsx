@@ -13,7 +13,7 @@ export function TitleField({ task, inputRef }: { task: Task; inputRef: Ref<HTMLI
   const { track } = useDetailSession();
   const field = useAutosaveField({
     saved: task.title,
-    save: (title: string) => track(commands.update(task.id, { title })),
+    save: (title: string) => track(task.id, commands.update(task.id, { title })),
     delay: AUTOSAVE_DELAY_MS,
   });
 
@@ -40,7 +40,7 @@ export function DescriptionField({ task }: { task: Task }) {
   const { track } = useDetailSession();
   const field = useAutosaveField({
     saved: task.description,
-    save: (description: string) => track(commands.update(task.id, { description })),
+    save: (description: string) => track(task.id, commands.update(task.id, { description })),
     delay: AUTOSAVE_DELAY_MS,
   });
 

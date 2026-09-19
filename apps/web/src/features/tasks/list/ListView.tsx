@@ -15,10 +15,15 @@ const ROW_TOGGLE = "[role=checkbox]";
 /** The row control that had focus when its task was toggled or opened, so focus can follow the list. */
 interface PendingFocus {
   taskId: string;
-  /** The status the row started from: the entry is spent once the task shows another one. */
+  /** A toggled row's entry is spent once the task shows a status other than this one. */
   status: Task["status"];
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
+  /**
+   * "opened" waits for the panel: the task can be edited and completed in there before it is
+   * deleted, so the entry lives until the row has both left the list and let the focus go.
+   */
+  kind: "toggled" | "opened";
 }
 
 /** The list view: quick-add, then the visible tasks in the workspace's order, one row each. */
@@ -40,31 +45,37 @@ export function ListView() {
   const controls = (selector: string) => Array.from(listRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
 
   /** Remembers where focus was in a row, for when that row is about to leave the list. */
-  const rememberFocus = useCallback((task: Task, index: number) => {
+  const rememberFocus = useCallback((task: Task, index: number, kind: PendingFocus["kind"]) => {
     const row = listRef.current?.children[index];
     const focused = document.activeElement;
     pendingFocus.current =
-      row && focused && row.contains(focused) ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
+      row && focused && row.contains(focused)
+        ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE, kind }
+        : null;
   }, []);
 
   // A completed row usually leaves the list (the default filter hides done tasks), and a row
   // opened in the panel can be deleted there; either way it takes the focus with it, so hand
   // the focus to the row that took its place, or to the quick-add. A row that stays keeps its
-  // own focus, so the entry is dropped as soon as the toggle lands.
+  // own focus, so a toggle spends its entry as soon as it lands.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
     const row = tasks.find((t) => t.id === pending.taskId);
-    if (row && row.status === pending.status) return;
+    const orphaned = !document.activeElement || document.activeElement === document.body;
+    if (row || !orphaned) {
+      const landed = !row || row.status !== pending.status;
+      if (pending.kind === "toggled" && landed) pendingFocus.current = null;
+      return;
+    }
     pendingFocus.current = null;
-    if (row || (document.activeElement && document.activeElement !== document.body)) return;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
     (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
   }, [tasks]);
 
   const toggle = useCallback(
     (task: Task, index: number) => {
-      rememberFocus(task, index);
+      rememberFocus(task, index, "toggled");
       setFailedTitle(null);
       commands.toggleDone(task.id).catch(() => {
         pendingFocus.current = null;
@@ -113,7 +124,7 @@ export function ListView() {
                 assigneeIsCurrentUser={assignee !== null && assignee.id === currentUser?.id}
                 selected={task.id === state.selectedId}
                 onOpen={() => {
-                  rememberFocus(task, index);
+                  rememberFocus(task, index, "opened");
                   actions.selectTask(task.id);
                 }}
                 onToggle={() => toggle(task, index)}

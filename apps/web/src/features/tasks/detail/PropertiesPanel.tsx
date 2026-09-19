@@ -24,17 +24,17 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const commands = useTaskCommands();
   const { track } = useDetailSession();
 
-  const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(commands.move(task.id, v)) });
-  const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(commands.update(task.id, { assignee: v })) });
-  const due = useAutosaveField({ saved: task.due, save: (v: string | null) => track(commands.update(task.id, { due: v })) });
-  const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(commands.update(task.id, { prio: v })) });
-  const project = useAutosaveField({ saved: task.project, save: (v: string) => track(commands.update(task.id, { project: v })) });
+  const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
+  const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(task.id, commands.update(task.id, { assignee: v })) });
+  const due = useAutosaveField({ saved: task.due, save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })) });
+  const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(task.id, commands.update(task.id, { prio: v })) });
+  const project = useAutosaveField({ saved: task.project, save: (v: string) => track(task.id, commands.update(task.id, { project: v })) });
   // Held as text while typing so the field can be emptied: an empty or half-typed box is not a
   // number the task can hold, so it stays exactly as typed until blur puts the last one back.
   const importance = useAutosaveField({
     saved: String(task.importance),
     savable: (v: string) => v.trim() !== "" && !Number.isNaN(Number(v)),
-    save: (v: string) => track(commands.update(task.id, { importance: clampImportance(Number(v)) })),
+    save: (v: string) => track(task.id, commands.update(task.id, { importance: clampImportance(Number(v)) })),
     delay: AUTOSAVE_DELAY_MS,
   });
 

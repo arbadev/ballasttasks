@@ -178,11 +178,92 @@ describe("footer", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Could not delete the task. Try again.");
     expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    // The prompt took the focus when it opened; it must hand it back, not drop it out of the modal.
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+    expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement);
 
     fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
     await settle();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument();
+  });
+
+  it("keeps the focus inside the modal when the delete prompt is dismissed", async () => {
+    await renderDetail();
+    openTask("t4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("button", { name: "Delete task" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const confirm = screen.getByRole("button", { name: "Delete task" });
+    expect(confirm).toHaveFocus();
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+  });
+
+  it("says not saved about the task that failed, and nothing about any other", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    const broken = new Set(["t4"]);
+    const original = taskService.update.bind(taskService);
+    taskService.update = async (id, patch, note) => {
+      if (broken.has(id)) throw new Error("offline");
+      return original(id, patch, note);
+    };
+    await renderDetail({ taskService });
+
+    openTask("t4");
+    fireEvent.change(screen.getByRole("textbox", { name: "Task name" }), { target: { value: "Will not stick" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Task name" }));
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
+
+    // Another task carries none of it, and its own successful save cannot clear t4's failure.
+    fireEvent.keyDown(window, { key: "Escape" });
+    openTask("t6");
+    expect(screen.getByTestId("save-state")).toHaveTextContent(/^saved · /);
+    fireEvent.change(screen.getByRole("textbox", { name: "Task name" }), { target: { value: "Seeded twice" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Task name" }));
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent(/^saved · /);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    openTask("t4");
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
+
+    broken.clear();
+    fireEvent.change(screen.getByRole("textbox", { name: "Task name" }), { target: { value: "Sticks now" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Task name" }));
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent(/^saved · /);
+  });
+
+  it("attributes a save still in flight to its own task", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    let release!: () => void;
+    const original = taskService.update.bind(taskService);
+    taskService.update = async (id, patch, note) => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return original(id, patch, note);
+    };
+    await renderDetail({ taskService });
+
+    openTask("t4");
+    fireEvent.change(screen.getByRole("textbox", { name: "Task name" }), { target: { value: "Slow save" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Task name" }));
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent("saving…");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    openTask("t6");
+    expect(screen.getByTestId("save-state")).toHaveTextContent(/^saved · /);
+
+    release();
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent(/^saved · /);
   });
 
   it("shows when the task was last saved, and when it was created and updated", async () => {
@@ -239,6 +320,30 @@ describe("delete, from a list row", () => {
     await deleteOpenTask();
     await screen.findByText("No tasks match these filters.");
     expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus();
+  });
+
+  it("still hands focus on after the task was edited in the panel first", async () => {
+    await openFirstRow(threeTasks);
+    const properties = within(screen.getByRole("complementary", { name: "Properties" }));
+    fireEvent.change(properties.getByRole("combobox", { name: "Status" }), { target: { value: "progress" } });
+    await settle();
+    expect(screen.getByTestId("detail-status")).toHaveTextContent("In Progress");
+
+    await deleteOpenTask();
+    expect(rowTitles()).toHaveLength(2);
+    expect(rowTitles()[0]).toHaveFocus();
+  });
+
+  it("still hands focus on after the row left the list on Mark complete", async () => {
+    await openFirstRow(threeTasks);
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+    // The default filter hides done tasks, so the row is already gone before the delete.
+    expect(rowTitles()).toHaveLength(2);
+
+    await deleteOpenTask();
+    expect(rowTitles()).toHaveLength(2);
+    expect(rowTitles()[0]).toHaveFocus();
   });
 });
 

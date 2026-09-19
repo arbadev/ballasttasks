@@ -22,13 +22,13 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
   const percent = total ? Math.round((done / total) * 100) : 0;
   const running = generation.generation?.phase === "running";
 
-  const save = (change: Promise<unknown>) => void track(change).catch(() => {});
+  const save = (change: Promise<unknown>) => void track(task.id, change).catch(() => {});
 
   const addStep = () => {
     const text = newStep.trim();
     if (!text) return;
     setNewStep("");
-    void track(commands.addStep(task.id, text)).catch(() => setNewStep(text));
+    void track(task.id, commands.addStep(task.id, text)).catch(() => setNewStep(text));
   };
 
   return (

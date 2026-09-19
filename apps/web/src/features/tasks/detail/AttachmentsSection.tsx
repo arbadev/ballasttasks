@@ -41,7 +41,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
     setUploadError(null);
     setUploading(result.uploading);
     try {
-      await track(commands.addAttachment(task.id, result.attachment, file));
+      await track(task.id, commands.addAttachment(task.id, result.attachment, file));
     } catch {
       setUploadError("Could not attach the file. Try again.");
     } finally {
@@ -56,7 +56,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
   };
 
   const addLink = async (attachment: Attachment) => {
-    await track(commands.addAttachment(task.id, attachment));
+    await track(task.id, commands.addAttachment(task.id, attachment));
     closeForm();
   };
 

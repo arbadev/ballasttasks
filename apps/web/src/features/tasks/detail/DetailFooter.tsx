@@ -20,9 +20,12 @@ export function DetailFooter({ task }: { task: Task }) {
   const [confirming, setConfirming] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const wasConfirming = useRef(false);
+  const status = saveStatus(task.id);
 
   const remove = () =>
-    void track(commands.remove(task.id)).catch(() => {
+    void track(task.id, commands.remove(task.id)).catch(() => {
       setConfirming(false);
       setDeleteFailed(true);
     });
@@ -32,8 +35,17 @@ export function DetailFooter({ task }: { task: Task }) {
     setDeleteFailed(false);
   };
 
+  // The prompt owns the focus for as long as it is up, and hands it back to the Delete button
+  // it came from; without that, closing it would drop the focus out of the modal onto <body>.
   useEffect(() => {
-    if (confirming) confirmRef.current?.focus();
+    if (confirming) {
+      wasConfirming.current = true;
+      confirmRef.current?.focus();
+      return;
+    }
+    if (!wasConfirming.current) return;
+    wasConfirming.current = false;
+    if (!document.activeElement || document.activeElement === document.body) deleteRef.current?.focus();
   }, [confirming]);
 
   return (
@@ -42,7 +54,7 @@ export function DetailFooter({ task }: { task: Task }) {
         icon={Check}
         onClick={() => {
           setDeleteFailed(false);
-          void track(commands.toggleDone(task.id)).catch(() => {});
+          void track(task.id, commands.toggleDone(task.id)).catch(() => {});
         }}
       >
         {task.status === "done" ? "Reopen" : "Mark complete"}
@@ -67,6 +79,7 @@ export function DetailFooter({ task }: { task: Task }) {
         </span>
       ) : (
         <PanelButton
+          ref={deleteRef}
           variant="danger"
           onClick={() => {
             setDeleteFailed(false);
@@ -81,13 +94,13 @@ export function DetailFooter({ task }: { task: Task }) {
           Could not delete the task. Try again.
         </p>
       )}
-      <span role="status" data-testid="save-state" className={cn("ml-auto font-mono text-[10.5px]", saveStatus === "failed" ? "text-danger" : "text-fg-3")}>
-        {saveStatus === "idle" ? (
+      <span role="status" data-testid="save-state" className={cn("ml-auto font-mono text-[10.5px]", status === "failed" ? "text-danger" : "text-fg-3")}>
+        {status === "idle" ? (
           <>
             saved · <span data-dynamic="time">{relativeTime(task.updatedAt, now)}</span>
           </>
         ) : (
-          SAVE_TEXT[saveStatus]
+          SAVE_TEXT[status]
         )}
       </span>
     </footer>

@@ -128,6 +128,8 @@ test.beforeAll(() => mkdirSync(RESULTS, { recursive: true }));
 
 type Row = { differing: number; total: number; percent: number; sameSize: boolean; ceilingPercent: number | null; note?: string };
 const report: Record<string, Row> = {};
+/** One region as both sides show it. A side missing is itself a failure worth reporting. */
+type Pair = { design?: Buffer; app?: Buffer };
 test.afterAll(() => writeFileSync(join(RESULTS, "report.json"), JSON.stringify(report, null, 2)));
 
 /**
@@ -158,27 +160,26 @@ async function shoot(page: Page, selector: string): Promise<Buffer> {
   return page.screenshot({ clip });
 }
 
-async function compareRegion(canvas: Page, design: Page, app: Page, selector: string, id: string, ceiling: number, note?: string): Promise<string[]> {
-  const designPng = await shoot(design, selector);
-  const appPng = await shoot(app, selector);
-  const result = await comparePngs(canvas, designPng, appPng);
-
-  writeFileSync(join(RESULTS, `${id}-design.png`), designPng);
-  writeFileSync(join(RESULTS, `${id}-app.png`), appPng);
+/**
+ * The one comparison step: diff a region's two shots, write the three PNGs, fill its report
+ * row, and collect what went over. A null ceiling reports the region without limiting it.
+ */
+async function measure(canvas: Page, id: string, pair: Pair, ceiling: number | null, failures: string[], note?: string) {
+  if (!pair.design || !pair.app) return void failures.push(`${id}: present on one side only`);
+  const result = await comparePngs(canvas, pair.design, pair.app);
+  writeFileSync(join(RESULTS, `${id}-design.png`), pair.design);
+  writeFileSync(join(RESULTS, `${id}-app.png`), pair.app);
   writeFileSync(join(RESULTS, `${id}-diff.png`), result.diff);
   report[id] = {
     differing: result.differing,
     total: result.width * result.height,
     percent: Number((result.ratio * 100).toFixed(3)),
     sameSize: result.sameSize,
-    ceilingPercent: ceiling * 100,
+    ceilingPercent: ceiling === null ? null : ceiling * 100,
     ...(note ? { note } : {}),
   };
-
-  const failures: string[] = [];
   if (!result.sameSize) failures.push(`${id}: region sizes differ`);
-  if (result.ratio > ceiling) failures.push(`${id}: ${(result.ratio * 100).toFixed(2)}% of pixels differ (max ${ceiling * 100}%)`);
-  return failures;
+  if (ceiling !== null && result.ratio > ceiling) failures.push(`${id}: ${(result.ratio * 100).toFixed(2)}% of pixels differ (max ${ceiling * 100}%)`);
 }
 
 for (const viewport of VIEWPORTS) {
@@ -192,7 +193,6 @@ for (const viewport of VIEWPORTS) {
       await open(app, APP_URL, "13 tasks");
 
       // One side at a time, so a state with a clock on it (the 2.2s draft) is captured whole.
-      type Pair = { design?: Buffer; app?: Buffer };
       const untouched = new Map<Region, Pair>();
       const structure = new Map<Region, Pair>();
       for (const [side, page] of [["design", design], ["app", app]] as const) {
@@ -212,33 +212,15 @@ for (const viewport of VIEWPORTS) {
       }
 
       const failures: string[] = [];
-      const measure = async (id: string, pair: Pair, ceiling: number | null, note?: string) => {
-        if (!pair.design || !pair.app) return void failures.push(`${id}: present on one side only`);
-        const result = await comparePngs(canvas, pair.design, pair.app);
-        writeFileSync(join(RESULTS, `${id}-design.png`), pair.design);
-        writeFileSync(join(RESULTS, `${id}-app.png`), pair.app);
-        writeFileSync(join(RESULTS, `${id}-diff.png`), result.diff);
-        report[id] = {
-          differing: result.differing,
-          total: result.width * result.height,
-          percent: Number((result.ratio * 100).toFixed(3)),
-          sameSize: result.sameSize,
-          ceilingPercent: ceiling === null ? null : ceiling * 100,
-          ...(note ? { note } : {}),
-        };
-        if (!result.sameSize) failures.push(`${id}: region sizes differ`);
-        if (ceiling !== null && result.ratio > ceiling) failures.push(`${id}: ${(result.ratio * 100).toFixed(2)}% of pixels differ (max ${ceiling * 100}%)`);
-      };
-
       for (const [region, pair] of untouched) {
         const id = `${region}-${size}-${state.name}`;
         const deviation = DEVIATIONS.find((d) => d.region === region && (!d.states || d.states.includes(state.name)));
         const held = structure.get(region);
         if (held) {
-          await measure(id, held, deviation?.maxRatio ?? MAX_RATIO, "structure: placeholder glyphs transparent on both sides");
-          await measure(`${id}-with-placeholder`, pair, null, "untouched: reported, not limited (placeholders are --fg-3 by ruling)");
+          await measure(canvas, id, held, deviation?.maxRatio ?? MAX_RATIO, failures, "structure: placeholder glyphs transparent on both sides");
+          await measure(canvas, `${id}-with-placeholder`, pair, null, failures, "untouched: reported, not limited (placeholders are --fg-3 by ruling)");
         } else {
-          await measure(id, pair, deviation?.maxRatio ?? MAX_RATIO, deviation?.reason);
+          await measure(canvas, id, pair, deviation?.maxRatio ?? MAX_RATIO, failures, deviation?.reason);
         }
       }
 
@@ -267,7 +249,8 @@ for (const viewport of VIEWPORTS) {
         // proves the control takes the keys, and the column is captured in its active state.
         if (control.popup) await page.keyboard.press("Alt+ArrowDown");
       }
-      failures.push(...(await compareRegion(canvas, design, app, REGIONS.properties, `properties-${size}-${control.name}-open`, MAX_RATIO)));
+      const shots = { design: await shoot(design, REGIONS.properties), app: await shoot(app, REGIONS.properties) };
+      await measure(canvas, `properties-${size}-${control.name}-open`, shots, MAX_RATIO, failures);
       for (const page of [design, app]) {
         if (control.popup) await page.locator(control.selector).press("Alt+ArrowUp");
         await expect(page.locator("[role=dialog]"), "the panel must survive a control being opened and closed").toBeVisible();

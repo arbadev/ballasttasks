@@ -25,7 +25,7 @@ export function UrgencyBanner({ task, generation }: { task: Task; generation: St
   const banner = bannerFor(task, now, generation.generation !== null);
   if (!banner) return null;
 
-  const save = (change: Promise<unknown>) => void track(change).catch(() => {});
+  const save = (change: Promise<unknown>) => void track(task.id, change).catch(() => {});
   const today = dayFrom(0, now);
   // A week out from the due date, or from today when that date has already passed.
   const weekOut = dayFrom(7, now, task.due && task.due > today ? task.due : today);

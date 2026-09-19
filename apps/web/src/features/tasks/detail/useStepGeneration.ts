@@ -38,13 +38,13 @@ export function useStepGeneration(taskId: string): StepGenerationView {
     },
     removeProposed: (stepId) => service.removeProposed(stepId),
     accept: () => {
-      void track(service.accept())
+      void track(taskId, service.accept())
         .then((task) => task && commands.sync(task))
         .catch(() => {});
     },
     discard: () => {
       // Discarding resolves to nothing, but it is logged on the task: read the task back.
-      void track(service.discard().then(() => tasks.get(taskId)))
+      void track(taskId, service.discard().then(() => tasks.get(taskId)))
         .then((task) => task && commands.sync(task))
         .catch(() => {});
     },

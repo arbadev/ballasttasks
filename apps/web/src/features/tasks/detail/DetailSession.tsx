@@ -17,13 +17,27 @@ class DraftStore {
 }
 
 interface DetailSession {
-  saveStatus: SaveStatus;
-  /** Every save in the panel goes through here, so the footer can say saving, saved or not saved. */
-  track<T>(save: Promise<T>): Promise<T>;
+  /** What the footer says about one task, and only that task. */
+  saveStatus(taskId: string): SaveStatus;
+  /**
+   * Every save in the panel goes through here, under the id of the task it is saving, so the
+   * footer can say saving, saved or not saved about exactly the task the reader is looking at.
+   * A save that fails leaves that task alone on "not saved" until one of its own succeeds;
+   * no other task's outcome clears it, and none of them inherits it.
+   */
+  track<T>(taskId: string, save: Promise<T>): Promise<T>;
   drafts: DraftStore;
   generationFailed(taskId: string): boolean;
   setGenerationFailed(taskId: string, failed: boolean): void;
 }
+
+/** One task's saves: how many are running, and whether the last one to answer failed. */
+interface TaskSaves {
+  inFlight: number;
+  failed: boolean;
+}
+
+const SETTLED: TaskSaves = { inFlight: 0, failed: false };
 
 const DetailSessionContext = createContext<DetailSession | null>(null);
 
@@ -33,26 +47,36 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
  * another task loses none of it.
  */
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
-  const [inFlight, setInFlight] = useState(0);
-  const [lastFailed, setLastFailed] = useState(false);
+  const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
   const [drafts] = useState(() => new DraftStore());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
 
-  const track = useCallback(<T,>(save: Promise<T>): Promise<T> => {
-    setInFlight((n) => n + 1);
-    return save.then(
-      (result) => {
-        setInFlight((n) => n - 1);
-        setLastFailed(false);
-        return result;
-      },
-      (error: unknown) => {
-        setInFlight((n) => n - 1);
-        setLastFailed(true);
-        throw error;
-      },
-    );
+  const record = useCallback((taskId: string, step: (current: TaskSaves) => TaskSaves) => {
+    setSaves((current) => {
+      const next = new Map(current);
+      const after = step(current.get(taskId) ?? SETTLED);
+      if (after.inFlight === 0 && !after.failed) next.delete(taskId);
+      else next.set(taskId, after);
+      return next;
+    });
   }, []);
+
+  const track = useCallback(
+    <T,>(taskId: string, save: Promise<T>): Promise<T> => {
+      record(taskId, (s) => ({ ...s, inFlight: s.inFlight + 1 }));
+      return save.then(
+        (result) => {
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, failed: false }));
+          return result;
+        },
+        (error: unknown) => {
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, failed: true }));
+          throw error;
+        },
+      );
+    },
+    [record],
+  );
 
   const setGenerationFailed = useCallback((taskId: string, failed: boolean) => {
     setFailedGenerations((current) => {
@@ -66,13 +90,17 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<DetailSession>(
     () => ({
-      saveStatus: inFlight > 0 ? "saving" : lastFailed ? "failed" : "idle",
+      saveStatus: (taskId) => {
+        const task = saves.get(taskId);
+        if (!task) return "idle";
+        return task.inFlight > 0 ? "saving" : task.failed ? "failed" : "idle";
+      },
       track,
       drafts,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [inFlight, lastFailed, track, drafts, failedGenerations, setGenerationFailed],
+    [saves, track, drafts, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;
