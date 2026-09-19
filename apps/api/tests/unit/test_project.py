@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
 from app.domain.project import (
     DEFAULT_PROJECT_ID,
     DEFAULT_PROJECT_KEY,

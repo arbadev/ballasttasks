@@ -9,11 +9,11 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.task_query import TaskQuery
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_task import GetTask, parse_task_reference
 from app.application.use_cases.list_tasks import ListTasks
-from app.application.task_query import TaskQuery
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
@@ -422,15 +422,18 @@ async def test_create_task_refuses_a_project_that_does_not_exist(
     assert tasks.all() == []
 
 
-async def test_create_task_checks_the_assignee_before_it_takes_a_key(
+async def test_create_task_reports_an_unknown_project_before_anything_else(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
-    create_task = CreateTask(tasks, directory, tasks.projects)
+    """The project is where the key comes from, so it is looked at first. That a refused
+    task costs no number is the unit of work's doing, proven against PostgreSQL in
+    ``tests/integration/test_task_key_allocation.py``."""
+    with pytest.raises(UnknownProjectError):
+        await CreateTask(tasks, directory, tasks.projects).execute(
+            title="   ", created_by=CREATOR, project_id=uuid.uuid4(), assignee_id=uuid.uuid4()
+        )
 
-    with pytest.raises(InvalidAssigneeError):
-        await create_task.execute(title="t", created_by=CREATOR, assignee_id=uuid.uuid4())
-
-    assert (await create_task.execute(title="t", created_by=CREATOR)).key == "IN-01"
+    assert tasks.all() == []
 
 
 async def test_get_task_finds_a_task_by_its_key(tasks: InMemoryTaskRepository) -> None:

@@ -20,3 +20,10 @@ class UserRepository(Protocol):
     async def get_by_email(self, email: str) -> User | None:
         """Look up by normalised email; ``None`` when there is no such user."""
         ...
+
+    async def update(self, user: User) -> None:
+        """Store the current profile (full name, role label) of an existing user.
+
+        Raises ``UserNotFound``.
+        """
+        ...

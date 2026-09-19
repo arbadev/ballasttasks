@@ -4,6 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 import pytest
+
 from app.domain.attention import (
     SOON_WINDOW_DAYS,
     Attention,
@@ -12,7 +13,6 @@ from app.domain.attention import (
     days_until,
     soon_window,
 )
-
 from app.domain.task import Task, TaskPriority, TaskStatus
 from tests.urgency_cases import CASES, NOW, TODAY, UrgencyCase
 

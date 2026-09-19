@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import InvalidAssigneeError, TaskNotFound, UnknownProjectError
@@ -37,7 +38,6 @@ from app.application.task_query import (
 from app.domain.task import Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
 from app.infrastructure.db.engine import create_engine
-from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests import builders
