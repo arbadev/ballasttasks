@@ -5,14 +5,14 @@ describe("linkAttachment", () => {
   it("names a link after its title and keeps the host as the secondary line", () => {
     expect(linkAttachment("https://github.com/arbadev/ballasttasks/pull/9", "Detail panel PR")).toEqual({
       ok: true,
-      attachment: { kind: "link", name: "Detail panel PR", meta: "github.com" },
+      attachment: { kind: "link", name: "Detail panel PR", meta: "github.com", url: "https://github.com/arbadev/ballasttasks/pull/9" },
     });
   });
 
   it("falls back to host and path when no title is given, without a trailing slash or www", () => {
     expect(linkAttachment("https://www.example.com/docs/ports/", "  ")).toEqual({
       ok: true,
-      attachment: { kind: "link", name: "example.com/docs/ports", meta: "example.com" },
+      attachment: { kind: "link", name: "example.com/docs/ports", meta: "example.com", url: "https://www.example.com/docs/ports/" },
     });
     expect(linkAttachment("https://vectal.ai", "")).toMatchObject({ attachment: { name: "vectal.ai", meta: "vectal.ai" } });
   });

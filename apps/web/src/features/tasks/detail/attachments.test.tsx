@@ -11,7 +11,7 @@ const THREE_KINDS = makeTask({
   attachments: [
     { kind: "pdf", name: "Exercise.pdf", meta: "PDF · 3 pages · 84 KB" },
     { kind: "image", name: "board-reference.png", meta: "PNG · 1514×856" },
-    { kind: "link", name: "Swagger UI", meta: "localhost:8000/docs" },
+    { kind: "link", name: "Swagger UI", meta: "localhost:8000/docs", url: "http://localhost:8000/docs" },
   ],
 });
 
@@ -24,21 +24,21 @@ describe("attachments", () => {
     expect(items().map((li) => within(li).getByRole("img").getAttribute("aria-label"))).toEqual(["PDF", "Image", "Link"]);
   });
 
-  it("shows an empty state that points at the link control", async () => {
+  it("shows the design's empty state for files and links", async () => {
     await renderDetail({ tasks: [makeTask({ id: "t1" })] });
     openTask("t1");
     expect(section().getByTestId("attachment-count")).toHaveTextContent("0");
     expect(section().queryByRole("list", { name: "Attachments" })).not.toBeInTheDocument();
-    expect(section().getByTestId("attachments-empty")).toHaveTextContent(/Add a link/);
+    expect(section().getByTestId("attachments-empty")).toHaveTextContent("Drop files here, or paste a link — PDFs, screenshots and threads the assistant can read.");
   });
 
-  it("Attach file is present but plainly unavailable: it says why and does nothing", async () => {
+  it("cancelling the file picker adds nothing", async () => {
     const { taskService } = await renderDetail({ tasks: [makeTask({ id: "t1" })] });
     openTask("t1");
     const attach = section().getByRole("button", { name: "Attach file" });
-    expect(attach).toHaveAttribute("aria-disabled", "true");
-    expect(attach).toHaveAccessibleDescription("File upload is not available yet.");
+    expect(attach).toBeEnabled();
     fireEvent.click(attach);
+    fireEvent.change(section().getByLabelText("Choose a file to attach"), { target: { files: [] } });
     await settle();
     expect(taskService.calls.some((c) => c[0] === "addAttachment")).toBe(false);
   });
@@ -80,7 +80,7 @@ describe("attachments", () => {
     fireEvent.submit(section().getByRole("form", { name: "Add a link" }));
     await settle();
 
-    expect(taskService.calls).toContainEqual(["addAttachment", "t1", { kind: "link", name: "Repository", meta: "github.com" }]);
+    expect(taskService.calls).toContainEqual(["addAttachment", "t1", { kind: "link", name: "Repository", meta: "github.com", url: "https://github.com/arbadev/ballasttasks" }]);
     expect(section().queryByRole("form", { name: "Add a link" })).not.toBeInTheDocument();
     expect(items().map((li) => li.textContent)).toEqual(["Repositorygithub.com"]);
     expect(section().getByRole("button", { name: "Add link" })).toHaveFocus();
@@ -93,7 +93,7 @@ describe("attachments", () => {
     fireEvent.change(section().getByRole("textbox", { name: "Link URL" }), { target: { value: "vectal.ai/toolkit" } });
     fireEvent.submit(section().getByRole("form", { name: "Add a link" }));
     await settle();
-    expect(taskService.calls).toContainEqual(["addAttachment", "t1", { kind: "link", name: "vectal.ai/toolkit", meta: "vectal.ai" }]);
+    expect(taskService.calls).toContainEqual(["addAttachment", "t1", { kind: "link", name: "vectal.ai/toolkit", meta: "vectal.ai", url: "https://vectal.ai/toolkit" }]);
   });
 
   it("Escape and Cancel close the form without closing the panel", async () => {
