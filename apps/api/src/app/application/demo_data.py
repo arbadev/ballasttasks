@@ -7,7 +7,7 @@ comments, status-change history or attachments.
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import Task, TaskPriority, TaskStatus
@@ -49,13 +49,14 @@ class DemoTask:
         return DEFAULT_PROJECT_ID if self.project == "inbox" else demo_id("ballast")
 
     def task(self, anchor: datetime, key: str) -> Task:
+        today = anchor.astimezone(UTC).date()
         updated = anchor - timedelta(days=self.updated)
         return Task(
             id=demo_id(self.name),
             title=self.title,
             description=self.description,
             status=TaskStatus(self.status),
-            due_date=None if self.due is None else anchor.date() + timedelta(days=self.due),
+            due_date=None if self.due is None else today + timedelta(days=self.due),
             created_by=demo_id(self.creator),
             assignee_id=None if self.assignee is None else demo_id(self.assignee),
             created_at=anchor - timedelta(days=self.created),

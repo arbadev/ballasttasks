@@ -5,8 +5,9 @@ import uuid
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -21,6 +22,9 @@ from tests.postgres import run_alembic, temporary_database
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 9, 19, 12, tzinfo=UTC)
+# 21:00 in Chicago is already the next UTC day: the day every due date is anchored on.
+CHICAGO = ZoneInfo("America/Chicago")
+PAST_UTC_MIDNIGHT = datetime(2026, 9, 20, 2, tzinfo=UTC)
 PASSWORD = "ballast-local-demo-only"
 
 
@@ -257,6 +261,36 @@ def test_rerun_is_byte_for_byte_unchanged_even_days_later(database: sa.Engine) -
     before = snapshot(database)
     assert seed(NOW + timedelta(days=20)) is False
     assert snapshot(database) == before
+
+
+def due_dates(engine: sa.Engine) -> dict[str, date | None]:
+    return {task["key"]: task["due_date"] for task in snapshot(engine)["tasks"]}
+
+
+def test_rerun_is_unchanged_when_the_connection_time_zone_is_not_utc(
+    database: sa.Engine,
+) -> None:
+    name = database.url.database
+    with database.begin() as connection:
+        connection.execute(sa.text(f"ALTER DATABASE \"{name}\" SET TimeZone = 'America/Chicago'"))
+    database.dispose()
+    with database.connect() as connection:
+        assert connection.execute(sa.text("SHOW TimeZone")).scalar() == "America/Chicago"
+        stored = connection.execute(sa.text("SELECT now()")).scalar()
+    assert stored is not None
+    assert stored.utcoffset() != timedelta(0)
+
+    assert seed(PAST_UTC_MIDNIGHT) is True
+    before = snapshot(database)
+    assert due_dates(database)["BT-01"] == date(2026, 9, 23)
+    assert seed(PAST_UTC_MIDNIGHT) is False
+    assert snapshot(database) == before
+
+
+def test_due_dates_follow_the_clocks_utc_day_not_its_local_day(database: sa.Engine) -> None:
+    assert seed(PAST_UTC_MIDNIGHT.astimezone(CHICAGO)) is True
+    assert due_dates(database)["BT-01"] == date(2026, 9, 23)
+    assert seed(PAST_UTC_MIDNIGHT.astimezone(CHICAGO)) is False
 
 
 @pytest.mark.parametrize("collision", ["email", "user_id", "project_key", "project_id", "task_id"])
