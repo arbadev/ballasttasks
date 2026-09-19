@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useId, useState, type KeyboardEvent, type Ref } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type Ref } from "react";
 
 interface QuickAddProps {
   /** Resolves once the task is saved; a rejection keeps the typed title for another try. */
@@ -14,18 +14,23 @@ export function QuickAdd({ onAdd, onLeaveDown, inputRef }: QuickAddProps) {
   const [title, setTitle] = useState("");
   const [failed, setFailed] = useState(false);
   const errorId = useId();
+  /** Titles being saved: a second Enter on the same one must not create it twice. */
+  const saving = useRef(new Set<string>());
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // The Enter that confirms an input-method composition is not a submit.
     if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter") {
       const trimmed = title.trim();
-      if (!trimmed) return;
+      if (!trimmed || saving.current.has(trimmed)) return;
+      saving.current.add(trimmed);
       setFailed(false);
-      onAdd(trimmed).then(
-        () => setTitle((current) => (current.trim() === trimmed ? "" : current)),
-        () => setFailed(true),
-      );
+      onAdd(trimmed)
+        .then(
+          () => setTitle((current) => (current.trim() === trimmed ? "" : current)),
+          () => setFailed(true),
+        )
+        .finally(() => saving.current.delete(trimmed));
     } else if (e.key === "Escape") {
       setTitle("");
       setFailed(false);

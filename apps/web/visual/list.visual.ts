@@ -27,17 +27,23 @@ const HIDE_DESIGN_PANEL = `div[style*="z-index: 40"] { display: none !important;
 const HIDE_APP_PANEL = `div:has(> [role=dialog]) { display: none !important; }`;
 
 /**
- * The one sanctioned exception, and it covers placeholder text only. The design leaves the
- * quick-add placeholder at the browser default, which fails AA; the app sets it in --fg-3.
- * So that region is compared twice: its structure, with the placeholder made transparent by
- * this same style on BOTH sides and held to the normal limit; and untouched, where the
- * difference is measured and reported, and the colour and its contrast are asserted instead.
+ * The two sanctioned exceptions, and they cover text colour only: in both the design's colour
+ * fails AA, so the difference is measured and reported, and the app's colour and its contrast
+ * are asserted instead.
+ *
+ * The quick-add placeholder: the design leaves it at the browser default; the app sets it in
+ * --fg-3. That region is compared twice: its structure, with the placeholder made transparent
+ * by this same style on BOTH sides and held to the normal limit; and untouched.
+ *
+ * The hot P0 pill: the design sets white on --danger; the app sets --acc-fg. Its row is still
+ * held to the normal limit (row-hot), and the pill alone is measured untouched.
  */
 const HIDE_PLACEHOLDER = `input::placeholder { color: transparent !important; }`;
 const MIN_CONTRAST = 4.5;
 
 const DEFAULT_ROW = "Unit tests at 80% coverage or more";
 const OVERDUE_ROW = "Write PRD.md: overview, user stories, scope";
+const HOT_ROW = "Task CRUD endpoints with pagination and filters";
 
 interface Side {
   page: Page;
@@ -80,6 +86,7 @@ const appSide = (page: Page): Side => {
 const CASES: { name: string; reach: (side: Side) => Promise<Locator> }[] = [
   { name: "row-default", reach: async (s) => s.row(DEFAULT_ROW) },
   { name: "row-overdue", reach: async (s) => s.row(OVERDUE_ROW) },
+  { name: "row-hot", reach: async (s) => s.row(HOT_ROW) },
   {
     name: "row-hovered",
     reach: async (s) => {
@@ -148,20 +155,28 @@ function record(id: string, measurement: Measurement) {
   writeFileSync(REPORT, JSON.stringify(report, null, 2));
 }
 
-/** The placeholder's computed colour, the --fg-3 token resolved the same way, and the WCAG contrast on what is behind it. */
-async function placeholderColour(page: Page) {
-  return page.evaluate(() => {
-    const input = document.querySelector<HTMLInputElement>('input[aria-label="Add a task"]')!;
+interface Painted {
+  selector: string;
+  /** The pseudo-element that carries the text colour, when it is not the element itself. */
+  pseudo?: string;
+  /** The custom property the app sets the text in. */
+  token: string;
+}
+
+/** A text's computed colour, its token resolved the same way, and the WCAG contrast on what is behind it. */
+async function paintedColour(page: Page, target: Painted) {
+  return page.evaluate(({ selector, pseudo, token: name }) => {
+    const element = document.querySelector<HTMLElement>(selector)!;
     const rgb = (colour: string) => (colour.match(/[\d.]+/g) ?? []).map(Number);
     const probe = document.createElement("span");
-    probe.style.color = "var(--fg-3)";
+    probe.style.color = `var(${name})`;
     document.body.append(probe);
     const token = getComputedStyle(probe).color;
     probe.remove();
 
-    // The input is transparent: the background is the first opaque one behind it.
+    // The background is the first opaque one at or behind the element (the quick-add input is transparent).
     let behind = "rgb(0, 0, 0)";
-    for (let el: Element | null = input; el; el = el.parentElement) {
+    for (let el: Element | null = element; el; el = el.parentElement) {
       const [, , , alpha = 1] = rgb(getComputedStyle(el).backgroundColor);
       if (alpha === 1) {
         behind = getComputedStyle(el).backgroundColor;
@@ -172,10 +187,32 @@ async function placeholderColour(page: Page) {
       const [r, g, b] = rgb(colour).map((c) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4));
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
-    const placeholder = getComputedStyle(input, "::placeholder").color;
-    const [hi, lo] = [luminance(placeholder), luminance(behind)].sort((a, b) => b - a);
-    return { placeholder, token, behind, contrast: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2)) };
-  });
+    const colour = getComputedStyle(element, pseudo).color;
+    const [hi, lo] = [luminance(colour), luminance(behind)].sort((a, b) => b - a);
+    return { colour, token, behind, contrast: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2)) };
+  }, target);
+}
+
+const PLACEHOLDER: Painted = { selector: 'input[aria-label="Add a task"]', pseudo: "::placeholder", token: "--fg-3" };
+const HOT_PILL_MARK = "data-visual-hot-pill";
+const HOT_PILL: Painted = { selector: `[${HOT_PILL_MARK}]`, token: "--acc-fg" };
+
+/**
+ * The priority pill of the hot row, marked so the page-side measurement finds the same element.
+ * The design's runtime wraps the label in an inner element, so the pill is the first box with
+ * an opaque background at or above the text: on both sides it is the one solid pill in the row.
+ */
+async function hotPill(side: Side) {
+  await side
+    .row(HOT_ROW)
+    .getByText(/^(Priority )?P0$/)
+    .evaluate((el, mark) => {
+      const alpha = (box: Element) => (getComputedStyle(box).backgroundColor.match(/[\d.]+/g) ?? []).map(Number)[3] ?? 1;
+      let pill: Element | null = el;
+      while (pill && alpha(pill) !== 1) pill = pill.parentElement;
+      pill?.setAttribute(mark, "");
+    }, HOT_PILL_MARK);
+  return side.page.locator(`[${HOT_PILL_MARK}]`);
 }
 
 for (const viewport of VIEWPORTS) {
@@ -197,14 +234,42 @@ for (const viewport of VIEWPORTS) {
     writeFileSync(join(RESULTS, `${id}-diff.png`), result.diff);
     record(id, { differing: result.differing, total: result.width * result.height, percent: Number((result.ratio * 100).toFixed(3)), sameSize: result.sameSize });
 
-    const colour = await placeholderColour(app);
-    const designColour = await placeholderColour(design);
+    const colour = await paintedColour(app, PLACEHOLDER);
+    const designColour = await paintedColour(design, PLACEHOLDER);
     writeFileSync(join(RESULTS, `list-quick-add-placeholder-${viewport.width}x${viewport.height}.json`), JSON.stringify({ app: colour, design: designColour }, null, 2));
     await context.close();
 
     expect(result.sameSize, `${id}: region sizes differ`).toBe(true);
-    expect(colour.placeholder, "the placeholder is not the --fg-3 token").toBe(colour.token);
+    expect(colour.colour, "the placeholder is not the --fg-3 token").toBe(colour.token);
     expect(colour.contrast, `placeholder contrast on ${colour.behind}`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+  });
+
+  test(`list hot P0 pill text is the accessible token colour at ${viewport.width}x${viewport.height}; the untouched pill is measured`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+    const design = await context.newPage();
+    const app = await context.newPage();
+    const canvas = await context.newPage();
+    await open(design, `${DESIGN_URL}/${DESIGN_FILE}`, "All tasks");
+    await open(app, APP_URL, "13 tasks");
+
+    // Nothing hidden here: this is the real difference, reported rather than limited.
+    const designPng = await (await hotPill(designSide(design))).screenshot();
+    const appPng = await (await hotPill(appSide(app))).screenshot();
+    const result = await comparePngs(canvas, designPng, appPng);
+    const id = `list-hot-pill-untouched-${viewport.width}x${viewport.height}`;
+    writeFileSync(join(RESULTS, `${id}-design.png`), designPng);
+    writeFileSync(join(RESULTS, `${id}-app.png`), appPng);
+    writeFileSync(join(RESULTS, `${id}-diff.png`), result.diff);
+    record(id, { differing: result.differing, total: result.width * result.height, percent: Number((result.ratio * 100).toFixed(3)), sameSize: result.sameSize });
+
+    const colour = await paintedColour(app, HOT_PILL);
+    const designColour = await paintedColour(design, HOT_PILL);
+    writeFileSync(join(RESULTS, `list-hot-pill-${viewport.width}x${viewport.height}.json`), JSON.stringify({ app: colour, design: designColour }, null, 2));
+    await context.close();
+
+    expect(result.sameSize, `${id}: region sizes differ`).toBe(true);
+    expect(colour.colour, "the hot pill text is not the --acc-fg token").toBe(colour.token);
+    expect(colour.contrast, `hot pill contrast on ${colour.behind}`).toBeGreaterThanOrEqual(MIN_CONTRAST);
   });
 
   for (const state of CASES) {

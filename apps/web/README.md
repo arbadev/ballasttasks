@@ -131,13 +131,17 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   keyboard focus ring all equal the design's.
 
 - `list.visual.ts` compares the list view with the design the same way (1% limit, 2/255
-  tolerance): a default, hovered, selected, done and overdue row, the quick-add, the empty state
-  and the whole list region, at both sizes. For the selected row the task panel is hidden on both
-  sides, because its backdrop covers the list. The quick-add is compared twice, the one sanctioned
-  exception: the design leaves its placeholder at the browser default (3.90:1, fails AA) and the
-  app sets it in `--fg-3` (5.29:1), so the structure is held to the limit with the placeholder
-  made transparent on both sides, and the untouched region is measured and reported while the
-  colour and its contrast are asserted instead.
+  tolerance): a default, hovered, selected, done, overdue and hot (P0 at risk) row, the quick-add,
+  the empty state and the whole list region, at both sizes. For the selected row the task panel
+  is hidden on both sides, because its backdrop covers the list. There are two sanctioned
+  exceptions, both text colours where the design fails AA; for each, the untouched region is
+  measured and reported while the app's colour and its contrast (at least 4.5:1) are asserted
+  instead:
+  - The quick-add placeholder: the design leaves it at the browser default (3.90:1) and the app
+    sets it in `--fg-3` (5.29:1). The quick-add is compared twice, so its structure is still held
+    to the limit with the placeholder made transparent on both sides.
+  - The hot P0 pill: the design sets white on `--danger` (3.01:1) and the app sets `--acc-fg`
+    (6.13:1). The row is still held to the limit; the pill alone is measured untouched.
 - `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
   and a keyboard pass over the list's states raises no console error or warning.
 

@@ -4,6 +4,7 @@ import { FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
 import { due, makeTask } from "@/test/tasks";
 import type { Task } from "../model/types";
+import type { NewTask } from "../services/types";
 import { TasksApp } from "../shell/TasksApp";
 import { WorkspaceProvider, useWorkspace } from "../workspace/WorkspaceProvider";
 import { ListView } from "./ListView";
@@ -240,6 +241,21 @@ describe("keyboard", () => {
     await screen.findByText("No tasks match these filters.");
     expect(quickAdd()).toHaveFocus();
   });
+
+  it("does not pull the focus back later when the completed row stayed in the list", async () => {
+    await renderList(three);
+    fireEvent.click(screen.getByRole("button", { name: "probe: all statuses" }));
+    titleButton("Beta").focus();
+    fireEvent.keyDown(titleButton("Beta"), { key: " " });
+    await waitFor(() => expect(toggle("Beta")).toBeChecked());
+    expect(titleButton("Beta")).toHaveFocus();
+
+    act(() => titleButton("Beta").blur());
+    fireEvent.change(quickAdd(), { target: { value: "Later on" } });
+    fireEvent.keyDown(quickAdd(), { key: "Enter" });
+    await screen.findByRole("button", { name: "Later on" });
+    expect(document.body).toHaveFocus();
+  });
 });
 
 describe("quick-add", () => {
@@ -271,6 +287,40 @@ describe("quick-add", () => {
     fireEvent.keyDown(quickAdd(), { key: "Enter" });
     await act(async () => {});
     expect(taskService.calls.filter(([name]) => name === "create")).toEqual([]);
+  });
+
+  it("ignores a second Enter while the same title is still saving, but not a different title", async () => {
+    class Slow extends FakeTaskService {
+      private held: (() => void)[] = [];
+      override create(input: NewTask) {
+        const saved = super.create(input);
+        return new Promise<Task>((resolve) => this.held.push(() => resolve(saved)));
+      }
+      release() {
+        this.held.splice(0).forEach((go) => go());
+      }
+    }
+    const service = new Slow();
+    await renderList([], service);
+    const creates = () => service.calls.filter(([name]) => name === "create");
+
+    fireEvent.change(quickAdd(), { target: { value: "Only once" } });
+    fireEvent.keyDown(quickAdd(), { key: "Enter" });
+    fireEvent.keyDown(quickAdd(), { key: "Enter" });
+    expect(creates()).toHaveLength(1);
+
+    fireEvent.change(quickAdd(), { target: { value: "The next one" } });
+    fireEvent.keyDown(quickAdd(), { key: "Enter" });
+    expect(creates()).toHaveLength(2);
+
+    await act(async () => service.release());
+    expect(await screen.findByRole("button", { name: "The next one" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Only once" })).toHaveLength(1);
+    expect(quickAdd()).toHaveValue("");
+
+    fireEvent.change(quickAdd(), { target: { value: "Only once" } });
+    fireEvent.keyDown(quickAdd(), { key: "Enter" });
+    expect(creates()).toHaveLength(3);
   });
 
   it("names its field, so the browser raises no form-field issue", async () => {

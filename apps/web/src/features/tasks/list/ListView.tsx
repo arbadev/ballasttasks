@@ -12,8 +12,11 @@ import { rowView } from "./rowView";
 const ROW_TITLE = "[data-row-title]";
 const ROW_TOGGLE = "[role=checkbox]";
 
-/** The row control that had focus when its task was completed, so focus can follow the list. */
+/** The row control that had focus when its task was toggled, so focus can follow the list. */
 interface PendingFocus {
+  taskId: string;
+  /** The status the toggle started from: the entry is spent once the task shows another one. */
+  status: Task["status"];
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
 }
@@ -38,11 +41,14 @@ export function ListView() {
 
   // A completed row usually leaves the list (the default filter hides done tasks) and takes
   // the focus with it; hand the focus to the row that took its place, or to the quick-add.
+  // A row that stays keeps its own focus, so the entry is dropped as soon as the toggle lands.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
-    if (document.activeElement && document.activeElement !== document.body) return;
+    const row = tasks.find((t) => t.id === pending.taskId);
+    if (row && row.status === pending.status) return;
     pendingFocus.current = null;
+    if (row || (document.activeElement && document.activeElement !== document.body)) return;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
     (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
   }, [tasks]);
@@ -51,7 +57,7 @@ export function ListView() {
     (task: Task, index: number) => {
       const row = listRef.current?.children[index];
       const focused = document.activeElement;
-      pendingFocus.current = row && focused && row.contains(focused) ? { index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
+      pendingFocus.current = row && focused && row.contains(focused) ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
       setFailedTitle(null);
       commands.toggleDone(task.id).catch(() => {
         pendingFocus.current = null;
