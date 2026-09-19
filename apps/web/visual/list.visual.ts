@@ -26,6 +26,16 @@ const FREEZE = `*, *::before, *::after { animation: none !important; transition:
 const HIDE_DESIGN_PANEL = `div[style*="z-index: 40"] { display: none !important; }`;
 const HIDE_APP_PANEL = `div:has(> [role=dialog]) { display: none !important; }`;
 
+/**
+ * The one sanctioned exception, and it covers placeholder text only. The design leaves the
+ * quick-add placeholder at the browser default, which fails AA; the app sets it in --fg-3.
+ * So that region is compared twice: its structure, with the placeholder made transparent by
+ * this same style on BOTH sides and held to the normal limit; and untouched, where the
+ * difference is measured and reported, and the colour and its contrast are asserted instead.
+ */
+const HIDE_PLACEHOLDER = `input::placeholder { color: transparent !important; }`;
+const MIN_CONTRAST = 4.5;
+
 const DEFAULT_ROW = "Unit tests at 80% coverage or more";
 const OVERDUE_ROW = "Write PRD.md: overview, user stories, scope";
 
@@ -95,7 +105,13 @@ const CASES: { name: string; reach: (side: Side) => Promise<Locator> }[] = [
       return s.firstRow();
     },
   },
-  { name: "quick-add", reach: async (s) => s.quickAdd() },
+  {
+    name: "quick-add-structure",
+    reach: async (s) => {
+      await s.page.addStyleTag({ content: HIDE_PLACEHOLDER });
+      return s.quickAdd();
+    },
+  },
   {
     name: "empty-state",
     reach: async (s) => {
@@ -132,7 +148,65 @@ function record(id: string, measurement: Measurement) {
   writeFileSync(REPORT, JSON.stringify(report, null, 2));
 }
 
+/** The placeholder's computed colour, the --fg-3 token resolved the same way, and the WCAG contrast on what is behind it. */
+async function placeholderColour(page: Page) {
+  return page.evaluate(() => {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Add a task"]')!;
+    const rgb = (colour: string) => (colour.match(/[\d.]+/g) ?? []).map(Number);
+    const probe = document.createElement("span");
+    probe.style.color = "var(--fg-3)";
+    document.body.append(probe);
+    const token = getComputedStyle(probe).color;
+    probe.remove();
+
+    // The input is transparent: the background is the first opaque one behind it.
+    let behind = "rgb(0, 0, 0)";
+    for (let el: Element | null = input; el; el = el.parentElement) {
+      const [, , , alpha = 1] = rgb(getComputedStyle(el).backgroundColor);
+      if (alpha === 1) {
+        behind = getComputedStyle(el).backgroundColor;
+        break;
+      }
+    }
+    const luminance = (colour: string) => {
+      const [r, g, b] = rgb(colour).map((c) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const placeholder = getComputedStyle(input, "::placeholder").color;
+    const [hi, lo] = [luminance(placeholder), luminance(behind)].sort((a, b) => b - a);
+    return { placeholder, token, behind, contrast: Number(((hi + 0.05) / (lo + 0.05)).toFixed(2)) };
+  });
+}
+
 for (const viewport of VIEWPORTS) {
+  test(`list quick-add placeholder is the accessible token colour at ${viewport.width}x${viewport.height}; the untouched region is measured`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+    const design = await context.newPage();
+    const app = await context.newPage();
+    const canvas = await context.newPage();
+    await open(design, `${DESIGN_URL}/${DESIGN_FILE}`, "All tasks");
+    await open(app, APP_URL, "13 tasks");
+
+    // Nothing hidden here: this is the real difference, reported rather than limited.
+    const designPng = await designSide(design).quickAdd().screenshot();
+    const appPng = await appSide(app).quickAdd().screenshot();
+    const result = await comparePngs(canvas, designPng, appPng);
+    const id = `list-quick-add-untouched-${viewport.width}x${viewport.height}`;
+    writeFileSync(join(RESULTS, `${id}-design.png`), designPng);
+    writeFileSync(join(RESULTS, `${id}-app.png`), appPng);
+    writeFileSync(join(RESULTS, `${id}-diff.png`), result.diff);
+    record(id, { differing: result.differing, total: result.width * result.height, percent: Number((result.ratio * 100).toFixed(3)), sameSize: result.sameSize });
+
+    const colour = await placeholderColour(app);
+    const designColour = await placeholderColour(design);
+    writeFileSync(join(RESULTS, `list-quick-add-placeholder-${viewport.width}x${viewport.height}.json`), JSON.stringify({ app: colour, design: designColour }, null, 2));
+    await context.close();
+
+    expect(result.sameSize, `${id}: region sizes differ`).toBe(true);
+    expect(colour.placeholder, "the placeholder is not the --fg-3 token").toBe(colour.token);
+    expect(colour.contrast, `placeholder contrast on ${colour.behind}`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+  });
+
   for (const state of CASES) {
     test(`list ${state.name} matches the design at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
       const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });

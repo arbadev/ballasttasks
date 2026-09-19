@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { useId } from "react";
 import { cn } from "@/lib/cn";
 
 interface SelectProps<T extends string> {
@@ -12,6 +13,8 @@ interface SelectProps<T extends string> {
 
 /** A native select dressed as the design's inline "Label Value ⌄" control. */
 export function Select<T extends string>({ label, value, options, onChange, className }: SelectProps<T>) {
+  // Chrome flags a form field with neither an id nor a name; the wrapping label still names it.
+  const id = useId();
   return (
     <label
       className={cn(
@@ -21,6 +24,7 @@ export function Select<T extends string>({ label, value, options, onChange, clas
     >
       {label}
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
         className="h-7 cursor-pointer appearance-none border-0 bg-transparent py-0 pr-[26px] pl-1.5 text-[12.5px] font-medium text-fg"

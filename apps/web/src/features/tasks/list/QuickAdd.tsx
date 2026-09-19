@@ -46,6 +46,7 @@ export function QuickAdd({ onAdd, onLeaveDown, inputRef }: QuickAddProps) {
         <input
           ref={inputRef}
           type="text"
+          name="title"
           aria-label="Add a task"
           aria-invalid={failed || undefined}
           aria-describedby={failed ? errorId : undefined}

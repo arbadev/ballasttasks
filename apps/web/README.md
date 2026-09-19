@@ -20,6 +20,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `inMemory*` files implement them over one shared store seeded from the design. |
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
+| `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
 
@@ -34,12 +35,13 @@ and labels as the design, but serialisable and the shape an API date column has.
 
 ## Building on the shell
 
-The shell already mounts three placeholders. Each is owned by one follow-up slice, which
-replaces the file's contents and adds whatever else it needs **inside its own folder**:
+The shell mounts three views. The list is built; the board and the detail panel are still
+placeholders, each owned by one follow-up slice, which replaces the file's contents and adds
+whatever else it needs **inside its own folder**:
 
 | Folder (owner) | Mounted as | Replace the placeholder with |
 | --- | --- | --- |
-| `src/features/tasks/list/` | `<ListView />` when the view is `list` | The task rows and the quick-add input. |
+| `src/features/tasks/list/` | `<ListView />` when the view is `list`, in every load state: it draws its own skeleton and load error | Built: the task rows and the quick-add input. |
 | `src/features/tasks/board/` | `<BoardView />` when the view is `board` | The four status columns with drag between them. |
 | `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
 
@@ -108,7 +110,7 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 and runs three suites from `visual/`:
+`npm run test:visual` starts the app on port 47812 and runs these suites from `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
@@ -128,7 +130,22 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   the root element, the resolved colours, radii, shadows and type of shell elements, and the
   keyboard focus ring all equal the design's.
 
-Screenshots, diffs and `report.json` (the measured percentages) land in the git-ignored
+- `list.visual.ts` compares the list view with the design the same way (1% limit, 2/255
+  tolerance): a default, hovered, selected, done and overdue row, the quick-add, the empty state
+  and the whole list region, at both sizes. For the selected row the task panel is hidden on both
+  sides, because its backdrop covers the list. The quick-add is compared twice, the one sanctioned
+  exception: the design leaves its placeholder at the browser default (3.90:1, fails AA) and the
+  app sets it in `--fg-3` (5.29:1), so the structure is held to the limit with the placeholder
+  made transparent on both sides, and the untouched region is measured and reported while the
+  colour and its contrast are asserted instead.
+- `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
+  and a keyboard pass over the list's states raises no console error or warning.
+
+Both servers are reused when already running. When two checkouts run the suite at once, give
+each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
+other's app.
+
+Screenshots, diffs, `report.json` and `list-report.json` (the measured percentages) land in the git-ignored
 `visual-results/`. Run `npx playwright install chromium` once beforehand.
 
 ## Docker
