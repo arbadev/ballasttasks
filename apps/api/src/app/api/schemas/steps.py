@@ -66,8 +66,8 @@ class StepsOrder(BaseModel):
         max_length=MAX_STEPS_PER_TASK,
         description=(
             "Every step of the task, exactly once, in the order wanted; a task holds at most "
-            "100 of them. A list that misses a step, repeats one, names a step of another "
-            "task or is longer than the task may hold is rejected with `422`."
+            f"{MAX_STEPS_PER_TASK} of them. A list that misses a step, repeats one, names a step "
+            "of another task or is longer than the task may hold is rejected with `422`."
         ),
     )
 

@@ -1,13 +1,16 @@
 """Steps, comments and the activity log over real HTTP, real PostgreSQL and real Redis.
 
-Nothing is faked or overridden: register, log in, then every new route. Also what only a
-real database can show: how many statements the list costs once tasks have steps and
+Infrastructure is real: register, log in, then every new route. Only the ordering case
+pins the injected clock to keep relative wording deterministic. Also what only a real
+database can show: how many statements the list costs once tasks have steps and
 comments, that a log line commits or rolls back with the change it describes, and that
 deleting a task removes its rows.
 """
 
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -16,7 +19,7 @@ import sqlalchemy
 from sqlalchemy import event
 
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
-from app.bootstrap import Container, build_container, load_settings
+from app.bootstrap import Container, RequestScope, build_container, load_settings
 from app.domain.task import TaskStatus
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
@@ -30,6 +33,7 @@ from tests.postgres import run_alembic, temporary_database
 pytestmark = pytest.mark.integration
 
 PASSWORD = "correct horse battery"
+ORDERING_NOW = datetime(2026, 9, 19, 12, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -48,6 +52,26 @@ def container(database_url: str, monkeypatch: pytest.MonkeyPatch) -> Container:
 @pytest.fixture
 async def client(container: Container) -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(container=container)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http,
+    ):
+        yield http
+
+
+@pytest.fixture
+async def ordering_client(container: Container) -> AsyncIterator[httpx.AsyncClient]:
+    """Real infrastructure, with the injected clock pinned for equal-timestamp ordering.
+
+    The relative due-date wording cannot change if the suite runs across UTC midnight.
+    """
+
+    @asynccontextmanager
+    async def request_scope() -> AsyncIterator[RequestScope]:
+        async with container.request_scope() as scope:
+            yield replace(scope, clock=lambda: ORDERING_NOW)
+
+    app = create_app(container=replace(container, request_scope=request_scope))
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http,
@@ -274,11 +298,12 @@ async def test_a_log_line_commits_or_rolls_back_with_the_change_it_describes(
 
 
 async def test_entries_written_at_one_instant_keep_the_order_they_were_written_in(
-    client: httpx.AsyncClient,
+    ordering_client: httpx.AsyncClient,
 ) -> None:
+    client = ordering_client
     _, headers = await sign_in(client, "Ada Lovelace")
     task = (await client.post("/tasks", json={"title": "Write the report"}, headers=headers)).json()
-    tomorrow = (datetime.now(UTC).date() + timedelta(days=1)).isoformat()
+    tomorrow = (ORDERING_NOW.date() + timedelta(days=1)).isoformat()
 
     for _ in range(5):
         await client.patch(
