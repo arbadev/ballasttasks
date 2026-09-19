@@ -11,7 +11,7 @@ import { BoardSkeleton } from "./BoardSkeleton";
 import { cardView } from "./cardView";
 import { BOARD_GRID } from "./layout";
 import { TaskCard } from "./TaskCard";
-import { useBoardMoves } from "./useBoardMoves";
+import { useBoardMoves, type MoveFailure } from "./useBoardMoves";
 
 const DRAG_TYPE = "text/plain";
 
@@ -52,11 +52,11 @@ function Board() {
   /** A card moved without a drag is remounted in its new column; focus follows it there. */
   const focusAfterMove = useRef<string | null>(null);
   /** The last card moved without a drag. A refused move remounts it once more, and focus follows it back. */
-  const movedWithoutDrag = useRef<string | null>(null);
+  const movedWithoutDrag = useRef<{ taskId: string; previousFailure: MoveFailure | null } | null>(null);
   const failedId = moves.failure?.taskId ?? null;
 
   useEffect(() => {
-    if (failedId && failedId === movedWithoutDrag.current) {
+    if (failedId && failedId === movedWithoutDrag.current?.taskId && moves.failure !== movedWithoutDrag.current.previousFailure) {
       movedWithoutDrag.current = null;
       // Focus the user has since put somewhere else stays there.
       if (document.activeElement === document.body) focusAfterMove.current = failedId;
@@ -79,7 +79,9 @@ function Board() {
 
   const moveWithoutDrag = (taskId: string, to: TaskStatus) => {
     focusAfterMove.current = taskId;
-    movedWithoutDrag.current = taskId;
+    // A pending focus render can still carry the old alert when Retry is pressed.
+    // Only a new refusal belongs to this attempt.
+    movedWithoutDrag.current = { taskId, previousFailure: moves.failure };
     moves.move(taskId, to);
   };
 
@@ -121,7 +123,7 @@ function Board() {
               onDrop={(event: DragEvent<HTMLElement>) => {
                 event.preventDefault();
                 const id = draggedId ?? event.dataTransfer.getData(DRAG_TYPE);
-                if (id === movedWithoutDrag.current) movedWithoutDrag.current = null;
+                if (id === movedWithoutDrag.current?.taskId) movedWithoutDrag.current = null;
                 if (id) moves.move(id, status.id);
                 endDrag();
               }}
