@@ -31,7 +31,7 @@ uv run lint-imports
 
 uv run alembic upgrade head               # migrations are an explicit step, never run by the app
 uv run alembic revision --autogenerate -m "message"   # new revision from the ORM models; review it by hand
-uv run uvicorn app.main:create_app --factory --reload
+uv run uvicorn app.main:create_app --factory --reload --no-proxy-headers
 uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 ```
 
@@ -44,6 +44,6 @@ One image (build context `apps/api`) serves three commands:
 
 | Service | Command |
 | --- | --- |
-| api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000` |
+| api (default) | `uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-proxy-headers` |
 | worker | `celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO` |
 | migrate | `alembic upgrade head` (run before the api starts) |

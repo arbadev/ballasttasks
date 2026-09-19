@@ -4,14 +4,16 @@ A task management app: a Python REST API with a web frontend, built as a Clean A
 
 The repository currently contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and the first product feature: the task CRUD API under `/tasks` (create, read, update, delete, assign, mark as completed; see the [task contract](docs/architecture.md#task-contract) and Swagger UI). It sits behind **JWT authentication** (`/auth/register`, `/auth/login`, `/auth/me`; see [authentication](docs/architecture.md#authentication)): a `/tasks` request without a valid bearer token is answered `401`. **Single sign-on** (Google first, off by default) is a second way in under `/auth/sso/*` that ends in the same access token; see [single sign-on](docs/architecture.md#single-sign-on). Its API is complete; the web page that receives the sign-in (`SSO__WEB_CALLBACK_URL`) is not built yet. Pagination, filtering, rate limiting, seed data and the task UI arrive in later phases.
 
+Every route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md).
+
 ## Architecture at a glance
 
 - **`apps/api`**: FastAPI + Celery, organised as ports and adapters. Use cases depend on small `typing.Protocol` ports; adapters are wired in one composition root, `bootstrap.py`. Layer rules are enforced by import-linter.
 - **`apps/web`**: Next.js. Components depend on service interfaces provided by one composition root, `providers.tsx`; only `client.ts` talks to the network.
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
-- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker.
+- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and the shared rate limit counters.
 
-Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md).
+Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md).
 
 ## Prerequisites
 

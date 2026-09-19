@@ -12,7 +12,16 @@ DOWN_REDIS_URL = "redis://127.0.0.1:1/0"
 # Test-only signing key: 64 bytes, so it is long enough for every supported HMAC algorithm.
 TEST_JWT_SECRET = "test-only-jwt-secret-" + "t" * 44
 
-SETTINGS_ENV_PREFIXES = ("APP__", "DATABASE__", "REDIS__", "AI__", "CORS__", "AUTH__", "SSO__")
+SETTINGS_ENV_PREFIXES = (
+    "APP__",
+    "DATABASE__",
+    "REDIS__",
+    "AI__",
+    "CORS__",
+    "AUTH__",
+    "RATE_LIMIT__",
+    "SSO__",
+)
 
 
 @pytest.fixture

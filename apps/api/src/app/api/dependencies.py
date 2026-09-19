@@ -13,6 +13,7 @@ from fastapi import Depends, Request
 
 from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.language_model import LanguageModel
+from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.sso import SsoConfig
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
@@ -62,6 +63,28 @@ class RequestScope(Protocol):
     def redeem_sso_code(self) -> RedeemSsoCode: ...
 
 
+class RateLimiting(Protocol):
+    """The limiter and the rules it is applied with (``api/rate_limit.py``)."""
+
+    @property
+    def limiter(self) -> RateLimiter: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    @property
+    def trust_proxy(self) -> bool: ...
+
+    @property
+    def auth(self) -> RateLimitPolicy: ...
+
+    @property
+    def authenticated(self) -> RateLimitPolicy: ...
+
+    @property
+    def anonymous(self) -> RateLimitPolicy: ...
+
+
 class AppContainer(Protocol):
     @property
     def request_scope(self) -> Callable[[], AbstractAsyncContextManager[RequestScope]]: ...
@@ -80,6 +103,9 @@ class AppContainer(Protocol):
 
     @property
     def sso(self) -> SsoConfig: ...
+
+    @property
+    def rate_limiting(self) -> RateLimiting: ...
 
 
 def get_container(request: Request) -> AppContainer:
@@ -109,11 +135,16 @@ def get_sso_config(container: ContainerDep) -> SsoConfig:
     return container.sso
 
 
+def get_rate_limiting(container: ContainerDep) -> RateLimiting:
+    return container.rate_limiting
+
+
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
 LanguageModelDep = Annotated[LanguageModel, Depends(get_language_model)]
 IdentityProvidersDep = Annotated[Mapping[str, IdentityProvider], Depends(get_identity_providers)]
 StartSsoSignInDep = Annotated[StartSsoSignIn, Depends(get_start_sso_sign_in)]
 SsoConfigDep = Annotated[SsoConfig, Depends(get_sso_config)]
+RateLimitingDep = Annotated[RateLimiting, Depends(get_rate_limiting)]
 
 
 async def get_request_scope(container: ContainerDep) -> AsyncIterator[RequestScope]:

@@ -23,6 +23,7 @@ from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.one_time_store import OneTimeStore
 from app.application.ports.password_hasher import PasswordHasher
+from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.token_service import TokenService
 from app.application.ports.user_directory import UserDirectory
@@ -49,7 +50,7 @@ from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.cache.health import RedisHealthCheck
 from app.infrastructure.cache.one_time_store import RedisOneTimeStore
 from app.infrastructure.config import settings as config
-from app.infrastructure.config.settings import Settings
+from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
@@ -61,6 +62,9 @@ from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.identity.registry import IDENTITY_PROVIDERS, build_identity_providers
 from app.infrastructure.jobs.factory import create_celery_app
 from app.infrastructure.jobs.queue import CeleryJobQueue
+from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
+from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
+from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.security.jwt_token_service import JwtTokenService
 
@@ -163,6 +167,36 @@ def _request_scope_factory(
 
 
 @dataclass(frozen=True, slots=True)
+class RateLimiting:
+    """What the HTTP layer needs to limit requests: the limiter and the rules from settings."""
+
+    limiter: RateLimiter
+    enabled: bool
+    trust_proxy: bool
+    auth: RateLimitPolicy
+    authenticated: RateLimitPolicy
+    anonymous: RateLimitPolicy
+
+
+def _rate_limiting(settings: RateLimitSettings, redis: Redis) -> RateLimiting:
+    return RateLimiting(
+        # Redis decides; while it is unreachable each process counts on its own (fail open).
+        limiter=FailOpenRateLimiter(
+            RedisRateLimiter(redis, prefix=settings.key_prefix), InMemoryRateLimiter()
+        ),
+        enabled=settings.enabled,
+        trust_proxy=settings.trust_proxy,
+        auth=RateLimitPolicy("auth", settings.auth.limit, settings.auth.window_seconds),
+        authenticated=RateLimitPolicy(
+            "authenticated", settings.authenticated.limit, settings.authenticated.window_seconds
+        ),
+        anonymous=RateLimitPolicy(
+            "anonymous", settings.anonymous.limit, settings.anonymous.window_seconds
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class Container:
     settings: Settings
     health_checks: Sequence[HealthCheck]
@@ -172,6 +206,7 @@ class Container:
     session_factory: async_sessionmaker[AsyncSession]
     request_scope: RequestScopeFactory
     redis: Redis
+    rate_limiting: RateLimiting
     ai_http_client: AsyncClient
     # Single sign-on. Empty mapping = disabled: the routes answer 404 and list nothing.
     identity_providers: Mapping[str, IdentityProvider]
@@ -242,6 +277,7 @@ def build_container(settings: Settings) -> Container:
             one_time_store,
         ),
         redis=redis,
+        rate_limiting=_rate_limiting(settings.rate_limit, redis),
         ai_http_client=ai_http_client,
         identity_providers=identity_providers,
         one_time_store=one_time_store,
