@@ -277,10 +277,12 @@ async def test_a_user_created_by_single_sign_on_cannot_log_in_with_a_password(
 
 async def test_a_tampered_state_fails(auth_client: httpx.AsyncClient) -> None:
     sent_back = query_of(await start(auth_client))
+    last = sent_back["state"][-1]
+    tampered = sent_back["state"][:-1] + ("B" if last == "A" else "A")
 
     response = await auth_client.get(
         "/auth/sso/fake/callback",
-        params={"code": sent_back["code"], "state": sent_back["state"][:-1] + "A"},
+        params={"code": sent_back["code"], "state": tampered},
     )
 
     assert response.status_code == 303
