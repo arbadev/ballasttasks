@@ -24,6 +24,17 @@ AssigneeId = Annotated[
         )
     ),
 ]
+UpdatedAssigneeId = Annotated[
+    uuid.UUID | None,
+    Field(
+        description=(
+            "Id of the active user the task is assigned to; `null` unassigns it. Checked only "
+            "when it changes the assignment: an id that is not an active user is rejected with "
+            "`422`, but the id the task already has is accepted even if that user has since "
+            "been deactivated."
+        )
+    ),
+]
 
 
 class TaskCreate(BaseModel):
@@ -50,7 +61,7 @@ class TaskUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     status: TaskStatus | SkipJsonSchema[None] = None
     due_date: date | None = None
-    assignee_id: AssigneeId = None
+    assignee_id: UpdatedAssigneeId = None
 
     @model_validator(mode="after")
     def _required_fields_cannot_be_null(self) -> Self:

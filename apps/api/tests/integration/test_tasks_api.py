@@ -275,6 +275,43 @@ async def test_a_task_outlives_the_deactivation_of_its_assignee(
     assert done.json()["assignee_id"] == grace.id
 
 
+async def test_patch_may_name_the_deactivated_assignee_the_task_already_has(
+    client: httpx.AsyncClient, container: Container
+) -> None:
+    """A form that saves the whole task names the assignee without changing it; changing it
+    to somebody who is not active is still refused."""
+    ada = await register_and_log_in(client, "Ada Lovelace")
+    grace = await register_and_log_in(client, "Grace Hopper")
+    left_too = await register_and_log_in(client, "Left The Team")
+    task = (
+        await client.post(
+            "/tasks",
+            json={"title": "Write the report", "assignee_id": grace.id},
+            headers=ada.headers,
+        )
+    ).json()
+    await deactivate(container, grace.id)
+    await deactivate(container, left_too.id)
+
+    saved = await client.patch(
+        f"/tasks/{task['id']}",
+        json={"title": "Publish the report", "assignee_id": grace.id},
+        headers=ada.headers,
+    )
+    changed = await client.patch(
+        f"/tasks/{task['id']}",
+        json={"title": "Changed", "assignee_id": left_too.id},
+        headers=ada.headers,
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["title"] == "Publish the report"
+    assert saved.json()["assignee_id"] == grace.id
+    assert changed.status_code == 422
+    assert changed.json() == INVALID_ASSIGNEE
+    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == saved.json()
+
+
 async def test_the_foreign_key_answers_the_same_422_when_the_check_is_outrun(
     container: Container,
 ) -> None:

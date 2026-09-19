@@ -288,6 +288,60 @@ async def test_update_task_does_not_recheck_an_assignee_the_request_leaves_alone
     assert done.assignee_id == left_the_team
 
 
+async def test_update_task_accepts_a_change_that_names_the_deactivated_assignee_it_already_has(
+    tasks: InMemoryTaskRepository,
+    users: InMemoryUserRepository,
+    directory: InMemoryUserDirectory,
+) -> None:
+    """A client that sends the whole task back names the assignee without changing it."""
+    left_the_team = await stored_user(users, is_active=False)
+    task = Task.create(
+        task_id=uuid.uuid4(),
+        title="Write the report",
+        created_by=CREATOR,
+        assignee_id=left_the_team,
+        now=NOW,
+    )
+    await tasks.add(task)
+
+    updated = await UpdateTask(tasks, directory, clock=lambda: LATER).execute(
+        task.id, TaskChanges(title="Publish the report", assignee_id=left_the_team)
+    )
+
+    assert updated.title == "Publish the report"
+    assert updated.assignee_id == left_the_team
+    assert await tasks.get(task.id) == updated
+
+
+@pytest.mark.parametrize("assignee", ["unknown", "inactive"])
+async def test_update_task_rejects_a_change_from_a_deactivated_assignee_to_somebody_not_active(
+    tasks: InMemoryTaskRepository,
+    users: InMemoryUserRepository,
+    directory: InMemoryUserDirectory,
+    assignee: str,
+) -> None:
+    left_the_team = await stored_user(users, is_active=False)
+    task = Task.create(
+        task_id=uuid.uuid4(),
+        title="Write the report",
+        created_by=CREATOR,
+        assignee_id=left_the_team,
+        now=NOW,
+    )
+    await tasks.add(task)
+    assignee_id = (
+        uuid.uuid4() if assignee == "unknown" else await stored_user(users, is_active=False)
+    )
+
+    with pytest.raises(InvalidAssigneeError) as error:
+        await UpdateTask(tasks, directory, clock=lambda: LATER).execute(
+            task.id, TaskChanges(title="Publish the report", assignee_id=assignee_id)
+        )
+
+    assert error.value.assignee_id == assignee_id
+    assert await tasks.get(task.id) == task
+
+
 async def test_update_task_reports_an_unknown_task_before_an_unknown_assignee(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:

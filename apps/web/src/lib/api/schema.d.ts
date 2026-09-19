@@ -307,7 +307,7 @@ export interface components {
             due_date?: string | null;
             /**
              * Assignee Id
-             * @description Id of the active user the task is assigned to; `null` leaves it unassigned. An id that is not an active user is rejected with `422`.
+             * @description Id of the active user the task is assigned to; `null` unassigns it. Checked only when it changes the assignment: an id that is not an active user is rejected with `422`, but the id the task already has is accepted even if that user has since been deactivated.
              */
             assignee_id?: string | null;
         };

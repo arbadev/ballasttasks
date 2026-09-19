@@ -34,8 +34,10 @@ class TaskChanges:
 class UpdateTask:
     """Completing a task is ``status=done``; assigning it is ``assignee_id=<user id>``.
 
-    The assignee is checked only when the change names one. A task whose assignee has since
-    been deactivated can still be edited, completed or handed to somebody else.
+    The assignee is checked only when the assignment changes: a change that names somebody
+    else must name an active user. A task whose assignee has since been deactivated can still
+    be edited, completed or handed to somebody else, also by a change that names that same
+    assignee again, as a client that sends the whole task back does.
     """
 
     def __init__(
@@ -64,7 +66,8 @@ class UpdateTask:
         if changes.due_date is not UNSET:
             task.reschedule(changes.due_date, now=now)
         if changes.assignee_id is not UNSET:
-            await self._require_active_user(changes.assignee_id)
+            if changes.assignee_id != task.assignee_id:
+                await self._require_active_user(changes.assignee_id)
             task.assign_to(changes.assignee_id, now=now)
 
         await self._tasks.update(task)

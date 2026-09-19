@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -24,6 +24,23 @@ async def stored_user(auth_fakes: AuthFakes, *, is_active: bool = True) -> str:
     user = a_user(is_active=is_active)
     await auth_fakes.users.add(user)
     return str(user.id)
+
+
+async def stored_task_of_a_deactivated_assignee(
+    tasks: InMemoryTaskRepository, auth_fakes: AuthFakes
+) -> tuple[str, str]:
+    """The ids of a task and of its assignee, who was deactivated after being given it."""
+    left_the_team = a_user(is_active=False)
+    await auth_fakes.users.add(left_the_team)
+    task = Task.create(
+        task_id=uuid.uuid4(),
+        title="Write the report",
+        created_by=USER_ID,
+        assignee_id=left_the_team.id,
+        now=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
+    )
+    await tasks.add(task)
+    return str(task.id), str(left_the_team.id)
 
 
 async def create(client: httpx.AsyncClient, **body: object) -> dict[str, object]:
@@ -340,6 +357,46 @@ async def test_patch_answers_422_on_assignee_id_when_the_assignee_is_not_an_acti
     assert response.status_code == 422
     assert response.json() == {"detail": [INVALID_ASSIGNEE]}
     assert (await task_client.get(f"/tasks/{created['id']}")).json() == created
+
+
+async def test_patch_accepts_the_deactivated_assignee_the_task_already_has(
+    task_client: httpx.AsyncClient, tasks: InMemoryTaskRepository, auth_fakes: AuthFakes
+) -> None:
+    """A form that saves the whole task names the assignee without changing it."""
+    task_id, left_the_team = await stored_task_of_a_deactivated_assignee(tasks, auth_fakes)
+
+    response = await task_client.patch(
+        f"/tasks/{task_id}", json={"title": "Changed", "assignee_id": left_the_team}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "Changed"
+    assert response.json()["assignee_id"] == left_the_team
+    assert (await task_client.get(f"/tasks/{task_id}")).json() == response.json()
+
+
+@pytest.mark.parametrize("assignee", ["unknown", "inactive"])
+async def test_patch_answers_422_when_a_deactivated_assignee_is_changed_to_somebody_not_active(
+    task_client: httpx.AsyncClient,
+    tasks: InMemoryTaskRepository,
+    auth_fakes: AuthFakes,
+    assignee: str,
+) -> None:
+    task_id, _ = await stored_task_of_a_deactivated_assignee(tasks, auth_fakes)
+    before = (await task_client.get(f"/tasks/{task_id}")).json()
+    assignee_id = (
+        str(uuid.uuid4())
+        if assignee == "unknown"
+        else await stored_user(auth_fakes, is_active=False)
+    )
+
+    response = await task_client.patch(
+        f"/tasks/{task_id}", json={"title": "Changed", "assignee_id": assignee_id}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": [INVALID_ASSIGNEE]}
+    assert (await task_client.get(f"/tasks/{task_id}")).json() == before
 
 
 async def test_a_task_can_be_assigned_to_the_user_who_just_registered(
