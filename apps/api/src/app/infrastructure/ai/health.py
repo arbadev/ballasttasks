@@ -37,6 +37,11 @@ class LanguageModelHealthCheck:
                     return healthy
             try:
                 healthy = bool(await self._language_model.check())
+            except asyncio.CancelledError:
+                # Readiness ran out of patience first: a provider that hangs has failed, and
+                # it is the one that must not be asked again on every hit.
+                self._checked = (self._clock(), False)
+                raise
             except Exception:
                 healthy = False
             self._checked = (self._clock(), healthy)

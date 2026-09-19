@@ -5,6 +5,7 @@ import asyncio
 
 import httpx
 
+from app.application.use_cases.check_readiness import CheckReadiness
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from tests.ai_stubs import OPENROUTER_KEY_INFO, openrouter_error, openrouter_over
 
@@ -91,3 +92,27 @@ async def test_a_zero_window_turns_the_cache_off() -> None:
     await health_check.check()
 
     assert upstream.calls == 2
+
+
+async def test_a_hanging_provider_cut_off_by_readiness_is_cached_as_failed() -> None:
+    """Readiness gives up before the adapter's own timeout and cancels the check: that is
+    the failure the cache exists for, so the next hit must not reach the provider again."""
+    upstream_calls: list[httpx.Request] = []
+
+    async def hanging(request: httpx.Request) -> httpx.Response:
+        upstream_calls.append(request)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    clock = _Clock()
+    health_check = LanguageModelHealthCheck(
+        openrouter_over(hanging), cache_seconds=30.0, clock=clock
+    )
+    readiness = CheckReadiness([health_check], timeout_seconds=0.05)
+
+    first = await readiness.execute()
+    clock.now += 5
+    second = await readiness.execute()
+
+    assert (first.failed, second.failed) == (("ai",), ("ai",))
+    assert len(upstream_calls) == 1
