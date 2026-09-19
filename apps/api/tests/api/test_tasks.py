@@ -3,10 +3,10 @@ from datetime import datetime
 
 import httpx
 import pytest
-from app.api.schemas.tasks import TaskListResponse, TaskResponse
-from app.api.security import get_current_user_id
 from fastapi import FastAPI
 
+from app.api.schemas.tasks import TaskListResponse, TaskResponse
+from app.api.security import get_current_user_id
 from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH
 from tests.api.conftest import USER_ID, RecordingRequestScopes
 from tests.fakes import InMemoryTaskRepository

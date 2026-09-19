@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from dataclasses import replace
 
 from app.application.errors import TaskNotFound
-
 from app.domain.task import Task
 
 

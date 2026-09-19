@@ -10,13 +10,13 @@ from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import TaskNotFound
 from app.application.ports.task_repository import TaskRepository
 from app.domain.task import Task, TaskStatus
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from tests.fakes import InMemoryTaskRepository
 
 ADAPTERS = [

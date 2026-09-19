@@ -2,12 +2,12 @@
 
 from collections.abc import Iterator
 
-import app.infrastructure.db.models  # noqa: F401  (registers the tables on Base.metadata)
 import pytest
 import sqlalchemy
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 
+import app.infrastructure.db.models  # noqa: F401  (registers the tables on Base.metadata)
 from app.infrastructure.db.base import Base
 from tests.postgres import run_alembic, temporary_database
 

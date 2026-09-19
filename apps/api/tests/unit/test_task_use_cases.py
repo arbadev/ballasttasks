@@ -2,13 +2,13 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+
 from app.application.errors import TaskNotFound
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_task import GetTask
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
-
 from app.domain.task import InvalidTaskError, Task, TaskStatus
 from tests.fakes import InMemoryTaskRepository
 

@@ -5,13 +5,13 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import pytest
-from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
-from app.infrastructure.db.unit_of_work import transactional_session
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.task import Task
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.unit_of_work import transactional_session
 
 pytestmark = pytest.mark.integration
 

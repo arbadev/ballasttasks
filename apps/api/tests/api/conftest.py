@@ -5,9 +5,9 @@ from dataclasses import replace
 
 import httpx
 import pytest
-from app.api.security import get_current_user_id
 from fastapi import FastAPI
 
+from app.api.security import get_current_user_id
 from app.application.ports.health_check import HealthCheck
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.main import create_app
