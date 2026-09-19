@@ -19,3 +19,12 @@ async def test_session_factory_is_bound_to_the_engine() -> None:
 
 def test_importing_the_models_package_registers_the_tables_alembic_targets() -> None:
     assert set(Base.metadata.tables) >= {"users"}
+
+
+async def test_sql_echo_never_logs_bound_parameters() -> None:
+    """APP__DEBUG turns SQL echo on; the INSERT into users binds the password hash."""
+    engine = create_engine(DOWN_DATABASE_URL, echo=True)
+
+    assert engine.sync_engine.hide_parameters is True
+
+    await engine.dispose()
