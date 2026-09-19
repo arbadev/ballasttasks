@@ -230,7 +230,7 @@ class RequestScope:
 
     @property
     def attach_link(self) -> AttachLink:
-        return AttachLink(self.tasks, self.attachments, clock=self.clock)
+        return AttachLink(self.tasks, self.attachments, self.activity, clock=self.clock)
 
     @property
     def list_attachments(self) -> ListAttachments:
@@ -238,7 +238,9 @@ class RequestScope:
 
     @property
     def remove_attachment(self) -> RemoveAttachment:
-        return RemoveAttachment(self.tasks, self.attachments, self.file_changes, clock=self.clock)
+        return RemoveAttachment(
+            self.tasks, self.attachments, self.file_changes, self.activity, clock=self.clock
+        )
 
     @property
     def open_attachment_content(self) -> OpenAttachmentContent:

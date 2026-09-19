@@ -103,7 +103,7 @@ async def create_task(
         created_by=user_id,
     )
     # A new task has no steps, comments or attachments: nothing to count.
-    return TaskResponse.of(task, attention.execute(task), TaskTally(), attachments_count=0)
+    return TaskResponse.of(task, attention.execute(task), TaskTally())
 
 
 @router.get(
@@ -121,18 +121,13 @@ async def list_tasks(
     user_id: CurrentUserId,
     list_tasks: ListTasksDep,
     attention: AssessAttentionDep,
-    attachments: ListAttachmentsDep,
     tally_tasks: TallyTasksDep,
 ) -> TaskListResponse:
     query = params.to_query(user_id)
     page = await list_tasks.execute(query)
     tallies = await tally_tasks.execute([task.id for task in page.items])
-    counts = await attachments.count([task.id for task in page.items])
     items = [
-        TaskResponse.of(
-            task, attention.execute(task), tallies[task.id], attachments_count=counts[task.id]
-        )
-        for task in page.items
+        TaskResponse.of(task, attention.execute(task), tallies[task.id]) for task in page.items
     ]
     return TaskListResponse.of(page, query, items)
 
@@ -193,14 +188,10 @@ async def update_task(
     update_task: UpdateTaskDep,
     attention: AssessAttentionDep,
     tally_tasks: TallyTasksDep,
-    attachments: ListAttachmentsDep,
 ) -> TaskResponse:
     task = await update_task.execute(task_id, body.to_changes(), actor_id=user_id)
     tallies = await tally_tasks.execute([task.id])
-    counts = await attachments.count([task.id])
-    return TaskResponse.of(
-        task, attention.execute(task), tallies[task.id], attachments_count=counts[task.id]
-    )
+    return TaskResponse.of(task, attention.execute(task), tallies[task.id])
 
 
 @router.delete(

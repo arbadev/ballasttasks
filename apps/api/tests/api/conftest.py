@@ -140,7 +140,7 @@ class RecordingRequestScopes:
                 steps=self.steps,
                 activity=self.activity,
                 activity_feed=self.activity,
-                tallies=InMemoryTaskTallies(self.steps, self.activity),
+                tallies=InMemoryTaskTallies(self.steps, self.activity, self.attachments),
                 clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,

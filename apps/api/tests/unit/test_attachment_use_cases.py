@@ -13,6 +13,7 @@ from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.domain.attachment import AttachmentKind, InvalidAttachmentError
 from app.domain.task import Task
 from app.infrastructure.storage.in_memory import InMemoryFileStorage
+from tests.activity_fakes import InMemoryActivityLog
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import a_file, a_link, a_task
 from tests.fakes import (
@@ -52,7 +53,13 @@ async def test_attach_link_stores_the_link_for_the_caller_and_touches_the_task(
     tasks: InMemoryTaskRepository, attachments: InMemoryAttachmentRepository, task: Task
 ) -> None:
     attachment_id = uuid.uuid4()
-    attach_link = AttachLink(tasks, attachments, clock=lambda: LATER, new_id=lambda: attachment_id)
+    attach_link = AttachLink(
+        tasks,
+        attachments,
+        InMemoryActivityLog(tasks),
+        clock=lambda: LATER,
+        new_id=lambda: attachment_id,
+    )
 
     link = await attach_link.execute(
         task.id, url="https://example.com/spec", name="The spec", created_by=CALLER
@@ -76,7 +83,7 @@ async def test_attach_link_to_an_unknown_task_raises_and_stores_nothing(
     unknown = uuid.uuid4()
 
     with pytest.raises(TaskNotFound) as raised:
-        await AttachLink(tasks, attachments).execute(
+        await AttachLink(tasks, attachments, InMemoryActivityLog(tasks)).execute(
             unknown, url="https://example.com", name=None, created_by=CALLER
         )
 
@@ -88,9 +95,9 @@ async def test_attach_link_with_a_url_the_domain_refuses_stores_nothing_and_leav
     tasks: InMemoryTaskRepository, attachments: InMemoryAttachmentRepository, task: Task
 ) -> None:
     with pytest.raises(InvalidAttachmentError):
-        await AttachLink(tasks, attachments, clock=lambda: LATER).execute(
-            task.id, url="javascript:alert(1)", name=None, created_by=CALLER
-        )
+        await AttachLink(
+            tasks, attachments, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(task.id, url="javascript:alert(1)", name=None, created_by=CALLER)
 
     assert attachments.all() == []
     assert await tasks.get(task.id) == task
@@ -118,9 +125,9 @@ async def test_remove_attachment_removes_it_and_touches_the_task(
     await attachments.add(link)
     await attachments.add(kept)
 
-    await RemoveAttachment(tasks, attachments, no_files(), clock=lambda: LATER).execute(
-        task.id, link.id
-    )
+    await RemoveAttachment(
+        tasks, attachments, no_files(), InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(task.id, link.id, actor_id=CALLER)
 
     assert attachments.all() == [kept]
     touched = await tasks.get(task.id)
@@ -134,7 +141,9 @@ async def test_remove_attachment_of_an_unknown_id_raises(
     unknown = uuid.uuid4()
 
     with pytest.raises(AttachmentNotFound) as raised:
-        await RemoveAttachment(tasks, attachments, no_files()).execute(task.id, unknown)
+        await RemoveAttachment(tasks, attachments, no_files(), InMemoryActivityLog(tasks)).execute(
+            task.id, unknown, actor_id=CALLER
+        )
 
     assert raised.value.attachment_id == unknown
 
@@ -148,9 +157,9 @@ async def test_an_attachment_is_only_removed_through_the_task_it_belongs_to(
     await attachments.add(link)
 
     with pytest.raises(AttachmentNotFound):
-        await RemoveAttachment(tasks, attachments, no_files(), clock=lambda: LATER).execute(
-            task.id, link.id
-        )
+        await RemoveAttachment(
+            tasks, attachments, no_files(), InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(task.id, link.id, actor_id=CALLER)
 
     assert attachments.all() == [link]
     assert await tasks.get(task.id) == task

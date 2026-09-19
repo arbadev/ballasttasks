@@ -1,0 +1,57 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/and3/.local/state/firstmate/task-workspaces/home-f9786625272c2da18d650f3a69734de30da07794/.treehouse/ballasttasks-e8129d/12/ballasttasks/apps/api
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.1.0, asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2879 items / 2546 deselected / 333 selected
+
+tests/contract/test_activity_log_contract.py ........                    [  2%]
+tests/contract/test_attachment_repository_contract.py ..........         [  5%]
+tests/contract/test_file_storage_contract.py ........................... [ 13%]
+....                                                                     [ 14%]
+tests/contract/test_health_check_contract.py ....                        [ 15%]
+tests/contract/test_job_queue_contract.py ..                             [ 16%]
+tests/contract/test_one_time_store_contract.py ........                  [ 18%]
+tests/contract/test_people_directory_contract.py ...                     [ 19%]
+tests/contract/test_project_repository_contract.py ...........           [ 23%]
+tests/contract/test_rate_limiter_contract.py .........                   [ 25%]
+tests/contract/test_step_repository_contract.py ..........               [ 28%]
+tests/contract/test_task_repository_contract.py ........................ [ 36%]
+........................................                                 [ 48%]
+tests/contract/test_task_tallies_contract.py ......                      [ 49%]
+tests/contract/test_user_directory_contract.py ......                    [ 51%]
+tests/contract/test_user_identity_repository_contract.py .......         [ 53%]
+tests/contract/test_user_repository_contract.py ...........              [ 57%]
+tests/integration/test_attachments_migration.py ..............           [ 61%]
+tests/integration/test_auth_flow.py ..                                   [ 61%]
+tests/integration/test_compose_storage.py ...                            [ 62%]
+tests/integration/test_design_api.py .....                               [ 64%]
+tests/integration/test_design_model_migration.py ................        [ 69%]
+tests/integration/test_file_attachments.py .........                     [ 71%]
+tests/integration/test_live_services.py ....                             [ 72%]
+tests/integration/test_migrations.py ......                              [ 74%]
+tests/integration/test_rate_limit_redis.py ....                          [ 75%]
+tests/integration/test_sqlalchemy_task_repository.py ....                [ 77%]
+tests/integration/test_sqlalchemy_user_repository.py ....                [ 78%]
+tests/integration/test_sso_flow.py .........                             [ 81%]
+tests/integration/test_step_positions_concurrency.py .....               [ 82%]
+tests/integration/test_steps_activity_api.py .....                       [ 84%]
+tests/integration/test_steps_activity_migration.py ......                [ 85%]
+tests/integration/test_steps_activity_served.py .                        [ 86%]
+tests/integration/test_task_key_allocation.py ...                        [ 87%]
+tests/integration/test_tasks_api.py ..........................           [ 94%]
+tests/integration/test_tasks_users_migration.py ......                   [ 96%]
+tests/integration/test_unit_of_work.py ..                                [ 97%]
+tests/integration/test_urgency_sql.py .                                  [ 97%]
+tests/integration/test_user_identities_migration.py .....                [ 99%]
+tests/integration/test_users_schema.py ...                               [100%]
+
+=============================== warnings summary ===============================
+tests/integration/test_sso_flow.py::test_state_and_exchange_code_are_single_use_in_redis
+  /Users/and3/.local/state/firstmate/task-workspaces/home-f9786625272c2da18d650f3a69734de30da07794/.treehouse/ballasttasks-e8129d/12/ballasttasks/apps/api/.venv/lib/python3.14/site-packages/httpx/_client.py:1768: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return await self.request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=============== 333 passed, 2546 deselected, 1 warning in 47.39s ===============

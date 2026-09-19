@@ -20,10 +20,13 @@ from app.application.errors import (
     UnsupportedFileTypeError,
 )
 from app.application.file_changes import files_following_the_transaction
+from app.application.ports.activity_recorder import ActivityRecorder
 from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.file_storage import FileStorage
 from app.application.ports.task_repository import TaskRepository
 from app.application.use_cases.get_task import GetTask
+from app.domain import activity_log
+from app.domain.activity import ActivityEntry
 from app.domain.attachment import Attachment
 from app.domain.file_type import SNIFF_BYTES, sniff
 from app.domain.task_key import TaskKey
@@ -53,6 +56,9 @@ class AttachFileScope(Protocol):
 
     @property
     def attachments(self) -> AttachmentRepository: ...
+
+    @property
+    def activity(self) -> ActivityRecorder: ...
 
     @property
     def file_storage(self) -> FileStorage: ...
@@ -132,4 +138,13 @@ class AttachFile:
                 await work.attachments.add(attached)
                 task.touch(now=now)
                 await work.tasks.update(task)
+                await work.activity.record(
+                    ActivityEntry.log(
+                        entry_id=uuid.uuid4(),
+                        task_id=task_id,
+                        actor_id=created_by,
+                        text=activity_log.attachment_added(attached.name),
+                        now=now,
+                    )
+                )
             return attached

@@ -9,6 +9,7 @@ from dataclasses import replace
 
 from app.application.errors import StepNotFound
 from app.application.ports.activity_feed import ActivityItem, ActivityPage
+from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.task_tallies import TaskTally
 from app.domain.activity import ActivityEntry, ActivityKind, Actor
 from app.domain.step import Step
@@ -88,19 +89,27 @@ class InMemoryActivityLog:
 
 
 class InMemoryTaskTallies:
-    """TaskTallies fake: counts what the two fakes above hold."""
+    """TaskTallies fake over the step, activity and attachment stores."""
 
-    def __init__(self, steps: InMemoryStepRepository, activity: InMemoryActivityLog) -> None:
+    def __init__(
+        self,
+        steps: InMemoryStepRepository,
+        activity: InMemoryActivityLog,
+        attachments: AttachmentRepository,
+    ) -> None:
         self._steps = steps
         self._activity = activity
+        self._attachments = attachments
 
     async def for_tasks(self, task_ids: Sequence[uuid.UUID]) -> Mapping[uuid.UUID, TaskTally]:
         tallies: dict[uuid.UUID, TaskTally] = {}
+        attachments = await self._attachments.count_by_task(task_ids)
         for task_id in task_ids:
             steps = await self._steps.list_for_task(task_id)
             tallies[task_id] = TaskTally(
                 steps_total=len(steps),
                 steps_done=sum(1 for step in steps if step.done),
                 comments_count=len(self._activity.texts(task_id, ActivityKind.COMMENT)),
+                attachments_count=attachments[task_id],
             )
         return tallies

@@ -29,7 +29,11 @@ from app.domain.task import Task
 from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
 from tests.auth_fakes import InMemoryUserDirectory, InMemoryUserRepository, a_user
 from tests.builders import a_task
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+)
 
 NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 LATER = NOW + timedelta(hours=2)
@@ -467,8 +471,8 @@ async def test_tasks_are_tallied_together(world: World) -> None:
     )
     nobody = uuid.uuid4()
 
-    tallies = await TallyTasks(InMemoryTaskTallies(world.steps, world.activity)).execute(
-        [world.task.id, nobody]
-    )
+    tallies = await TallyTasks(
+        InMemoryTaskTallies(world.steps, world.activity, InMemoryAttachmentRepository(world.tasks))
+    ).execute([world.task.id, nobody])
 
     assert dict(tallies) == {world.task.id: TaskTally(1, 1, 0), nobody: TaskTally()}

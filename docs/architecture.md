@@ -181,7 +181,7 @@ class StepRepository(Protocol):
 
 
 class TaskTallies(Protocol):
-    """steps_total, steps_done and comments_count of many tasks: one statement, never one per task."""
+    """Step progress, comments_count and attachments_count: one statement for many tasks."""
 
     async def for_tasks(self, task_ids: Sequence[UUID]) -> Mapping[UUID, TaskTally]: ...
 
@@ -215,7 +215,7 @@ class OneTimeStore(Protocol):
 
 ```python
 await self._activity.record(
-    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attached(name), now=now)
+    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attachment_added(name), now=now)
 )
 ```
 
@@ -360,7 +360,11 @@ Every task representation includes `attachments_count`. `GET /tasks/{id_or_key}`
 `TaskDetailResponse`, which also includes `attachments` in creation order. Counts use one
 batched query, never one query per task. `AttachmentResponse` exposes id, task_id, kind
 (`link`, `pdf`, `image`), name, created_by, created_at, url, content_type and size_bytes;
-file storage keys remain internal. Attaching/removing touches the task's `updated_at`.
+file storage keys remain internal. Attaching/removing touches the task's `updated_at` and
+records `Attached <name>` / `Removed <name>` through the existing `ActivityRecorder`, in
+the same transaction and attributed to the caller. Refused operations create no log entry.
+Attachment counts share the `TaskTallies` query with steps/comments, preserving the
+four-statement list budget; the contract suite checks that none of these counts multiply.
 
 | Route | Success | Errors (standard bodies) |
 | --- | --- | --- |
@@ -406,7 +410,7 @@ All routes below accept a task UUID or key, use the same `CurrentUserId` seam an
 | `POST /tasks/{id_or_key}/comments` | `201`, immutable activity entry; body `{text}` |
 | `GET /tasks/{id_or_key}/activity` | `200`, `{items, total, limit, offset}`, newest first; default limit 50, max 200 |
 
-A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)): an add that would cross the ceiling is a `422` and adds nothing, not even part of a batch, and `step_ids` is bounded by the same number. Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain the three tallies.
+A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)): an add that would cross the ceiling is a `422` and adds nothing, not even part of a batch, and `step_ids` is bounded by the same number. Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain step progress, comment and attachment tallies.
 
 | Table | Stored columns and invariants |
 | --- | --- |

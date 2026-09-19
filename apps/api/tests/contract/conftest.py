@@ -72,7 +72,7 @@ async def task_side(request: pytest.FixtureRequest) -> AsyncIterator[TaskSideSto
         steps, log = InMemoryStepRepository(tasks), InMemoryActivityLog(tasks)
         attachments = InMemoryAttachmentRepository(tasks)
         yield TaskSideStore(
-            users, tasks, steps, log, log, InMemoryTaskTallies(steps, log), attachments
+            users, tasks, steps, log, log, InMemoryTaskTallies(steps, log, attachments), attachments
         )
         return
 

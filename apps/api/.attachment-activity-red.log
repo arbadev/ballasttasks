@@ -1,0 +1,95 @@
+FFFF.....                                                                [100%]
+=================================== FAILURES ===================================
+_______ test_attaching_a_link_records_its_resolved_name_caller_and_time ________
+
+    async def test_attaching_a_link_records_its_resolved_name_caller_and_time() -> None:
+        creator, caller = uuid.uuid4(), uuid.uuid4()
+        tasks = InMemoryTaskRepository(InMemoryUserRepository(), InMemoryProjectRepository())
+        task = a_task(creator)
+        await tasks.add(task)
+        attachments, activity = InMemoryAttachmentRepository(tasks), InMemoryActivityLog(tasks)
+    
+>       await AttachLink(tasks, attachments, activity, clock=lambda: NOW).execute(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            task.id, url="https://example.com/spec", name=None, created_by=caller
+        )
+E       TypeError: AttachLink.__init__() takes 3 positional arguments but 4 positional arguments (and 1 keyword-only argument) were given
+
+tests/unit/test_attachment_activity.py:33: TypeError
+_ test_removing_records_the_remover_not_the_attachment_creator_and_no_failed_attempt _
+
+    async def test_removing_records_the_remover_not_the_attachment_creator_and_no_failed_attempt() -> (
+        None
+    ):
+        creator, caller = uuid.uuid4(), uuid.uuid4()
+        tasks = InMemoryTaskRepository(InMemoryUserRepository(), InMemoryProjectRepository())
+        task = a_task(creator)
+        await tasks.add(task)
+        attachments, activity = InMemoryAttachmentRepository(tasks), InMemoryActivityLog(tasks)
+        link = a_link(task.id, creator, name="The spec")
+        await attachments.add(link)
+>       remove = RemoveAttachment(
+            tasks, attachments, FileChanges(InMemoryFileStorage()), activity, clock=lambda: NOW
+        )
+E       TypeError: RemoveAttachment.__init__() takes 4 positional arguments but 5 positional arguments (and 1 keyword-only argument) were given
+
+tests/unit/test_attachment_activity.py:57: TypeError
+______ test_upload_records_the_sanitised_name_in_the_metadata_transaction ______
+
+tasks = <tests.fakes.InMemoryTaskRepository object at 0x105706c10>
+attachments = <tests.fakes.InMemoryAttachmentRepository object at 0x105706d50>
+storage = <tests.fakes.RecordingFileStorage object at 0x1056e6900>
+task = Task(id=UUID('a8aefd92-febd-4b60-befe-6622421328f3'), title='Write the report', description=None, status=<TaskStatus.T... project_id=UUID('00000000-0000-4000-8000-000000000001'), key='ZZ-03', priority=<TaskPriority.P2: 'P2'>, importance=50)
+
+    async def test_upload_records_the_sanitised_name_in_the_metadata_transaction(
+        tasks: InMemoryTaskRepository,
+        attachments: InMemoryAttachmentRepository,
+        storage: RecordingFileStorage,
+        task: Task,
+    ) -> None:
+        scopes = Scopes(tasks, attachments, storage)
+        attached = await AttachFile(scopes).execute(
+            task.id, file=UploadedFile(PDF, name="../../report.pdf"), created_by=CALLER
+        )
+>       (entry,) = scopes.activity.entries
+        ^^^^^^^^
+E       ValueError: not enough values to unpack (expected 1, got 0)
+
+tests/unit/test_attach_file.py:126: ValueError
+_ test_attachments_join_the_same_tally_without_multiplying_other_counts[in-memory] _
+
+task_side = TaskSideStore(users=<tests.auth_fakes.InMemoryUserRepository object at 0x10576d810>, tasks=<tests.fakes.InMemoryTaskRe...MemoryTaskTallies object at 0x1056e67b0>, attachments=<tests.fakes.InMemoryAttachmentRepository object at 0x10576dcd0>)
+
+    async def test_attachments_join_the_same_tally_without_multiplying_other_counts(
+        task_side: TaskSideStore,
+    ) -> None:
+        user = await task_side.a_stored_user()
+        busy, only_files, empty = [await task_side.a_stored_task(user) for _ in range(3)]
+        await add_steps(task_side, busy.id, done=1, todo=2)
+        for n in range(2):
+            await task_side.recorder.record(
+                ActivityEntry.comment(
+                    entry_id=uuid.uuid4(), task_id=busy.id, actor_id=user.id, text=f"c{n}", now=NOW
+                )
+            )
+        links = [a_link(busy.id, user.id) for _ in range(4)]
+        for link in links:
+            await task_side.attachments.add(link)
+        await task_side.attachments.add(a_file(only_files.id, user.id))
+        tallies = await task_side.tallies.for_tasks([busy.id, only_files.id, empty.id])
+        assert (
+            tallies[busy.id].steps_total,
+            tallies[busy.id].steps_done,
+            tallies[busy.id].comments_count,
+>           tallies[busy.id].attachments_count,
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        ) == (3, 1, 2, 4)
+E       AttributeError: 'TaskTally' object has no attribute 'attachments_count'
+
+tests/contract/test_task_tallies_contract.py:49: AttributeError
+=========================== short test summary info ============================
+FAILED tests/unit/test_attachment_activity.py::test_attaching_a_link_records_its_resolved_name_caller_and_time
+FAILED tests/unit/test_attachment_activity.py::test_removing_records_the_remover_not_the_attachment_creator_and_no_failed_attempt
+FAILED tests/unit/test_attach_file.py::test_upload_records_the_sanitised_name_in_the_metadata_transaction
+FAILED tests/contract/test_task_tallies_contract.py::test_attachments_join_the_same_tally_without_multiplying_other_counts[in-memory]
+4 failed, 5 passed, 6 deselected in 0.10s

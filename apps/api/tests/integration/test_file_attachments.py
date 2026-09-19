@@ -256,7 +256,8 @@ async def test_activity_failure_rolls_back_attachment_metadata_and_file_changes(
             yield replace(scope, activity=RefusingRecorder())
 
     refused = replace(container, request_scope=refusing_scope)
-    with pytest.raises(RuntimeError, match="activity unavailable"):
+
+    async def attempt_change() -> None:
         if operation == "file":
             await refused.attach_file.execute(
                 task.id, file=UploadedFile(PDF, name="new.pdf"), created_by=user.id
@@ -269,6 +270,9 @@ async def test_activity_failure_rolls_back_attachment_metadata_and_file_changes(
                     )
                 else:
                     await scope.remove_attachment.execute(task.id, stored.id, actor_id=user.id)
+
+    with pytest.raises(RuntimeError, match="activity unavailable"):
+        await attempt_change()
     async with container.request_scope() as scope:
         assert list(await scope.attachments.list_for_task(task.id)) == [stored]
         assert await scope.get_task.execute(task.id) == before

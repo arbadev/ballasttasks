@@ -203,13 +203,8 @@ class TaskResponse(BaseModel):
     comments_count: int = Field(description="How many comments its activity holds.")
 
     @classmethod
-    def of(
-        cls, task: Task, attention: Attention, tally: TaskTally, *, attachments_count: int
-    ) -> Self:
-        return cls.model_validate(
-            _task_fields(task, attention, tally) | {"attachments_count": attachments_count},
-            from_attributes=True,
-        )
+    def of(cls, task: Task, attention: Attention, tally: TaskTally) -> Self:
+        return cls.model_validate(_task_fields(task, attention, tally), from_attributes=True)
 
 
 class TaskDetailResponse(TaskResponse):
@@ -252,6 +247,7 @@ def _task_fields(task: Task, attention: Attention, tally: TaskTally) -> dict[str
         "steps_total": tally.steps_total,
         "steps_done": tally.steps_done,
         "comments_count": tally.comments_count,
+        "attachments_count": tally.attachments_count,
     }
 
 

@@ -34,7 +34,26 @@ ownership an empty named volume then inherits. A different `STORAGE__LOCAL_DIREC
 therefore also needs that path created and owned in the image; without it the mount point
 belongs to root, the first upload raises `PermissionError` and the request is a `500`.
 Nothing is chowned at run time: the container would need to start privileged to do it, and
-an environment variable does not grant permissions.
+an environment variable does not grant permissions. An existing volume must also already
+be writable by uid 1001; mounting it does not replace its ownership with the image's.
+
+For example, after building the stock `ballasttasks-api` image, a derived image for a
+**fresh** volume at `/srv/files` can use this `Dockerfile.storage`:
+
+```dockerfile
+FROM ballasttasks-api
+USER root
+RUN mkdir -p /srv/files && chown 1001:1001 /srv/files && chmod 0700 /srv/files
+USER app
+```
+
+Build it with `docker build -f Dockerfile.storage -t ballasttasks-api-custom .`, select
+`image: ballasttasks-api-custom` for `services.api` in a Compose override, and run Compose
+with that override and `--no-build`, with `STORAGE__LOCAL_DIRECTORY=/srv/files` in the
+interpolation environment. The empty named volume inherits the prepared directory's
+ownership. The server still runs as `app`; no privileged entrypoint or runtime chown is
+needed. Existing volumes/data require deliberate preparation, not deletion or an automatic
+permission rewrite. Host execution keeps its normal configurable local directory.
 
 ## HTTP and validation
 
@@ -59,7 +78,17 @@ an environment variable does not grant permissions.
 Attachment metadata is stored in PostgreSQL in the task's unit of work. The one new
 migration creates only the attachments table; existing tasks/users/projects are unchanged
 and start with computed `attachments_count = 0`. Downgrade drops metadata, not task rows;
-operators must clear the now-unreferenced files themselves.
+operators must clear the now-unreferenced files themselves. The revision follows the
+steps/activity revision `a1c5e7f90b24`, retaining one Alembic head.
+
+Attaching a link or file records `Attached <name>` through the existing `ActivityRecorder`;
+removing either records `Removed <name>`, attributed to the caller who removed it. Text is
+centralised in `domain/activity_log.py`: attachment wording matches the design, removal
+is its symmetric extension. The entry shares the metadata transaction and timestamp.
+Refused operations log nothing; recorder failure rolls back metadata and compensates new
+files (or retains a file whose removal rolled back). File uploads log only in the second
+short transaction, never while streaming. Task-list counts share the existing `TaskTallies`
+query with steps/comments, keeping the four-statement nonempty-list budget.
 
 An upload takes two short units of work rather than one. `AttachFile` checks the task in
 the first, streams the body to the `FileStorage` with none open, and writes the row in the

@@ -155,6 +155,9 @@ async def attachment_content(
     dependencies=GUARDED,
 )
 async def remove_attachment(
-    task_id: TaskId, attachment_id: uuid.UUID, remove_attachment: RemoveAttachmentDep
+    task_id: TaskId,
+    attachment_id: uuid.UUID,
+    remove_attachment: RemoveAttachmentDep,
+    user_id: CurrentUserId,
 ) -> None:
-    await remove_attachment.execute(task_id, attachment_id)
+    await remove_attachment.execute(task_id, attachment_id, actor_id=user_id)

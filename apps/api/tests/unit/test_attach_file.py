@@ -519,7 +519,9 @@ async def test_removing_a_file_deletes_the_stored_file_once_the_unit_of_work_com
     )
     removing = FileChanges(storage)
 
-    await RemoveAttachment(tasks, attachments, removing).execute(task.id, attached.id)
+    await RemoveAttachment(tasks, attachments, removing, InMemoryActivityLog(tasks)).execute(
+        task.id, attached.id, actor_id=CALLER
+    )
 
     assert attachments.all() == [kept]
     assert len(storage.stored_keys()) == 2, "not before the commit: a rollback keeps the file"
@@ -539,7 +541,9 @@ async def test_a_removal_that_is_rolled_back_keeps_the_file(
     )
     removing = FileChanges(storage)
 
-    await RemoveAttachment(tasks, attachments, removing).execute(task.id, attached.id)
+    await RemoveAttachment(tasks, attachments, removing, InMemoryActivityLog(tasks)).execute(
+        task.id, attached.id, actor_id=CALLER
+    )
     await removing.rolled_back()
 
     assert storage.stored_keys() == [attached.storage_key]
