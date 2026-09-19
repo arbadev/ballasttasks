@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.api.security import get_current_user_id
+from app.api.security import get_current_user_id, get_streaming_user_id
 from app.application.clock import Clock, utc_now
 from app.application.file_changes import FileChanges
 from app.application.ports.health_check import HealthCheck
@@ -204,12 +204,20 @@ async def anonymous_client(tasks_app: FastAPI) -> AsyncIterator[httpx.AsyncClien
         yield http_client
 
 
+def sign_in(app: FastAPI, user_id: uuid.UUID = USER_ID) -> None:
+    """Both halves of the pinned seam: ``get_current_user_id`` for every route, and
+    ``get_streaming_user_id`` for the upload, which reads its caller apart from the
+    request's unit of work (``api/security.py``)."""
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
+    app.dependency_overrides[get_streaming_user_id] = lambda: user_id
+
+
 @pytest.fixture
 async def task_client(
     tasks_app: FastAPI, anonymous_client: httpx.AsyncClient
 ) -> AsyncIterator[httpx.AsyncClient]:
     """Signed in as ``USER_ID`` through the pinned seam, ``get_current_user_id``."""
-    tasks_app.dependency_overrides[get_current_user_id] = lambda: USER_ID
+    sign_in(tasks_app)
     yield anonymous_client
     tasks_app.dependency_overrides.clear()
 

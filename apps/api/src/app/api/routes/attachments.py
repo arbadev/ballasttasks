@@ -18,11 +18,16 @@ from app.api.dependencies import (
     RemoveAttachmentDep,
 )
 from app.api.multipart import StreamingUpload
-from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
+from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests, limit_streaming_requests
 from app.api.routes.tasks import TaskId, TaskReference
 from app.api.schemas.attachments import AttachmentResponse, FileUpload, LinkCreate
 from app.api.schemas.errors import ErrorResponse
-from app.api.security import CurrentUserId, get_current_user_id
+from app.api.security import (
+    CurrentUserId,
+    StreamingUserId,
+    get_current_user_id,
+    get_streaming_user_id,
+)
 
 TASK_NOT_FOUND: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
@@ -37,11 +42,15 @@ NOT_FOUND: dict[int | str, dict[str, Any]] = {
     }
 }
 
+# The limiter first: a caller over the limit gets 429 whatever else is wrong. These are
+# per route, not on the router, because the upload is guarded apart: its two dependencies
+# hold no unit of work, so the body streams with no database connection taken (ADR 0008).
+GUARDED = [Depends(limit_requests), Depends(get_current_user_id)]
+GUARDED_WHILE_STREAMING = [Depends(limit_streaming_requests), Depends(get_streaming_user_id)]
+
 router = APIRouter(
     prefix="/tasks/{id_or_key}/attachments",
     tags=["attachments"],
-    # The limiter first: a caller over the limit gets 429 whatever else is wrong.
-    dependencies=[Depends(limit_requests), Depends(get_current_user_id)],
     responses={
         status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse, "description": "Not authenticated"},
         **TOO_MANY_REQUESTS,
@@ -59,6 +68,7 @@ router = APIRouter(
     status_code=status.HTTP_201_CREATED,
     response_model=AttachmentResponse,
     responses={**TASK_NOT_FOUND},
+    dependencies=GUARDED,
 )
 async def attach_link(
     task_id: TaskId, body: LinkCreate, user_id: CurrentUserId, attach_link: AttachLinkDep
@@ -70,6 +80,7 @@ async def attach_link(
 @router.post(
     "/files",
     status_code=201,
+    dependencies=GUARDED_WHILE_STREAMING,
     response_model=AttachmentResponse,
     summary="Upload a PDF or image attachment",
     description=(
@@ -91,7 +102,7 @@ async def attach_link(
 async def attach_file(
     reference: TaskReference,
     request: Request,
-    user_id: CurrentUserId,
+    user_id: StreamingUserId,
     attach_file: AttachFileDep,
 ) -> AttachmentResponse:
     # ``TaskReference``, not ``TaskId``: resolving the key would open the request's unit of
@@ -117,6 +128,7 @@ async def attach_file(
             },
         },
     },
+    dependencies=GUARDED,
 )
 async def attachment_content(
     task_id: TaskId, attachment_id: uuid.UUID, open_content: OpenAttachmentContentDep
@@ -140,6 +152,7 @@ async def attachment_content(
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
     responses={**NOT_FOUND},
+    dependencies=GUARDED,
 )
 async def remove_attachment(
     task_id: TaskId, attachment_id: uuid.UUID, remove_attachment: RemoveAttachmentDep

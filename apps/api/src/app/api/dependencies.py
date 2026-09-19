@@ -241,6 +241,10 @@ def get_authenticate_user(scope: RequestScopeDep) -> AuthenticateUser:
     return scope.authenticate_user
 
 
+def get_get_current_user(scope: RequestScopeDep) -> GetCurrentUser:
+    return scope.get_current_user
+
+
 def get_complete_sso_sign_in(scope: RequestScopeDep) -> CompleteSsoSignIn:
     return scope.complete_sso_sign_in
 
@@ -256,6 +260,7 @@ UpdateTaskDep = Annotated[UpdateTask, Depends(get_update_task)]
 DeleteTaskDep = Annotated[DeleteTask, Depends(get_delete_task)]
 RegisterUserDep = Annotated[RegisterUser, Depends(get_register_user)]
 AuthenticateUserDep = Annotated[AuthenticateUser, Depends(get_authenticate_user)]
+GetCurrentUserDep = Annotated[GetCurrentUser, Depends(get_get_current_user)]
 CompleteSsoSignInDep = Annotated[CompleteSsoSignIn, Depends(get_complete_sso_sign_in)]
 RedeemSsoCodeDep = Annotated[RedeemSsoCode, Depends(get_redeem_sso_code)]
 

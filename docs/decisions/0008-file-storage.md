@@ -24,6 +24,11 @@ a missing key or a directory is a no-op, never recursive deletion. Both adapters
 the same contract suite (`tests/contract/test_file_storage_contract.py`); the disk
 adapter additionally has traversal, symlink, disk failure and cancellation tests.
 The API's named `attachments-data` volume survives container replacement/rebuild.
+Compose sets the api container's `STORAGE__LOCAL_DIRECTORY` to the volume's own mount
+point, so a `.env` written before attachments existed cannot point the API at a directory
+the volume is not on (and that the image's non-root user could not create);
+`tests/integration/test_compose_storage.py` renders the file through `docker compose
+config` and asserts the two agree.
 
 ## HTTP and validation
 
@@ -55,11 +60,16 @@ the first, streams the body to the `FileStorage` with none open, and writes the 
 second. How long a body takes to arrive is the client's choice, so nothing may wait for it
 holding a pooled database connection: the upload route therefore takes the task reference
 unresolved (`TaskReference`, not `TaskId`, whose key lookup would open the request's
-transaction), and the bearer token seam resolves the caller in a unit of work of its own
-that ends before the route runs, so no dependency of the request keeps one either.
-`tests/unit/test_attach_file.py` and `tests/api/test_file_attachments.py` assert that no
-unit of work is open while the storage is being fed, the second through a real token, so
-the rate limiter and the signed-in-user seam are exercised too.
+transaction), and it is the one route guarded by `limit_streaming_requests` and
+`StreamingUserId` instead of `limit_requests` and `CurrentUserId`: the same policies and
+the same 401s, with the caller read in a unit of work that ends before the route runs, so
+no dependency of the request keeps one either. Every other route keeps the single unit of
+work of the request, the bearer token included. `tests/unit/test_attach_file.py` and
+`tests/api/test_file_attachments.py` assert that no unit of work is open while the storage
+is being fed, the second through a real token, so the rate limiter and the signed-in-user
+seam are exercised too, and that an ordinary request still opens exactly one.
+`tests/integration/test_file_attachments.py` proves it on a real pool sized to a single
+connection: an ordinary request succeeds while an upload holds its body open.
 
 `FileChanges` follows a transaction: a rollback (including a failed commit) compensates
 newly written files, while a successful commit triggers deferred deletion. The request

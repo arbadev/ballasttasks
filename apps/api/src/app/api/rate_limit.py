@@ -19,6 +19,7 @@ last in SECONDS FROM NOW (as ``Retry-After``, which a 429 adds with the same val
 timestamp: a client needs no synchronised clock to use it.
 """
 
+import uuid
 from collections.abc import Mapping
 from typing import Any
 
@@ -28,7 +29,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.dependencies import RateLimiting, RateLimitingDep
 from app.api.schemas.errors import ErrorResponse
-from app.api.security import OptionalUserId
+from app.api.security import OptionalStreamingUserId, OptionalUserId
 from app.application.ports.rate_limiter import RateLimitDecision, RateLimitPolicy
 
 _STATE_KEY = "rate_limit_decision"
@@ -104,14 +105,28 @@ async def limit_auth_attempts(request: Request, rate_limiting: RateLimitingDep) 
     await _enforce(request, rate_limiting, rate_limiting.auth, f"ip:{ip}")
 
 
-async def limit_requests(
-    request: Request, rate_limiting: RateLimitingDep, user_id: OptionalUserId
+async def _limit_caller(
+    request: Request, rate_limiting: RateLimiting, user_id: uuid.UUID | None
 ) -> None:
     if user_id is not None:
         await _enforce(request, rate_limiting, rate_limiting.authenticated, f"user:{user_id}")
         return
     ip = client_ip(request, trust_proxy=rate_limiting.trust_proxy)
     await _enforce(request, rate_limiting, rate_limiting.anonymous, f"ip:{ip}")
+
+
+async def limit_requests(
+    request: Request, rate_limiting: RateLimitingDep, user_id: OptionalUserId
+) -> None:
+    await _limit_caller(request, rate_limiting, user_id)
+
+
+async def limit_streaming_requests(
+    request: Request, rate_limiting: RateLimitingDep, user_id: OptionalStreamingUserId
+) -> None:
+    """``limit_requests`` for a route that streams its body: the same two policies, with
+    the caller named apart from the request's unit of work (``api/security.py``)."""
+    await _limit_caller(request, rate_limiting, user_id)
 
 
 def _headers(decision: RateLimitDecision) -> dict[str, str]:

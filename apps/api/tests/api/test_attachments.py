@@ -12,11 +12,10 @@ from fastapi import FastAPI
 
 from app.api.schemas.attachments import AttachmentResponse
 from app.api.schemas.tasks import TaskDetailResponse
-from app.api.security import get_current_user_id
 from app.bootstrap import build_container, load_settings
 from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from app.main import create_app
-from tests.api.conftest import ALL_HEALTHY, USER_ID, RecordingRequestScopes
+from tests.api.conftest import ALL_HEALTHY, USER_ID, RecordingRequestScopes, sign_in
 from tests.builders import a_file, a_link, a_task
 from tests.fakes import InMemoryAttachmentRepository, InMemoryTaskRepository
 
@@ -351,7 +350,7 @@ async def limited_client(
             rate_limiting=replace(container.rate_limiting, limiter=InMemoryRateLimiter()),
         )
     )
-    app.dependency_overrides[get_current_user_id] = lambda: USER_ID
+    sign_in(app)
     transport = httpx.ASGITransport(app=app)
     async with (
         app.router.lifespan_context(app),

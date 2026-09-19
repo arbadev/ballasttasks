@@ -245,3 +245,38 @@ async def test_an_upload_holds_no_unit_of_work_while_the_body_arrives(
     assert set(storage.units_open_while_storing) == {0}
     assert request_scopes.open_units == 0
     assert len(storage.stored_keys()) == 1
+
+
+async def test_an_ordinary_request_keeps_the_one_unit_of_work_of_the_request(
+    anonymous_client: httpx.AsyncClient,
+    auth_fakes: AuthFakes,
+    request_scopes: RecordingRequestScopes,
+) -> None:
+    """The counterpart of the test above: only the upload is guarded apart.
+
+    Every other route still resolves its caller, limits it and does its work in the ONE
+    unit of work of the request, as before attachments existed. The upload's guards read
+    the caller in a second one of their own, which is what it costs.
+    """
+    user = a_user()
+    await auth_fakes.users.add(user)
+    headers = {"Authorization": f"Bearer {auth_fakes.tokens.issue(user.id)}"}
+
+    created = await anonymous_client.post("/tasks", json={"title": "Report"}, headers=headers)
+    assert created.status_code == 201, created.text
+    assert request_scopes.events == ["begin", "commit"]
+
+    request_scopes.events.clear()
+    listed = await anonymous_client.get("/tasks", headers=headers)
+    assert listed.status_code == 200
+    assert request_scopes.events == ["begin", "commit"]
+
+    request_scopes.events.clear()
+    uploaded = await anonymous_client.post(
+        f"/tasks/{created.json()['id']}/attachments/files",
+        files={"file": ("report.pdf", PDF)},
+        headers=headers,
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    assert request_scopes.events == ["begin", "commit"] * 3
+    assert request_scopes.open_units == 0

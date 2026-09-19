@@ -11,9 +11,12 @@ import pytest
 import uvicorn
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import QueuePool
 
 from app.bootstrap import Container, build_container, load_settings
+from app.infrastructure.db import engine as engine_module
 from app.infrastructure.db.models.attachment import AttachmentModel
 from app.main import create_app
 from tests.fakes import UploadedFile
@@ -21,6 +24,9 @@ from tests.integration.test_tasks_api import register_and_log_in
 
 pytestmark = pytest.mark.integration
 PDF = b"%PDF-1.7\n" + b"x" * 100
+UPLOAD_HEAD = (
+    b'--bt\r\nContent-Disposition: form-data; name="file"; filename="slow.pdf"\r\n\r\n' + PDF
+)
 
 
 @pytest.fixture
@@ -147,14 +153,20 @@ async def test_commit_failure_after_file_write_compensates_storage(container: Co
         )
         task = await scope.create_task.execute(title="Commit rollback", created_by=user.id)
 
+    def note_the_row(session: Session, flush_context: object) -> None:
+        """The row has to be remembered while it is still pending: by commit time it is
+        clean, and the session's identity map holds it only weakly."""
+        if any(isinstance(instance, AttachmentModel) for instance in session.new):
+            session.info["wrote_an_attachment"] = True
+
     def refuse_commit(session: Session) -> None:
         """Refuse the commit of the unit of work that stores the row, not the one that
-        checked the task before the file was written."""
-        if not session.in_nested_transaction() and any(
-            isinstance(instance, AttachmentModel) for instance in session
-        ):
+        checked the task before the file was written, and not the savepoint the row is
+        written in (``in_nested_transaction`` is still true while that one commits)."""
+        if session.info.get("wrote_an_attachment") and not session.in_nested_transaction():
             raise RuntimeError("commit failed")
 
+    event.listen(Session, "after_flush", note_the_row)
     event.listen(Session, "before_commit", refuse_commit)
     try:
         with pytest.raises(RuntimeError, match="commit failed"):
@@ -163,7 +175,74 @@ async def test_commit_failure_after_file_write_compensates_storage(container: Co
             )
     finally:
         event.remove(Session, "before_commit", refuse_commit)
+        event.remove(Session, "after_flush", note_the_row)
     assert not [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
     async with container.request_scope() as scope:
         assert await scope.attachments.list_for_task(task.id) == []
         await scope.delete_task.execute(task.id)
+
+
+@pytest.fixture
+def one_pooled_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Room for exactly one database connection, and no overflow.
+
+    Whatever holds it blocks every other request; five seconds later they fail rather than
+    wait out the default half minute.
+    """
+
+    def sized(url: str, **options: object) -> AsyncEngine:
+        return create_async_engine(url, pool_size=1, max_overflow=0, pool_timeout=5, **options)
+
+    monkeypatch.setattr(engine_module, "create_async_engine", sized)
+
+
+async def test_a_slow_upload_leaves_the_only_connection_for_other_requests(
+    one_pooled_connection: None, http: httpx.AsyncClient, container: Container
+) -> None:
+    """The point of the two short units of work, on a real pool.
+
+    The client holds its body open while the API is streaming it to disk. Nothing about
+    that request may occupy the pool: not the bearer token seam, not the rate limiter and
+    not the route, or the ordinary request below would wait for the upload and time out.
+    """
+    pool = container.engine.pool
+    assert isinstance(pool, QueuePool)
+    assert pool.size() == 1
+    user = await register_and_log_in(http, "Slow uploader")
+    task = (await http.post("/tasks", json={"title": "Slow"}, headers=user.headers)).json()
+    finish = asyncio.Event()
+
+    async def body() -> AsyncIterator[bytes]:
+        yield UPLOAD_HEAD
+        await finish.wait()
+        yield b"\r\n--bt--\r\n"
+
+    upload = asyncio.create_task(
+        http.post(
+            f"/tasks/{task['key']}/attachments/files",
+            content=body(),
+            headers={**user.headers, "content-type": "multipart/form-data; boundary=bt"},
+        )
+    )
+    try:
+        # The file appears on disk as it is written, which is the upload mid-flight.
+        async with asyncio.timeout(10):
+            while not _stored_files(container):  # noqa: ASYNC110 - the disk is the signal
+                await asyncio.sleep(0.01)
+
+        ordinary = await asyncio.wait_for(
+            http.get(f"/tasks/{task['id']}", headers=user.headers), timeout=10
+        )
+
+        assert ordinary.status_code == 200, ordinary.text
+        assert not upload.done(), "the upload was still holding its body open"
+    finally:
+        finish.set()
+    response = await asyncio.wait_for(upload, timeout=10)
+    assert response.status_code == 201, response.text
+    assert (await http.delete(f"/tasks/{task['id']}", headers=user.headers)).status_code == 204
+    assert _stored_files(container) == []
+
+
+def _stored_files(container: Container) -> list[Path]:
+    return [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
