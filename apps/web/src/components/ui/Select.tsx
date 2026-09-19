@@ -15,10 +15,11 @@ interface SelectProps<T extends string> {
 export function Select<T extends string>({ label, value, options, onChange, className }: SelectProps<T>) {
   // Chrome flags a form field with neither an id nor a name; the wrapping label still names it.
   const id = useId();
+  // Keep focus on the native select, but draw its ring around the entire labelled control.
   return (
     <label
       className={cn(
-        "relative flex h-[30px] items-center rounded-bt border border-line bg-card pl-2.5 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:border-line-2 pointer-coarse:h-11",
+        "relative flex h-[30px] items-center rounded-bt border border-line bg-card pl-2.5 text-[12.5px] text-fg-3 transition-[border-color] duration-[160ms] ease-bt hover:border-line-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-acc pointer-coarse:h-11",
         className,
       )}
     >
@@ -27,7 +28,7 @@ export function Select<T extends string>({ label, value, options, onChange, clas
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-7 cursor-pointer appearance-none border-0 bg-transparent py-0 pr-[26px] pl-1.5 text-[12.5px] font-medium text-fg"
+        className="h-7 cursor-pointer appearance-none border-0 bg-transparent py-0 pr-[26px] pl-1.5 text-[12.5px] font-medium text-fg focus-visible:outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
