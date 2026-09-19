@@ -28,10 +28,6 @@ def invalid_upload() -> RequestValidationError:
 
 class StreamingUpload:
     def __init__(self, request: Request) -> None:
-        media_type, options = parse_options_header(request.headers.get("content-type", ""))
-        boundary = options.get(b"boundary", b"")
-        if media_type != b"multipart/form-data" or not boundary or len(boundary) > 200:
-            raise invalid_upload()
         self.name: str | None = None
         self._headers_ready = False
         self._ended = False
@@ -44,18 +40,6 @@ class StreamingUpload:
         self._headers: dict[bytes, bytes] = {}
         self._pending: list[bytes] = []
         self._request = request
-        self._parser = MultipartParser(
-            boundary,
-            {
-                "on_part_begin": self._part_begin,
-                "on_header_field": self._header_field,
-                "on_header_value": self._header_value,
-                "on_header_end": self._header_end,
-                "on_headers_finished": self._headers_finished,
-                "on_part_data": self._data,
-                "on_end": self._end,
-            },
-        )
         self._chunks = self._parse()
         self._first: bytes | None = None
 
@@ -103,19 +87,37 @@ class StreamingUpload:
         self._ended = True
 
     async def _parse(self) -> AsyncIterator[bytes]:
+        """Nothing here runs before ``prepare``: an async generator's body waits for its
+        first consumer, so the caller decides when the envelope is read."""
+        media_type, options = parse_options_header(self._request.headers.get("content-type", ""))
+        boundary = options.get(b"boundary", b"")
+        if media_type != b"multipart/form-data" or not boundary or len(boundary) > 200:
+            raise invalid_upload()
+        parser = MultipartParser(
+            boundary,
+            {
+                "on_part_begin": self._part_begin,
+                "on_header_field": self._header_field,
+                "on_header_value": self._header_value,
+                "on_header_end": self._header_end,
+                "on_headers_finished": self._headers_finished,
+                "on_part_data": self._data,
+                "on_end": self._end,
+            },
+        )
         try:
             async for chunk in self._request.stream():
                 for offset in range(0, len(chunk), 64 * 1024):
                     piece = chunk[offset : offset + 64 * 1024]
                     self._body_bytes += len(piece)
-                    self._parser.write(piece)
+                    parser.write(piece)
                     if self._body_bytes - self._data_bytes > 32 * 1024:
                         raise invalid_upload()
                     if self._headers_ready:
                         # Even an empty file announces its name before the use case reads it.
                         yield b"".join(self._pending)
                         self._pending.clear()
-            self._parser.finalize()
+            parser.finalize()
         except MultipartParseError:
             raise invalid_upload() from None
         if not self._headers_ready or not self._ended:

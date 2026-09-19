@@ -12,7 +12,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-from app.api.dependencies import GetCurrentUserDep
+from app.api.dependencies import ContainerDep
 from app.application.errors import AuthenticationError
 from app.domain.user import User
 
@@ -30,16 +30,22 @@ def unauthorized(detail: str) -> HTTPException:
 
 async def _authenticate(
     token: Annotated[str | None, Depends(oauth2_scheme)],
-    use_case: GetCurrentUserDep,
+    container: ContainerDep,
 ) -> User | None:
     """The active user the token belongs to, or None. FastAPI caches it per request, so
-    everything that asks who is calling resolves the caller once."""
+    everything that asks who is calling resolves the caller once.
+
+    The caller is read in a unit of work that ends here, not in the route's: a route whose
+    work waits for the client, such as a file upload, must hold no database connection
+    while it does.
+    """
     if token is None:
         return None
-    try:
-        return await use_case.execute(token)
-    except AuthenticationError:
-        return None
+    async with container.request_scope() as scope:
+        try:
+            return await scope.get_current_user.execute(token)
+        except AuthenticationError:
+            return None
 
 
 async def get_current_user(

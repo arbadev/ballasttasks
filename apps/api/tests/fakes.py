@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
 
@@ -254,6 +254,40 @@ class InMemoryAttachmentRepository:
         if await self.get(attachment_id) is None:
             raise AttachmentNotFound(attachment_id)
         del self._attachments[attachment_id]
+
+
+class UploadedFile:
+    """An ``IncomingFile`` double: a client's stream, and how much of it the server asked for.
+
+    ``fails_with`` is the client going away halfway; ``after`` is the world changing while
+    it sends, such as the task being deleted.
+    """
+
+    def __init__(
+        self,
+        *chunks: bytes,
+        name: str | None = None,
+        fails_with: Exception | None = None,
+        after: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self.name = name
+        self._chunks = chunks
+        self._fails_with = fails_with
+        self._after = after
+        self.chunks_read = 0
+        self.prepared = False
+
+    async def prepare(self) -> None:
+        self.prepared = True
+
+    async def chunks(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            self.chunks_read += 1
+            yield chunk
+        if self._after is not None:
+            await self._after()
+        if self._fails_with is not None:
+            raise self._fails_with
 
 
 class RecordingFileStorage(InMemoryFileStorage):

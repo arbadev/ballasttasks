@@ -1,13 +1,16 @@
 """Attaching, reading and removing a FILE, against the in-memory fakes: what is accepted is
-decided from the bytes, the size limit is enforced while the stream is read, and nothing a
-refused or failed upload wrote is left behind."""
+decided from the bytes, the size limit is enforced while the stream is read, nothing a
+refused or failed upload wrote is left behind, and no unit of work is open while the client
+is sending."""
 
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.application.clock import Clock
 from app.application.errors import (
     AttachmentContentMissing,
     AttachmentHasNoContent,
@@ -18,7 +21,9 @@ from app.application.errors import (
     UnsupportedFileTypeError,
 )
 from app.application.file_changes import FileChanges
-from app.application.use_cases.attach_file import AttachFile
+from app.application.ports.attachment_repository import AttachmentRepository
+from app.application.ports.file_storage import StoredFile
+from app.application.use_cases.attach_file import AttachFile, AttachFileScope
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.remove_attachment import RemoveAttachment
@@ -31,6 +36,7 @@ from tests.fakes import (
     InMemoryProjectRepository,
     InMemoryTaskRepository,
     RecordingFileStorage,
+    UploadedFile,
 )
 
 NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
@@ -68,30 +74,85 @@ async def task(tasks: InMemoryTaskRepository) -> Task:
     return task
 
 
+class Scopes:
+    """Stands in for ``Container.request_scope``: the same fakes in every unit of work, and
+    a record of the units that were opened and how each of them ended."""
+
+    def __init__(
+        self,
+        tasks: InMemoryTaskRepository,
+        attachments: AttachmentRepository,
+        storage: RecordingFileStorage,
+        *,
+        max_bytes: int = 1000,
+    ) -> None:
+        self.tasks = tasks
+        self.attachments = attachments
+        self.file_storage = storage
+        self.max_file_bytes = max_bytes
+        self.clock: Clock = lambda: LATER
+        self.events: list[str] = []
+
+    @property
+    def open_units(self) -> int:
+        """How many units of work are open right now: what a slow upload must not hold."""
+        return (
+            self.events.count("begin") - self.events.count("commit") - self.events.count("rollback")
+        )
+
+    @asynccontextmanager
+    async def __call__(self) -> AsyncIterator[AttachFileScope]:
+        self.events.append("begin")
+        try:
+            yield self
+        except BaseException:
+            self.events.append("rollback")
+            raise
+        self.events.append("commit")
+
+
+class WatchingStorage(RecordingFileStorage):
+    """Records how many units of work were open each time it was given, or asked for, a byte."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.units_open_while_storing: list[int] = []
+        self._scopes: Scopes | None = None
+
+    def watch(self, scopes: Scopes) -> None:
+        self._scopes = scopes
+
+    def _note(self) -> None:
+        assert self._scopes is not None
+        self.units_open_while_storing.append(self._scopes.open_units)
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile:
+        self._note()
+
+        async def watched() -> AsyncIterator[bytes]:
+            async for chunk in chunks:
+                self._note()
+                yield chunk
+
+        return await super().save(key, watched())
+
+
+def attach_file_of(scopes: Scopes) -> AttachFile:
+    return AttachFile(scopes)
+
+
 @pytest.fixture
-def attach_file(
+def scopes(
     tasks: InMemoryTaskRepository,
     attachments: InMemoryAttachmentRepository,
     storage: RecordingFileStorage,
-    files: FileChanges,
-) -> AttachFile:
-    return AttachFile(tasks, attachments, storage, files, max_bytes=1000, clock=lambda: LATER)
+) -> Scopes:
+    return Scopes(tasks, attachments, storage)
 
 
-class Upload:
-    """A client's stream, and how much of it the server actually asked for."""
-
-    def __init__(self, *chunks: bytes, fails_with: Exception | None = None) -> None:
-        self._chunks = chunks
-        self._fails_with = fails_with
-        self.chunks_read = 0
-
-    async def chunks(self) -> AsyncIterator[bytes]:
-        for chunk in self._chunks:
-            self.chunks_read += 1
-            yield chunk
-        if self._fails_with is not None:
-            raise self._fails_with
+@pytest.fixture
+def attach_file(scopes: Scopes) -> AttachFile:
+    return attach_file_of(scopes)
 
 
 def in_pieces(data: bytes, size: int) -> list[bytes]:
@@ -109,11 +170,9 @@ async def test_a_pdf_is_stored_under_a_key_of_the_servers_and_attached_for_the_c
     storage: RecordingFileStorage,
     task: Task,
 ) -> None:
-    upload = Upload(*in_pieces(PDF, 30))
+    upload = UploadedFile(*in_pieces(PDF, 30), name="../../Report Q3.pdf")
 
-    attached = await attach_file.execute(
-        task.id, file_name="../../Report Q3.pdf", chunks=upload.chunks(), created_by=CALLER
-    )
+    attached = await attach_file.execute(task.id, file=upload, created_by=CALLER)
 
     assert attached == await attachments.get(attached.id)
     assert (attached.kind, attached.content_type, attached.size_bytes, attached.name) == (
@@ -136,10 +195,10 @@ async def test_two_uploads_of_the_same_name_never_share_a_key(
     attach_file: AttachFile, storage: RecordingFileStorage, task: Task
 ) -> None:
     first = await attach_file.execute(
-        task.id, file_name="same.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="same.pdf"), created_by=CALLER
     )
     second = await attach_file.execute(
-        task.id, file_name="same.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="same.pdf"), created_by=CALLER
     )
 
     assert first.storage_key != second.storage_key
@@ -150,7 +209,7 @@ async def test_the_type_comes_from_the_bytes_whatever_the_name_claims(
     attach_file: AttachFile, task: Task
 ) -> None:
     attached = await attach_file.execute(
-        task.id, file_name="report.pdf", chunks=Upload(PNG).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PNG, name="report.pdf"), created_by=CALLER
     )
 
     assert (attached.kind, attached.content_type, attached.name) == (
@@ -164,7 +223,7 @@ async def test_the_type_is_recognised_even_when_the_first_bytes_arrive_one_at_a_
     attach_file: AttachFile, storage: RecordingFileStorage, task: Task
 ) -> None:
     attached = await attach_file.execute(
-        task.id, file_name="a.png", chunks=Upload(*in_pieces(PNG, 1)).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(*in_pieces(PNG, 1), name="a.png"), created_by=CALLER
     )
 
     assert attached.content_type == "image/png"
@@ -191,7 +250,7 @@ async def test_bytes_that_are_neither_a_pdf_nor_an_image_are_refused_before_anyt
 ) -> None:
     with pytest.raises(UnsupportedFileTypeError):
         await attach_file.execute(
-            task.id, file_name="report.pdf", chunks=Upload(data).chunks(), created_by=CALLER
+            task.id, file=UploadedFile(data, name="report.pdf"), created_by=CALLER
         )
 
     assert storage.stored_keys() == []
@@ -209,7 +268,7 @@ async def test_an_empty_file_is_refused(
 ) -> None:
     with pytest.raises(EmptyFileError):
         await attach_file.execute(
-            task.id, file_name="empty.pdf", chunks=Upload(*chunks).chunks(), created_by=CALLER
+            task.id, file=UploadedFile(*chunks, name="empty.pdf"), created_by=CALLER
         )
 
     assert storage.keys_ever_written == []
@@ -221,8 +280,7 @@ async def test_a_file_of_exactly_the_limit_is_accepted(attach_file: AttachFile, 
 
     attached = await attach_file.execute(
         task.id,
-        file_name="big.pdf",
-        chunks=Upload(*in_pieces(exactly, 64)).chunks(),
+        file=UploadedFile(*in_pieces(exactly, 64), name="big.pdf"),
         created_by=CALLER,
     )
 
@@ -234,17 +292,13 @@ async def test_a_file_over_the_limit_is_refused_while_it_streams_and_leaves_noth
     tasks: InMemoryTaskRepository,
     attachments: InMemoryAttachmentRepository,
     storage: RecordingFileStorage,
-    files: FileChanges,
     task: Task,
 ) -> None:
     too_big = PDF + b"z" * 100_000
-    upload = Upload(*in_pieces(too_big, 100))
+    upload = UploadedFile(*in_pieces(too_big, 100), name="big.pdf")
 
     with pytest.raises(FileTooLargeError) as raised:
-        await attach_file.execute(
-            task.id, file_name="big.pdf", chunks=upload.chunks(), created_by=CALLER
-        )
-    await files.rolled_back()
+        await attach_file.execute(task.id, file=upload, created_by=CALLER)
 
     assert raised.value.max_bytes == 1000
     # 1000 bytes fit in ten chunks; the eleventh proves the file is too large and is the last
@@ -261,8 +315,7 @@ async def test_a_first_chunk_that_is_already_over_the_limit_is_refused(
     with pytest.raises(FileTooLargeError):
         await attach_file.execute(
             task.id,
-            file_name="big.pdf",
-            chunks=Upload(PDF + b"z" * 5000).chunks(),
+            file=UploadedFile(PDF + b"z" * 5000, name="big.pdf"),
             created_by=CALLER,
         )
 
@@ -273,16 +326,14 @@ async def test_a_stream_that_breaks_half_way_leaves_nothing_behind(
     attach_file: AttachFile,
     attachments: InMemoryAttachmentRepository,
     storage: RecordingFileStorage,
-    files: FileChanges,
     task: Task,
 ) -> None:
-    upload = Upload(PDF, b"more", fails_with=ConnectionResetError("the client went away"))
+    upload = UploadedFile(
+        PDF, b"more", name="half.pdf", fails_with=ConnectionResetError("the client went away")
+    )
 
     with pytest.raises(ConnectionResetError):
-        await attach_file.execute(
-            task.id, file_name="half.pdf", chunks=upload.chunks(), created_by=CALLER
-        )
-    await files.rolled_back()
+        await attach_file.execute(task.id, file=upload, created_by=CALLER)
 
     assert storage.stored_keys() == []
     assert attachments.all() == []
@@ -291,17 +342,36 @@ async def test_a_stream_that_breaks_half_way_leaves_nothing_behind(
 async def test_a_task_that_does_not_exist_is_refused_before_a_byte_is_read(
     attach_file: AttachFile, storage: RecordingFileStorage
 ) -> None:
-    upload = Upload(PDF)
+    upload = UploadedFile(PDF, name="report.pdf")
     unknown = uuid.uuid4()
 
     with pytest.raises(TaskNotFound) as raised:
-        await attach_file.execute(
-            unknown, file_name="report.pdf", chunks=upload.chunks(), created_by=CALLER
-        )
+        await attach_file.execute(unknown, file=upload, created_by=CALLER)
 
     assert raised.value.task_id == unknown
     assert upload.chunks_read == 0
     assert storage.keys_ever_written == []
+
+
+async def test_no_unit_of_work_is_open_while_the_client_is_sending(
+    tasks: InMemoryTaskRepository, attachments: InMemoryAttachmentRepository, task: Task
+) -> None:
+    """The point of the two units of work: a slow sender holds no database connection.
+
+    A file arrives in many chunks, and at every one of them, as at the moment the storage
+    is handed the stream, no unit of work may be open.
+    """
+    storage = WatchingStorage()
+    scopes = Scopes(tasks, attachments, storage)
+    storage.watch(scopes)
+
+    attached = await attach_file_of(scopes).execute(
+        task.id, file=UploadedFile(*in_pieces(PDF, 10), name="report.pdf"), created_by=CALLER
+    )
+
+    assert storage.units_open_while_storing == [0] * 11, "once for the save, once per chunk"
+    assert scopes.events == ["begin", "commit", "begin", "commit"], "one to check, one to write"
+    assert await attachments.get(attached.id) == attached
 
 
 class FailingAttachments(InMemoryAttachmentRepository):
@@ -310,36 +380,36 @@ class FailingAttachments(InMemoryAttachmentRepository):
 
 
 async def test_a_database_failure_after_the_file_was_written_leaves_no_orphan_file(
-    tasks: InMemoryTaskRepository, storage: RecordingFileStorage, files: FileChanges, task: Task
+    tasks: InMemoryTaskRepository, storage: RecordingFileStorage, task: Task
 ) -> None:
-    attach_file = AttachFile(tasks, FailingAttachments(tasks), storage, files, max_bytes=1000)
+    scopes = Scopes(tasks, FailingAttachments(tasks), storage)
+    attach_file = AttachFile(scopes)
 
     with pytest.raises(RuntimeError, match="database went away"):
         await attach_file.execute(
-            task.id, file_name="report.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+            task.id, file=UploadedFile(PDF, name="report.pdf"), created_by=CALLER
         )
-    assert len(storage.stored_keys()) == 1, "written, and known to the unit of work"
-    await files.rolled_back()
 
-    assert storage.stored_keys() == []
+    assert storage.keys_ever_written != [], "the file was written before the row was"
+    assert storage.stored_keys() == [], "and the rolled back unit of work took it away again"
+    assert scopes.events == ["begin", "commit", "begin", "rollback"]
 
 
 async def test_a_task_deleted_while_the_file_streamed_leaves_no_orphan_file(
     attach_file: AttachFile,
     tasks: InMemoryTaskRepository,
     storage: RecordingFileStorage,
-    files: FileChanges,
     task: Task,
 ) -> None:
-    async def deleted_meanwhile() -> AsyncIterator[bytes]:
-        yield PDF
+    async def delete_the_task() -> None:
         await tasks.delete(task.id)
 
     with pytest.raises(TaskNotFound):
         await attach_file.execute(
-            task.id, file_name="report.pdf", chunks=deleted_meanwhile(), created_by=CALLER
+            task.id,
+            file=UploadedFile(PDF, name="report.pdf", after=delete_the_task),
+            created_by=CALLER,
         )
-    await files.rolled_back()
 
     assert storage.stored_keys() == []
 
@@ -358,7 +428,7 @@ async def test_the_content_of_a_file_is_streamed_back_with_what_is_known_about_i
     attach_file: AttachFile, open_content: OpenAttachmentContent, task: Task
 ) -> None:
     attached = await attach_file.execute(
-        task.id, file_name="report.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="report.pdf"), created_by=CALLER
     )
 
     attachment, chunks = await open_content.execute(task.id, attached.id)
@@ -376,7 +446,7 @@ async def test_content_is_only_reached_through_the_task_the_attachment_belongs_t
     other_task = a_task(CREATOR)
     await tasks.add(other_task)
     attached = await attach_file.execute(
-        task.id, file_name="report.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="report.pdf"), created_by=CALLER
     )
 
     with pytest.raises(AttachmentNotFound):
@@ -421,10 +491,10 @@ async def test_removing_a_file_deletes_the_stored_file_once_the_unit_of_work_com
     task: Task,
 ) -> None:
     attached = await attach_file.execute(
-        task.id, file_name="report.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="report.pdf"), created_by=CALLER
     )
     kept = await attach_file.execute(
-        task.id, file_name="kept.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="kept.pdf"), created_by=CALLER
     )
     removing = FileChanges(storage)
 
@@ -444,7 +514,7 @@ async def test_a_removal_that_is_rolled_back_keeps_the_file(
     task: Task,
 ) -> None:
     attached = await attach_file.execute(
-        task.id, file_name="report.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        task.id, file=UploadedFile(PDF, name="report.pdf"), created_by=CALLER
     )
     removing = FileChanges(storage)
 
@@ -464,12 +534,10 @@ async def test_deleting_a_task_deletes_the_stored_files_of_its_attachments_and_n
     other_task = a_task(CREATOR)
     await tasks.add(other_task)
     for name in ("one.pdf", "two.pdf"):
-        await attach_file.execute(
-            task.id, file_name=name, chunks=Upload(PDF).chunks(), created_by=CALLER
-        )
+        await attach_file.execute(task.id, file=UploadedFile(PDF, name=name), created_by=CALLER)
     await attachments.add(a_link(task.id, CREATOR))
     kept = await attach_file.execute(
-        other_task.id, file_name="kept.pdf", chunks=Upload(PDF).chunks(), created_by=CALLER
+        other_task.id, file=UploadedFile(PDF, name="kept.pdf"), created_by=CALLER
     )
     deleting = FileChanges(storage)
 

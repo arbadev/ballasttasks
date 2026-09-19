@@ -14,13 +14,12 @@ from fastapi.responses import StreamingResponse
 from app.api.dependencies import (
     AttachFileDep,
     AttachLinkDep,
-    GetTaskDep,
     OpenAttachmentContentDep,
     RemoveAttachmentDep,
 )
 from app.api.multipart import StreamingUpload
 from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
-from app.api.routes.tasks import TaskId
+from app.api.routes.tasks import TaskId, TaskReference
 from app.api.schemas.attachments import AttachmentResponse, FileUpload, LinkCreate
 from app.api.schemas.errors import ErrorResponse
 from app.api.security import CurrentUserId, get_current_user_id
@@ -90,17 +89,16 @@ async def attach_link(
     },
 )
 async def attach_file(
-    task_id: TaskId,
+    reference: TaskReference,
     request: Request,
     user_id: CurrentUserId,
     attach_file: AttachFileDep,
-    get_task: GetTaskDep,
 ) -> AttachmentResponse:
-    await get_task.execute(task_id)
-    upload = StreamingUpload(request)
-    await upload.prepare()
+    # ``TaskReference``, not ``TaskId``: resolving the key would open the request's unit of
+    # work and keep it for the whole upload. The use case owns the two short ones this
+    # takes instead, so the body streams while no database connection is held (ADR 0008).
     attached = await attach_file.execute(
-        task_id, file_name=upload.name, chunks=upload.chunks(), created_by=user_id
+        reference, file=StreamingUpload(request), created_by=user_id
     )
     return AttachmentResponse.of(attached)
 

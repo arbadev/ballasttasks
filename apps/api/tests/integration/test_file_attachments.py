@@ -14,7 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.bootstrap import Container, build_container, load_settings
+from app.infrastructure.db.models.attachment import AttachmentModel
 from app.main import create_app
+from tests.fakes import UploadedFile
 from tests.integration.test_tasks_api import register_and_log_in
 
 pytestmark = pytest.mark.integration
@@ -118,10 +120,6 @@ async def test_live_http_attachments_lifecycle_and_failures(
     assert not [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
 
 
-async def pdf_chunks() -> AsyncIterator[bytes]:
-    yield PDF
-
-
 async def test_database_failure_after_file_write_compensates_storage(container: Container) -> None:
     async with container.request_scope() as scope:
         user = await scope.register_user.execute(
@@ -131,10 +129,9 @@ async def test_database_failure_after_file_write_compensates_storage(container: 
         )
         task = await scope.create_task.execute(title="Rollback", created_by=user.id)
     with pytest.raises(IntegrityError):
-        async with container.request_scope() as scope:
-            await scope.attach_file.execute(
-                task.id, file_name="a.pdf", chunks=pdf_chunks(), created_by=uuid.uuid4()
-            )
+        await container.attach_file.execute(
+            task.id, file=UploadedFile(PDF, name="a.pdf"), created_by=uuid.uuid4()
+        )
     assert not [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
     async with container.request_scope() as scope:
         assert await scope.attachments.list_for_task(task.id) == []
@@ -151,16 +148,19 @@ async def test_commit_failure_after_file_write_compensates_storage(container: Co
         task = await scope.create_task.execute(title="Commit rollback", created_by=user.id)
 
     def refuse_commit(session: Session) -> None:
-        if not session.in_nested_transaction():
+        """Refuse the commit of the unit of work that stores the row, not the one that
+        checked the task before the file was written."""
+        if not session.in_nested_transaction() and any(
+            isinstance(instance, AttachmentModel) for instance in session
+        ):
             raise RuntimeError("commit failed")
 
     event.listen(Session, "before_commit", refuse_commit)
     try:
         with pytest.raises(RuntimeError, match="commit failed"):
-            async with container.request_scope() as scope:
-                await scope.attach_file.execute(
-                    task.id, file_name="a.pdf", chunks=pdf_chunks(), created_by=user.id
-                )
+            await container.attach_file.execute(
+                task.id, file=UploadedFile(PDF, name="a.pdf"), created_by=user.id
+            )
     finally:
         event.remove(Session, "before_commit", refuse_commit)
     assert not [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]

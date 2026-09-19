@@ -215,17 +215,6 @@ class RequestScope:
         return RemoveAttachment(self.tasks, self.attachments, self.file_changes, clock=self.clock)
 
     @property
-    def attach_file(self) -> AttachFile:
-        return AttachFile(
-            self.tasks,
-            self.attachments,
-            self.file_storage,
-            self.file_changes,
-            max_bytes=self.max_file_bytes,
-            clock=self.clock,
-        )
-
-    @property
     def open_attachment_content(self) -> OpenAttachmentContent:
         return OpenAttachmentContent(self.attachments, self.file_storage)
 
@@ -320,6 +309,13 @@ class Container:
     @property
     def start_sso_sign_in(self) -> StartSsoSignIn:
         return StartSsoSignIn(self.identity_providers, self.one_time_store)
+
+    @property
+    def attach_file(self) -> AttachFile:
+        """The one use case that spans more than one unit of work: it opens a scope to
+        check the task, streams the body to the storage with none open, and opens a second
+        one to write the row (ADR 0008)."""
+        return AttachFile(self.request_scope)
 
     @property
     def check_readiness(self) -> CheckReadiness:

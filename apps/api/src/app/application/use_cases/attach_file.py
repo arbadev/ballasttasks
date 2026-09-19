@@ -1,56 +1,93 @@
-import uuid
-from collections.abc import AsyncIterator
+"""Attach an uploaded file: two short units of work, with the upload streamed between them.
 
-from app.application.clock import Clock, utc_now
+The client decides how long its body takes to arrive, so nothing may wait for it holding a
+database connection. The task is checked in one unit of work, the bytes go to the
+``FileStorage`` while none is open, and the row is written in a second one. What was
+written is deleted again if anything after it fails, the second unit's commit included, so
+a refused or rolled back upload leaves nothing behind (ADR 0008).
+"""
+
+import uuid
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol
+
+from app.application.clock import Clock
 from app.application.errors import (
     EmptyFileError,
     FileTooLargeError,
     TaskNotFound,
     UnsupportedFileTypeError,
 )
-from app.application.file_changes import FileChanges
+from app.application.file_changes import files_following_the_transaction
 from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.file_storage import FileStorage
 from app.application.ports.task_repository import TaskRepository
+from app.application.use_cases.get_task import GetTask
 from app.domain.attachment import Attachment
 from app.domain.file_type import SNIFF_BYTES, sniff
+from app.domain.task_key import TaskKey
+
+
+class IncomingFile(Protocol):
+    """A file on its way in. Nothing is read from the client before ``prepare``, and the
+    name is only known once it has been."""
+
+    @property
+    def name(self) -> str | None: ...
+
+    async def prepare(self) -> None: ...
+
+    def chunks(self) -> AsyncIterator[bytes]: ...
+
+
+class AttachFileScope(Protocol):
+    """One unit of work, and what the request runs under.
+
+    The storage, the limit and the clock belong to the request, not to the transaction:
+    they are read from a scope and used while none is open, which is the point here.
+    """
+
+    @property
+    def tasks(self) -> TaskRepository: ...
+
+    @property
+    def attachments(self) -> AttachmentRepository: ...
+
+    @property
+    def file_storage(self) -> FileStorage: ...
+
+    @property
+    def max_file_bytes(self) -> int: ...
+
+    @property
+    def clock(self) -> Clock: ...
+
+
+UnitOfWork = Callable[[], AbstractAsyncContextManager[AttachFileScope]]
 
 
 class AttachFile:
-    def __init__(
-        self,
-        tasks: TaskRepository,
-        attachments: AttachmentRepository,
-        storage: FileStorage,
-        files: FileChanges,
-        *,
-        max_bytes: int,
-        clock: Clock = utc_now,
-    ) -> None:
-        self._tasks = tasks
-        self._attachments = attachments
-        self._storage = storage
-        self._files = files
-        self._max_bytes = max_bytes
-        self._clock = clock
+    def __init__(self, unit_of_work: UnitOfWork) -> None:
+        self._unit_of_work = unit_of_work
 
     async def execute(
-        self,
-        task_id: uuid.UUID,
-        *,
-        file_name: str | None,
-        chunks: AsyncIterator[bytes],
-        created_by: uuid.UUID,
+        self, reference: uuid.UUID | TaskKey, *, file: IncomingFile, created_by: uuid.UUID
     ) -> Attachment:
-        if await self._tasks.get(task_id) is None:
-            raise TaskNotFound(task_id)
+        """Raises ``TaskNotFound``. The reference is resolved here, not by the caller: the
+        key lookup is a read like any other and belongs in the first unit of work."""
+        async with self._unit_of_work() as work:
+            task_id = (await GetTask(work.tasks).execute(reference)).id
+            storage, max_bytes = work.file_storage, work.max_file_bytes
+        await file.prepare()
+        chunks = file.chunks()
         head = bytearray()
         remainder = b""
         size = 0
         async for chunk in chunks:
             size += len(chunk)
-            if size > self._max_bytes:
-                raise FileTooLargeError(self._max_bytes)
+            if size > max_bytes:
+                raise FileTooLargeError(max_bytes)
             needed = SNIFF_BYTES - len(head)
             head.extend(chunk[:needed])
             remainder = chunk[needed:]
@@ -69,29 +106,30 @@ class AttachFile:
                 yield remainder
             async for chunk in chunks:
                 size += len(chunk)
-                if size > self._max_bytes:
-                    raise FileTooLargeError(self._max_bytes)
+                if size > max_bytes:
+                    raise FileTooLargeError(max_bytes)
                 yield chunk
 
-        key = uuid.uuid4().hex
-        stored = await self._storage.save(key, bounded())
-        self._files.written(stored.key)
-        # Only lock after upload: a slow sender must not hold a task row hostage.
-        task = await self._tasks.get_for_update(task_id)
-        if task is None:
-            raise TaskNotFound(task_id)
-        now = self._clock()
-        attached = Attachment.file(
-            attachment_id=uuid.uuid4(),
-            task_id=task_id,
-            file_name=file_name,
-            file_type=file_type,
-            storage_key=stored.key,
-            size_bytes=stored.size_bytes,
-            created_by=created_by,
-            now=now,
-        )
-        await self._attachments.add(attached)
-        task.touch(now=now)
-        await self._tasks.update(task)
-        return attached
+        async with files_following_the_transaction(storage) as files:
+            stored = await storage.save(uuid.uuid4().hex, bounded())
+            files.written(stored.key)
+            async with self._unit_of_work() as work:
+                # Only lock after upload: a slow sender must not hold a task row hostage.
+                task = await work.tasks.get_for_update(task_id)
+                if task is None:
+                    raise TaskNotFound(reference)
+                now = work.clock()
+                attached = Attachment.file(
+                    attachment_id=uuid.uuid4(),
+                    task_id=task_id,
+                    file_name=file.name,
+                    file_type=file_type,
+                    storage_key=stored.key,
+                    size_bytes=stored.size_bytes,
+                    created_by=created_by,
+                    now=now,
+                )
+                await work.attachments.add(attached)
+                task.touch(now=now)
+                await work.tasks.update(task)
+            return attached

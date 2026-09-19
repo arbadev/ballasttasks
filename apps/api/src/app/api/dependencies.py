@@ -109,9 +109,6 @@ class RequestScope(Protocol):
     def remove_attachment(self) -> RemoveAttachment: ...
 
     @property
-    def attach_file(self) -> AttachFile: ...
-
-    @property
     def open_attachment_content(self) -> OpenAttachmentContent: ...
 
 
@@ -158,6 +155,11 @@ class AppContainer(Protocol):
 
     @property
     def rate_limiting(self) -> RateLimiting: ...
+
+    # Not on a request scope: it opens the short units of work an upload needs itself, so
+    # the body streams with no database connection held.
+    @property
+    def attach_file(self) -> AttachFile: ...
 
 
 def get_container(request: Request) -> AppContainer:
@@ -239,10 +241,6 @@ def get_authenticate_user(scope: RequestScopeDep) -> AuthenticateUser:
     return scope.authenticate_user
 
 
-def get_get_current_user(scope: RequestScopeDep) -> GetCurrentUser:
-    return scope.get_current_user
-
-
 def get_complete_sso_sign_in(scope: RequestScopeDep) -> CompleteSsoSignIn:
     return scope.complete_sso_sign_in
 
@@ -258,7 +256,6 @@ UpdateTaskDep = Annotated[UpdateTask, Depends(get_update_task)]
 DeleteTaskDep = Annotated[DeleteTask, Depends(get_delete_task)]
 RegisterUserDep = Annotated[RegisterUser, Depends(get_register_user)]
 AuthenticateUserDep = Annotated[AuthenticateUser, Depends(get_authenticate_user)]
-GetCurrentUserDep = Annotated[GetCurrentUser, Depends(get_get_current_user)]
 CompleteSsoSignInDep = Annotated[CompleteSsoSignIn, Depends(get_complete_sso_sign_in)]
 RedeemSsoCodeDep = Annotated[RedeemSsoCode, Depends(get_redeem_sso_code)]
 
@@ -317,8 +314,8 @@ def get_remove_attachment(scope: RequestScopeDep) -> RemoveAttachment:
     return scope.remove_attachment
 
 
-def get_attach_file(scope: RequestScopeDep) -> AttachFile:
-    return scope.attach_file
+def get_attach_file(container: ContainerDep) -> AttachFile:
+    return container.attach_file
 
 
 def get_open_attachment_content(scope: RequestScopeDep) -> OpenAttachmentContent:

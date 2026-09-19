@@ -50,11 +50,24 @@ migration creates only the attachments table; existing tasks/users/projects are 
 and start with computed `attachments_count = 0`. Downgrade drops metadata, not task rows;
 operators must clear the now-unreferenced files themselves.
 
-`FileChanges` wraps the database transaction in `Container.request_scope()`: a rollback
-(including a failed commit) compensates newly written files, while successful commit
-triggers deferred deletion. Deleting a task locks its row, enumerates file keys, and
-cascades the attachment rows; attaching rechecks/locks the task after streaming so a slow
-upload holds no row lock and a concurrent deletion cannot strand a file.
+An upload takes two short units of work rather than one. `AttachFile` checks the task in
+the first, streams the body to the `FileStorage` with none open, and writes the row in the
+second. How long a body takes to arrive is the client's choice, so nothing may wait for it
+holding a pooled database connection: the upload route therefore takes the task reference
+unresolved (`TaskReference`, not `TaskId`, whose key lookup would open the request's
+transaction), and the bearer token seam resolves the caller in a unit of work of its own
+that ends before the route runs, so no dependency of the request keeps one either.
+`tests/unit/test_attach_file.py` and `tests/api/test_file_attachments.py` assert that no
+unit of work is open while the storage is being fed, the second through a real token, so
+the rate limiter and the signed-in-user seam are exercised too.
+
+`FileChanges` follows a transaction: a rollback (including a failed commit) compensates
+newly written files, while a successful commit triggers deferred deletion. The request
+scope wraps it around `transactional_session` for removals; an upload wraps it around the
+storage write and the unit of work that stores the row, so a file whose row never commits
+is deleted whichever of the two failed. Deleting a task locks its row, enumerates file
+keys, and cascades the attachment rows; attaching rechecks/locks the task after streaming,
+so a slow upload holds no row lock, and a concurrent deletion cannot strand a file.
 
 There is no distributed transaction between PostgreSQL and the filesystem. Process death
 between write and commit, or disk failure during cleanup, can leave orphan files. Cleanup
@@ -77,7 +90,10 @@ row deletion by an operator bypasses application cleanup.
   checks are **not** full format validation: corrupt/polyglot PDFs/images and embedded
   active content can pass. Downloaded content remains untrusted.
 - Memory/disk exhaustion: incremental size enforcement, bounded multipart headers and
-  framing, authentication/rate limiting. No aggregate per-user quota or malware scanning.
+  framing, authentication/rate limiting. Connection-pool exhaustion by slow uploads is not
+  left to those two: one request per attacker never trips a rate limit, so instead a
+  request that is streaming a body holds no database connection at all (see above). No
+  aggregate per-user quota or malware scanning.
 - Header injection/bidi deception: sanitised names and percent-encoded Content-Disposition.
 - SSRF: link URLs are validated but never dereferenced by the API. Credentials in URLs
   and non-http(s)/relative URLs are refused. A link can still lead to an untrusted site.

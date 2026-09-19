@@ -6,8 +6,11 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-from tests.api.conftest import RecordingRequestScopes
+from app.application.ports.file_storage import StoredFile
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
+from tests.api.conftest import AuthFakes, RecordingRequestScopes
 from tests.api.test_attachments import create_task
+from tests.auth_fakes import a_user
 
 PDF = b"%PDF-1.7\n" + b"x" * 91
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 92
@@ -186,3 +189,59 @@ async def test_file_openapi(task_client: httpx.AsyncClient) -> None:
     assert "multipart/form-data" in upload["requestBody"]["content"]
     download = paths["/tasks/{id_or_key}/attachments/{attachment_id}/content"]["get"]
     assert set(download["responses"]) >= {"200", "401", "404", "422", "429"}
+
+
+class WatchingStorage(InMemoryFileStorage):
+    """The storage fake, recording how many units of work were open while it was fed."""
+
+    def __init__(self, scopes: RecordingRequestScopes) -> None:
+        super().__init__()
+        self._scopes = scopes
+        self.units_open_while_storing: list[int] = []
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile:
+        self.units_open_while_storing.append(self._scopes.open_units)
+
+        async def watched() -> AsyncIterator[bytes]:
+            async for chunk in chunks:
+                self.units_open_while_storing.append(self._scopes.open_units)
+                yield chunk
+
+        return await super().save(key, watched())
+
+
+async def test_an_upload_holds_no_unit_of_work_while_the_body_arrives(
+    anonymous_client: httpx.AsyncClient,
+    auth_fakes: AuthFakes,
+    request_scopes: RecordingRequestScopes,
+) -> None:
+    """The proof for the whole request, not only the use case.
+
+    A signed-in upload goes through the rate limiter and the bearer token seam before it
+    reaches the route, and each of those used to keep the request's transaction, and so a
+    pooled database connection, for as long as the client took to send its body. Here the
+    caller is a real token rather than an override, so every one of those dependencies is
+    exercised, and none of them may hold a unit of work while the storage is being fed.
+    """
+    user = a_user()
+    await auth_fakes.users.add(user)
+    headers = {"Authorization": f"Bearer {auth_fakes.tokens.issue(user.id)}"}
+    storage = WatchingStorage(request_scopes)
+    request_scopes.storage = storage
+    created = await anonymous_client.post(
+        "/tasks", json={"title": "Write the report"}, headers=headers
+    )
+    assert created.status_code == 201, created.text
+    task = created.json()
+
+    response = await anonymous_client.post(
+        f"/tasks/{task['id']}/attachments/files",
+        files={"file": ("report.pdf", PDF)},
+        headers=headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert storage.units_open_while_storing != [], "the storage was fed at all"
+    assert set(storage.units_open_while_storing) == {0}
+    assert request_scopes.open_units == 0
+    assert len(storage.stored_keys()) == 1

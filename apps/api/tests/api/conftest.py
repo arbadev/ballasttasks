@@ -112,6 +112,13 @@ class RecordingRequestScopes:
         # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
         self.clock: Clock = utc_now
 
+    @property
+    def open_units(self) -> int:
+        """How many units of work are open right now. A request that waits for the client,
+        such as a file upload, must hold none: see ADR 0008."""
+        events = self.events
+        return events.count("begin") - events.count("commit") - events.count("rollback")
+
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
         self.events.append("begin")

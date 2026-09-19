@@ -225,7 +225,9 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 
 - The HTTP layer enters the scope once per request through `get_request_scope` in `api/dependencies.py`. It is declared with `Depends(..., scope="function")`, so the transaction ends before the response is sent: a commit that fails becomes an error response.
 - `RequestScope.clock` is the one clock every date-dependent use case receives; API tests replace it to pin "today".
-- A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session. Tasks and users share the scope, so resolving the caller (`GetCurrentUser`) and the task work of one request run in the same transaction.
+- A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session.
+- Resolving the caller (`GetCurrentUser`, through `api/security.py`) has a unit of work of its own, which ends before the route's begins. A route that waits for the client must hold no database connection while it does, and a dependency of the request would hold one for the whole route.
+- One use case spans more than one unit of work, and is therefore built on `Container` instead of `RequestScope`: `AttachFile` checks the task in one, streams the uploaded bytes to the `FileStorage` with none open, and writes the row in a second ([ADR 0008](decisions/0008-file-storage.md)).
 - Outside HTTP (a Celery job, a script) the same `container.request_scope()` is the unit of work.
 - Tables arrive only through Alembic revisions. ORM models live in `infrastructure/db/models/`; importing that package registers them on `Base.metadata`, which has a naming convention so every constraint has a stable name.
 
@@ -334,8 +336,10 @@ allow PDF/PNG/JPEG/GIF/WebP, not client-provided MIME types. Names are sanitised
 metadata, not keys. Downloads carry an encoded attachment Content-Disposition and nosniff.
 
 `FileStorage` is a small application Protocol, whose registry-selected adapter is built
-only in `bootstrap.py`. `FileChanges` wraps `transactional_session`: compensate new writes
-on rollback and defer removals until after commit. Removing a task also removes all of
+only in `bootstrap.py`. An upload runs as two short units of work with the body streamed
+between them, so a slow sender holds neither a task row nor a database connection.
+`FileChanges` follows each transaction: compensate new writes on rollback and defer
+removals until after commit. Removing a task also removes all of
 its stored files. No static mount. The API's named `attachments-data` volume persists the
 local root from `STORAGE__LOCAL_DIRECTORY`. Local-disk guarantees, failure windows and the
 cloud-adapter checklist are in [ADR 0008](decisions/0008-file-storage.md).
