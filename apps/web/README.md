@@ -12,7 +12,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | --- | --- |
 | `src/app/providers.tsx` | Composition root: the only place a concrete service is constructed. Exports the hooks `useTaskService`, `useDirectoryService`, `useStepGenerationService`, `useClock`, `useHealthService`. |
 | `src/app/globals.css` | The design tokens, once: the skin's CSS variables, mapped into the Tailwind theme (`bg-card`, `text-fg-3`, `rounded-bt`, `shadow-glow`, `animate-bt-in`, ...), plus base rules and the `bt-*` keyframes. Components use token names, never raw hex. |
-| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own `BT_DESIGN_DIR`). Validates on load. |
+| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own variables: see "Visual tests"). Validates on load. |
 | `src/lib/api/client.ts` | The only module that calls `fetch`. Throws a typed `ApiError`. |
 | `src/lib/api/schema.d.ts` | Generated from the API's OpenAPI document. Never edited by hand. |
 | `src/components/ui/` | Shared primitives: `Button`, `IconButton`, `Select`, `SegmentedControl`, `TextInput`, `Avatar`, `Pill`. No feature knowledge. |
@@ -20,6 +20,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `inMemory*` files implement them over one shared store seeded from the design. |
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
+| `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
@@ -35,12 +36,13 @@ and labels as the design, but serialisable and the shape an API date column has.
 
 ## Building on the shell
 
-The shell already mounts three placeholders. Each is owned by one follow-up slice, which
-replaces the file's contents and adds whatever else it needs **inside its own folder**:
+The shell mounts three views. The list is built; the board and the detail panel are still
+placeholders, each owned by one follow-up slice, which replaces the file's contents and adds
+whatever else it needs **inside its own folder**:
 
 | Folder (owner) | Mounted as | Replace the placeholder with |
 | --- | --- | --- |
-| `src/features/tasks/list/` | `<ListView />` when the view is `list` | The task rows and the quick-add input. |
+| `src/features/tasks/list/` | `<ListView />` when the view is `list`, in every load state: it draws its own skeleton and load error | Built: the task rows and the quick-add input. |
 | `src/features/tasks/board/` | `<BoardView />` when the view is `board` | The four status columns with drag between them. |
 | `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
 
@@ -110,7 +112,7 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 and runs four suites from `visual/`:
+`npm run test:visual` starts the app (port 47812 unless overridden, see below) and runs these suites from `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
@@ -124,6 +126,23 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   ```sh
   BT_DESIGN_DIR=/path/to/design-v2 npm run test:visual
   ```
+- `tokens.visual.ts` checks the design tokens where they take effect, as computed styles. Without
+  the design: the `rounded-bt*` utilities follow `--r` / `--r-sm` on all four corners, and the
+  search placeholder is set in `--fg-3`. With `BT_DESIGN_DIR`: the skin's custom properties on
+  the root element, the resolved colours, radii, shadows and type of shell elements, and the
+  keyboard focus ring all equal the design's.
+- `list.visual.ts` compares the list view with the design the same way (1% limit, 2/255
+  tolerance): a default, hovered, selected, done, overdue and hot (P0 at risk) row, the quick-add,
+  the empty state and the whole list region, at both sizes. For the selected row the task panel
+  is hidden on both sides, because its backdrop covers the list. There are two sanctioned
+  exceptions, both text colours where the design fails AA; for each, the untouched region is
+  measured and reported while the app's colour and its contrast (at least 4.5:1) are asserted
+  instead:
+  - The quick-add placeholder: the design leaves it at the browser default (3.90:1) and the app
+    sets it in `--fg-3` (5.29:1). The quick-add is compared twice, so its structure is still held
+    to the limit with the placeholder made transparent on both sides.
+  - The hot P0 pill: the design sets white on `--danger` (3.01:1) and the app sets `--acc-fg`
+    (6.13:1). The row is still held to the limit; the pill alone is measured untouched.
 - `projects.visual.ts` covers project creation, which the design has no reference for. At
   1440x900, 1024x768 and 375x812 it walks every state (closed, open, validation error, pending,
   created, empty project) and compares the regions the feature owns with the baselines committed
@@ -132,13 +151,14 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   styles so every colour, font, radius and shadow in the dialog and the empty state is a design
   token. After a deliberate visual change, re-record the baselines and the full-page screenshots
   next to them with `npx playwright test projects --update-snapshots`.
-- `tokens.visual.ts` checks the design tokens where they take effect, as computed styles. Without
-  the design: the `rounded-bt*` utilities follow `--r` / `--r-sm` on all four corners, and the
-  search placeholder is set in `--fg-3`. With `BT_DESIGN_DIR`: the skin's custom properties on
-  the root element, the resolved colours, radii, shadows and type of shell elements, and the
-  keyboard focus ring all equal the design's.
+- `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
+  and a keyboard pass over the list's states raises no console error or warning.
 
-Screenshots, diffs and `report.json` (the measured percentages) land in the git-ignored
+Both servers are reused when already running. When two checkouts run the suite at once, give
+each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
+other's app.
+
+Screenshots, diffs, `report.json` and `list-report.json` (the measured percentages) land in the git-ignored
 `visual-results/`. Run `npx playwright install chromium` once beforehand.
 
 ## Docker

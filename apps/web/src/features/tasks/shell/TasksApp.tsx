@@ -47,22 +47,32 @@ function Shell() {
         <Header navigationId={navigationId} navigationOpen={navigationOpen} onOpenNavigation={() => setNavigationOpen(true)} />
         <FilterToolbar />
         <AttentionStrip />
-        {state.load.status === "loading" && (
-          <p role="status" className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">
-            Loading tasks…
-          </p>
+        {/* A project with no tasks invites the first one. Otherwise the list draws its own loading
+            and error states; the board still uses the shell's. */}
+        {emptyProject ? (
+          <EmptyProject project={emptyProject} />
+        ) : state.view === "list" ? (
+          <ListView />
+        ) : (
+          <>
+            {state.load.status === "loading" && (
+              <p role="status" className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">
+                Loading tasks…
+              </p>
+            )}
+            {state.load.status === "error" && (
+              <div role="alert" className="flex flex-col items-start gap-3 px-6 py-14 text-[13px] text-fg-2 max-md:px-4">
+                <p className="m-0">
+                  Could not load the tasks. <span className="text-fg-3">{state.load.message}</span>
+                </p>
+                <Button variant="ghost" onClick={actions.reload} className="border border-line bg-card text-fg-2">
+                  Retry
+                </Button>
+              </div>
+            )}
+            {state.load.status === "ready" && <BoardView />}
+          </>
         )}
-        {state.load.status === "error" && (
-          <div role="alert" className="flex flex-col items-start gap-3 px-6 py-14 text-[13px] text-fg-2 max-md:px-4">
-            <p className="m-0">
-              Could not load the tasks. <span className="text-fg-3">{state.load.message}</span>
-            </p>
-            <Button variant="ghost" onClick={actions.reload} className="border border-line bg-card text-fg-2">
-              Retry
-            </Button>
-          </div>
-        )}
-        {state.load.status === "ready" && (emptyProject ? <EmptyProject project={emptyProject} /> : state.view === "list" ? <ListView /> : <BoardView />)}
       </main>
       <TaskDetail />
     </div>

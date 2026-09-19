@@ -7,8 +7,15 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const designDir = process.env.BT_DESIGN_DIR;
 
-export const APP_URL = "http://127.0.0.1:47812";
-export const DESIGN_URL = "http://127.0.0.1:47811";
+/**
+ * Both servers are reused when already up, so two checkouts running the suite at once would
+ * screenshot each other's app. Give each its own pair with BT_VISUAL_APP_PORT / BT_VISUAL_DESIGN_PORT.
+ */
+const appPort = Number(process.env.BT_VISUAL_APP_PORT ?? 47812);
+const designPort = Number(process.env.BT_VISUAL_DESIGN_PORT ?? 47811);
+
+export const APP_URL = `http://127.0.0.1:${appPort}`;
+export const DESIGN_URL = `http://127.0.0.1:${designPort}`;
 
 export default defineConfig({
   testDir: "./visual",
@@ -26,7 +33,7 @@ export default defineConfig({
   webServer: [
     {
       // The tasks UI is in-memory; the API URL only has to be well-formed.
-      command: "node node_modules/next/dist/bin/next dev --port 47812 --hostname 127.0.0.1",
+      command: `node node_modules/next/dist/bin/next dev --port ${appPort} --hostname 127.0.0.1`,
       url: APP_URL,
       env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:47899" },
       reuseExistingServer: true,
@@ -35,7 +42,7 @@ export default defineConfig({
     ...(designDir
       ? [
           {
-            command: "python3 -m http.server 47811 --bind 127.0.0.1",
+            command: `python3 -m http.server ${designPort} --bind 127.0.0.1`,
             cwd: designDir,
             url: DESIGN_URL,
             reuseExistingServer: true,
