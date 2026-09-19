@@ -4,6 +4,8 @@ import { Activity, Check, CircleAlert, List, User, type LucideIcon } from "lucid
 import type { ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { IconButton } from "@/components/ui/IconButton";
+import { NewProjectControl } from "@/features/projects/NewProjectControl";
+import { ProjectDot } from "@/features/projects/ui/ProjectDot";
 import { cn } from "@/lib/cn";
 import { sidebarCounts } from "../model/counts";
 import type { Scope } from "../model/filter";
@@ -72,7 +74,9 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      <SectionLabel className="pt-4">Projects</SectionLabel>
+      <SectionLabel className="pt-4" action={<NewProjectControl onCreated={onNavigate} className="-my-1.5 -mr-1 pointer-coarse:-my-3.5" />}>
+        Projects
+      </SectionLabel>
       <nav aria-label="Projects" className="flex flex-col gap-0.5 px-2.5">
         {projects.map((project) => (
           <NavButton
@@ -84,7 +88,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
             }}
             className="h-8"
           >
-            <span aria-hidden="true" className={cn("size-2 flex-none rounded-bt-sm", project.tone === "accent" ? "bg-acc" : "bg-fg-3")} />
+            <ProjectDot tone={project.tone} />
             <span className="flex-1">{project.name}</span>
             <Count>{loaded ? (counts.byProject[project.id] ?? 0) : ""}</Count>
           </NavButton>
@@ -141,6 +145,11 @@ function Count({ danger = false, children }: { danger?: boolean; children: React
   return <span className={cn("font-mono text-[11px]", danger ? "text-danger" : "text-fg-3")}>{children}</span>;
 }
 
-function SectionLabel({ className, children }: { className: string; children: ReactNode }) {
-  return <div className={cn("px-[18px] pb-1.5 font-mono text-[10.5px] tracking-[.1em] text-fg-3 uppercase", className)}>{children}</div>;
+function SectionLabel({ className, action, children }: { className: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <div className={cn("flex items-center px-[18px] pb-1.5 font-mono text-[10.5px] tracking-[.1em] text-fg-3 uppercase", className)}>
+      <span className="flex-1">{children}</span>
+      {action}
+    </div>
+  );
 }

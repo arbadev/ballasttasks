@@ -4,6 +4,7 @@ import {
   TaskNotFoundError,
   type DirectoryService,
   type Generation,
+  type NewProject,
   type NewTask,
   type StepGenerationService,
   type TaskPatch,
@@ -84,6 +85,10 @@ export class FakeTaskService implements TaskService {
 }
 
 export class FakeDirectoryService implements DirectoryService {
+  readonly calls: unknown[][] = [];
+  private readonly created: Project[] = [];
+  private gate: Promise<void> | null = null;
+
   constructor(
     private readonly data: { people?: Person[]; projects?: Project[] } = {},
   ) {}
@@ -91,10 +96,30 @@ export class FakeDirectoryService implements DirectoryService {
     return this.data.people ?? [...SEED_PEOPLE];
   }
   async projects() {
-    return this.data.projects ?? [...SEED_PROJECTS];
+    return [...(this.data.projects ?? SEED_PROJECTS), ...this.created];
   }
   async currentUser() {
     return (this.data.people ?? SEED_PEOPLE)[0];
+  }
+  /** Makes the next `createProject` wait until the test releases or fails it. */
+  holdNextCreate() {
+    let release!: () => void;
+    let fail!: (error: Error) => void;
+    this.gate = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = reject;
+    });
+    return { release, fail };
+  }
+  /** Stores whatever it is given: the rules are the model's, tested there. */
+  async createProject(input: NewProject) {
+    this.calls.push(["createProject", input]);
+    const gate = this.gate;
+    this.gate = null;
+    if (gate) await gate;
+    const project: Project = { id: `p${this.created.length + 1}`, ...input };
+    this.created.push(project);
+    return project;
   }
 }
 

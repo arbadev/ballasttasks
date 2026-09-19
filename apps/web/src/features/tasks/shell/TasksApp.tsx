@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
 import { BoardView } from "../board/BoardView";
 import { TaskDetail } from "../detail/TaskDetail";
 import { ListView } from "../list/ListView";
@@ -25,6 +26,10 @@ function Shell() {
   const navigationId = useId();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  const emptyProject = useEmptyProject();
+  /** Set only when the empty-project state saved the first task: the list it becomes takes the focus. */
+  const [focusQuickAdd, setFocusQuickAdd] = useState(false);
+  const quickAddFocused = useCallback(() => setFocusQuickAdd(false), []);
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -45,9 +50,12 @@ function Shell() {
         <Header navigationId={navigationId} navigationOpen={navigationOpen} onOpenNavigation={() => setNavigationOpen(true)} />
         <FilterToolbar />
         <AttentionStrip />
-        {/* The list draws its own loading and error states; the board still uses the shell's. */}
-        {state.view === "list" ? (
-          <ListView />
+        {/* A project with no tasks invites the first one. Otherwise the list draws its own loading
+            and error states; the board still uses the shell's. */}
+        {emptyProject ? (
+          <EmptyProject project={emptyProject} onFirstTask={() => setFocusQuickAdd(state.view === "list")} />
+        ) : state.view === "list" ? (
+          <ListView focusQuickAdd={focusQuickAdd} onQuickAddFocused={quickAddFocused} />
         ) : (
           <>
             {state.load.status === "loading" && (

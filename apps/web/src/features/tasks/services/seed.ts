@@ -11,8 +11,8 @@ export const SEED_PEOPLE: readonly Person[] = [
 ];
 
 export const SEED_PROJECTS: readonly Project[] = [
-  { id: "ballast", name: "Ballast Tasks", tone: "accent" },
-  { id: "inbox", name: "Inbox", tone: "muted" },
+  { id: "ballast", name: "Ballast Tasks", key: "BT", tone: "accent" },
+  { id: "inbox", name: "Inbox", key: "IN", tone: "muted" },
 ];
 
 type SeedTask = Omit<Partial<Task>, "createdAt" | "updatedAt"> &

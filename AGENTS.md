@@ -39,13 +39,13 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
-| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
+| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks, project creation against committed baselines; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
 | `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
 
 ## Repo map
 
 - `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `api`, `bootstrap.py`, `main.py`).
-- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
+- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/features/projects/` project creation, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
 - `docs/`: `PRD.md`, `architecture.md`, `ai-usage.md`, `decisions/` (ADRs).
 - Root: `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, `.env.example`.
 
