@@ -7,9 +7,9 @@ the unit and API tests runs the same suite, so tests built on it stay truthful.
 from collections.abc import Callable
 
 import pytest
-from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
 
 from app.application.ports.password_hasher import PasswordHasher
+from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
 from tests.auth_fakes import FakePasswordHasher
 
 AdapterFactory = Callable[[], PasswordHasher]

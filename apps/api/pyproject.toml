@@ -5,10 +5,12 @@ description = "Task management REST API (Clean Architecture, FastAPI)"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.20.0",
+    "argon2-cffi>=25.1.0",
     "celery[redis]>=5.6.3",
     "fastapi>=0.141.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
+    "pyjwt>=2.14.0",
     "redis>=6.4.0",
     "sqlalchemy[asyncio]>=2.0.54",
     "uvicorn>=0.53.0",
@@ -80,6 +82,7 @@ source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
+    "jwt", "argon2",
 ]
 
 [[tool.importlinter.contracts]]
@@ -89,6 +92,7 @@ source_modules = ["app.application"]
 forbidden_modules = [
     "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
+    "jwt", "argon2",
 ]
 
 [[tool.importlinter.contracts]]
@@ -97,7 +101,7 @@ type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
     "app.infrastructure", "app.bootstrap", "app.main",
-    "pydantic_settings", "sqlalchemy", "celery", "redis",
+    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2",
 ]
 
 [[tool.importlinter.contracts]]

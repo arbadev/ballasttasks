@@ -9,14 +9,15 @@ from typing import Protocol
 
 import jwt
 import pytest
-from app.infrastructure.security.jwt_token_service import JwtTokenService
 
 from app.application.errors import InvalidTokenError
 from app.application.ports.token_service import TokenService
+from app.infrastructure.security.jwt_token_service import JwtTokenService
 from tests.auth_fakes import FakeTokenService
 
-SECRET = "contract-suite-secret-of-at-least-32-bytes"
-OTHER_SECRET = "a-different-secret-of-at-least-32-bytes!!"
+# 64 bytes: long enough for every HMAC algorithm the suite signs with (RFC 7518 3.2).
+SECRET = "contract-suite-secret-" + "s" * 43
+OTHER_SECRET = "a-different-secret---" + "o" * 43
 HALF_HOUR = timedelta(minutes=30)
 
 
