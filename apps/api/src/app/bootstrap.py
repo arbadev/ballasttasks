@@ -171,7 +171,7 @@ def build_container(settings: Settings) -> Container:
         health_checks=(
             PostgresHealthCheck(engine),
             RedisHealthCheck(redis),
-            LanguageModelHealthCheck(language_model),
+            LanguageModelHealthCheck(language_model, cache_seconds=settings.ai.check_cache_seconds),
         ),
         language_model=language_model,
         job_queue=CeleryJobQueue(celery_app),

@@ -12,6 +12,9 @@ from app.application.ports.language_model import LanguageModelInvalidResponseErr
 from app.infrastructure.ai.http import CHECK_TIMEOUT_SECONDS, error_for_status, json_object, send
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+# ``error.metadata`` of a moderation flag (``reasons``, ``flagged_input``) or a guardrail
+# block (``patterns``): https://openrouter.ai/docs/api_reference/errors-and-debugging
+_BLOCKED_PROMPT_METADATA = frozenset({"reasons", "flagged_input", "patterns"})
 
 
 class OpenRouterLanguageModel:
@@ -71,6 +74,8 @@ class OpenRouterLanguageModel:
             json=json,
             timeout_seconds=timeout_seconds,
         )
+        if _blocks_the_prompt(response):
+            raise self._invalid("HTTP 403 (prompt blocked)")
         body = json_object(self.provider, response)
         if "error" in body:
             # Documented: a failure can arrive with HTTP 200, the status in ``error.code``.
@@ -85,3 +90,18 @@ class OpenRouterLanguageModel:
 
     def _invalid(self, reason: str) -> LanguageModelInvalidResponseError:
         return LanguageModelInvalidResponseError(self.provider, reason)
+
+
+def _blocks_the_prompt(response: httpx.Response) -> bool:
+    """OpenRouter's 403 is a refused key or a refused prompt; only ``metadata`` tells them apart."""
+    try:
+        error = response.json()["error"]
+        status = error["code"] if response.is_success else response.status_code
+        metadata = error["metadata"]
+    except ValueError, KeyError, TypeError:
+        return False
+    return (
+        status == 403
+        and isinstance(metadata, dict)
+        and not _BLOCKED_PROMPT_METADATA.isdisjoint(metadata)
+    )

@@ -19,7 +19,9 @@ from app.application.ports.language_model import (
 from app.infrastructure.ai.openrouter import OpenRouterLanguageModel
 from tests.ai_stubs import (
     OPENROUTER_COMPLETION,
+    OPENROUTER_GUARDRAIL_METADATA,
     OPENROUTER_MODEL,
+    OPENROUTER_MODERATION_METADATA,
     TEST_API_KEY,
     Handler,
     answering,
@@ -27,6 +29,7 @@ from tests.ai_stubs import (
     openrouter_happy_path,
     openrouter_over,
     raising,
+    trickling,
 )
 
 
@@ -95,7 +98,30 @@ EXCHANGE_FAILURES = [
         LanguageModelAuthenticationError,
         id="401",
     ),
-    pytest.param(answering(403, openrouter_error(403)), LanguageModelAuthenticationError, id="403"),
+    # A bare 403 is about the key; with moderation or guardrail metadata it is about the prompt.
+    pytest.param(
+        answering(403, openrouter_error(403)), LanguageModelAuthenticationError, id="403-bare"
+    ),
+    pytest.param(
+        answering(403, openrouter_error(403, metadata={"provider_name": "OpenAI"})),
+        LanguageModelAuthenticationError,
+        id="403-with-unrelated-metadata",
+    ),
+    pytest.param(
+        answering(403, openrouter_error(403, metadata=OPENROUTER_MODERATION_METADATA)),
+        LanguageModelInvalidResponseError,
+        id="403-moderation-flag",
+    ),
+    pytest.param(
+        answering(403, openrouter_error(403, metadata=OPENROUTER_GUARDRAIL_METADATA)),
+        LanguageModelInvalidResponseError,
+        id="403-guardrail-block",
+    ),
+    pytest.param(
+        answering(401, openrouter_error(401, metadata=OPENROUTER_MODERATION_METADATA)),
+        LanguageModelAuthenticationError,
+        id="401-is-never-a-blocked-prompt",
+    ),
     pytest.param(answering(429, openrouter_error(429)), LanguageModelRateLimitedError, id="429"),
     pytest.param(answering(408, openrouter_error(408)), LanguageModelTimeoutError, id="408"),
     pytest.param(
@@ -124,6 +150,21 @@ EXCHANGE_FAILURES = [
         answering(200, openrouter_error(429, "Rate limit exceeded")),
         LanguageModelRateLimitedError,
         id="200-with-error-429",
+    ),
+    pytest.param(
+        answering(200, openrouter_error(403)),
+        LanguageModelAuthenticationError,
+        id="200-with-error-403-bare",
+    ),
+    pytest.param(
+        answering(200, openrouter_error(403, metadata=OPENROUTER_MODERATION_METADATA)),
+        LanguageModelInvalidResponseError,
+        id="200-with-error-403-moderation-flag",
+    ),
+    pytest.param(
+        answering(200, openrouter_error(403, metadata=OPENROUTER_GUARDRAIL_METADATA)),
+        LanguageModelInvalidResponseError,
+        id="200-with-error-403-guardrail-block",
     ),
     pytest.param(
         answering(200, {"error": {"message": "no code"}}),
@@ -230,6 +271,29 @@ async def test_a_request_that_may_have_reached_the_provider_is_not_retried() -> 
         await openrouter_over(handler).generate("hi")
 
     assert len(attempts) == 1
+
+
+async def test_the_timeout_is_a_total_deadline_not_a_per_read_one() -> None:
+    """Each chunk arrives well inside the timeout; the whole answer takes four times as long."""
+    handler = trickling(OPENROUTER_COMPLETION, chunks=20, seconds_between_chunks=0.02)
+
+    with pytest.raises(LanguageModelTimeoutError):
+        await openrouter_over(handler, timeout_seconds=0.1).generate("hi")
+
+
+async def test_a_slow_answer_inside_the_deadline_is_still_returned() -> None:
+    handler = trickling(OPENROUTER_COMPLETION, chunks=3, seconds_between_chunks=0.01)
+
+    assert await openrouter_over(handler, timeout_seconds=5.0).generate("hi") == "Hello there!"
+
+
+async def test_a_blocked_prompt_never_shows_the_flagged_input() -> None:
+    body = openrouter_error(403, metadata=OPENROUTER_MODERATION_METADATA)
+
+    with pytest.raises(LanguageModelInvalidResponseError) as error:
+        await openrouter_over(answering(403, body)).generate("hi")
+
+    assert OPENROUTER_MODERATION_METADATA["flagged_input"] not in str(error.value)
 
 
 def _echoing_the_key(request: httpx.Request) -> httpx.Response:

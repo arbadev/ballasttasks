@@ -66,7 +66,6 @@ async def test_a_new_provider_needs_only_a_registry_entry(
 
     minimal_env.setitem(AI_PROVIDERS, "other", lambda ai, _client: OtherModel(model=ai.model))
     minimal_env.setenv("AI__PROVIDER", "other")
-    minimal_env.setenv("AI__API_KEY", TEST_API_KEY)
 
     container = build_container(load_settings())
 
@@ -98,18 +97,23 @@ async def test_a_real_provider_is_selected_by_configuration_alone(
         await container.aclose()
 
 
+@pytest.mark.parametrize("key", [None, "", "   "])
 @pytest.mark.parametrize("provider", ["openrouter", "gemini"])
 def test_a_real_provider_without_a_key_is_rejected_at_startup(
-    minimal_env: pytest.MonkeyPatch, provider: str
+    minimal_env: pytest.MonkeyPatch, provider: str, key: str | None
 ) -> None:
     minimal_env.setenv("AI__PROVIDER", provider)
+    if key is not None:
+        minimal_env.setenv("AI__API_KEY", key)
 
-    with pytest.raises(ConfigurationError, match="AI__API_KEY"):
-        load_settings()
+    with pytest.raises(ConfigurationError, match="AI__API_KEY") as error:
+        build_container(load_settings())
+
+    assert provider in str(error.value)
 
 
 def test_the_registry_refuses_to_build_a_real_provider_without_a_key() -> None:
-    """Settings built by hand skip ``load_settings``; the registry still fails clearly."""
+    """Needing a key is the HTTP factory's rule, so it holds for settings built by hand too."""
     with pytest.raises(ConfigurationError, match="AI__API_KEY"):
         build_language_model(AiSettings(provider="openrouter"), httpx.AsyncClient())
 
@@ -127,3 +131,29 @@ async def test_the_container_owns_one_ai_http_client_and_closes_it(
     await container.aclose()
 
     assert container.ai_http_client.is_closed is True
+
+
+async def test_the_readiness_check_reuses_the_provider_answer_for_the_configured_time(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    asked: list[str] = []
+
+    class CountingModel(FakeLanguageModel):
+        provider = "counting"
+
+        async def check(self) -> bool:
+            asked.append("check")
+            return True
+
+    minimal_env.setitem(AI_PROVIDERS, "counting", lambda ai, _client: CountingModel(model=ai.model))
+    minimal_env.setenv("AI__PROVIDER", "counting")
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "60")
+
+    container = build_container(load_settings())
+
+    try:
+        ai_check = container.health_checks[-1]
+        assert [await ai_check.check() for _ in range(3)] == [True, True, True]
+        assert asked == ["check"]
+    finally:
+        await container.aclose()

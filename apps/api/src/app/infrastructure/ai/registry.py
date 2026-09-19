@@ -27,7 +27,12 @@ class _HttpAdapter(Protocol):
 
 
 def _over_http(adapter: _HttpAdapter) -> LanguageModelFactory:
-    """Factory for an adapter that talks HTTP with an API key."""
+    """Factory for an adapter that talks HTTP with an API key.
+
+    Needing ``AI__API_KEY`` is this factory's rule, not the settings': ``build_container``
+    runs it at startup, so a missing key still stops the process before the first request,
+    and a provider that needs no key registers a plain factory instead.
+    """
 
     def factory(ai: AiSettings, client: httpx.AsyncClient) -> LanguageModel:
         if ai.api_key is None:

@@ -53,7 +53,6 @@ class LanguageModel(Protocol):
     async def check(self) -> bool:
         """Return True when the provider is reachable and accepts the credentials.
 
-        Never raises and never generates: readiness calls it on every request, so it
-        must cost nothing.
+        Never raises and never generates: readiness is polled, so it must cost nothing.
         """
         ...

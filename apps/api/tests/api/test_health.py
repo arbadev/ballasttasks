@@ -8,6 +8,7 @@ from app.bootstrap import build_container, load_settings
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from app.main import create_app
 from tests.ai_stubs import (
+    OPENROUTER_KEY_INFO,
     OPENROUTER_MODEL,
     TEST_API_KEY,
     answering,
@@ -89,7 +90,7 @@ async def test_ready_reports_a_rejected_ai_key_as_failed_and_still_describes_the
         health_checks=(
             StubHealthCheck("database"),
             StubHealthCheck("redis"),
-            LanguageModelHealthCheck(model),
+            LanguageModelHealthCheck(model, cache_seconds=30),
         ),
     )
     app = create_app(container=container)
@@ -111,3 +112,30 @@ async def test_ready_reports_a_rejected_ai_key_as_failed_and_still_describes_the
         "ai": {"provider": "openrouter", "model": OPENROUTER_MODEL},
     }
     assert TEST_API_KEY not in response.text
+
+
+async def test_hammering_the_public_ready_endpoint_reaches_the_ai_provider_once(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    upstream_calls: list[httpx.Request] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        upstream_calls.append(request)
+        return httpx.Response(200, json=OPENROUTER_KEY_INFO)
+
+    model = openrouter_over(upstream)
+    container = replace(
+        build_container(load_settings()),
+        language_model=model,
+        health_checks=(LanguageModelHealthCheck(model, cache_seconds=30),),
+    )
+    app = create_app(container=container)
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client,
+    ):
+        statuses = [(await client.get("/health/ready")).status_code for _ in range(5)]
+
+    assert statuses == [200] * 5
+    assert len(upstream_calls) == 1

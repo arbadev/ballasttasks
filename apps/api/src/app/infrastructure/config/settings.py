@@ -20,8 +20,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DATABASE_SCHEME = "postgresql+psycopg://"
 REDIS_SCHEMES = ("redis://", "rediss://")
 HTTP_SCHEMES = ("https://", "http://")
-# The offline provider: the only one that works without AI__API_KEY.
-KEYLESS_AI_PROVIDER = "fake"
 # RFC 7518 section 3.2: an HMAC key must be at least as long as the hash output.
 JWT_MIN_SECRET_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 
@@ -66,11 +64,15 @@ class RedisSettings(_Group):
 class AiSettings(_Group):
     provider: str = "fake"
     model: str = "fake-1"
-    # Needed by every provider except the offline ``fake`` (checked in ``load_settings``).
+    # Whether a provider needs it is that provider's rule: its registry factory enforces it.
     api_key: SecretStr | None = None
     # None means the adapter's own default; set it to go through a proxy or a gateway.
     base_url: str | None = None
+    # Total time one generation may take, connection retry and response body included.
     timeout_seconds: float = Field(default=30.0, gt=0)
+    # How long a ``check()`` result is reused: the public readiness endpoint must not turn
+    # every hit into a keyed provider call. 0 turns the cache off.
+    check_cache_seconds: float = Field(default=30.0, ge=0)
 
     @field_validator("api_key", "base_url", mode="before")
     @classmethod
@@ -126,9 +128,5 @@ def load_settings(*, valid_ai_providers: Collection[str]) -> Settings:
         raise ConfigurationError(
             f"AI__PROVIDER={settings.ai.provider!r} is not a registered provider. "
             f"Valid options: {options}"
-        )
-    if settings.ai.provider != KEYLESS_AI_PROVIDER and settings.ai.api_key is None:
-        raise ConfigurationError(
-            f"AI__API_KEY is required when AI__PROVIDER={settings.ai.provider!r}"
         )
     return settings

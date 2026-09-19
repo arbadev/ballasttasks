@@ -18,6 +18,7 @@ from app.application.ports.language_model import (
 )
 from app.infrastructure.ai.gemini import GeminiLanguageModel
 from tests.ai_stubs import (
+    GEMINI_BLOCKED_PROMPT,
     GEMINI_COMPLETION,
     GEMINI_INVALID_KEY,
     GEMINI_MODEL,
@@ -28,6 +29,7 @@ from tests.ai_stubs import (
     gemini_happy_path,
     gemini_over,
     raising,
+    trickling,
 )
 
 GENERATE_URL = (
@@ -192,7 +194,7 @@ UNUSABLE_COMPLETIONS = [
     pytest.param(answering(200, {}), LanguageModelInvalidResponseError, id="missing-candidates"),
     # Documented: a blocked prompt returns no candidates, only ``promptFeedback``.
     pytest.param(
-        answering(200, {"promptFeedback": {"blockReason": "SAFETY"}}),
+        answering(200, GEMINI_BLOCKED_PROMPT),
         LanguageModelInvalidResponseError,
         id="prompt-blocked",
     ),
@@ -264,6 +266,14 @@ async def test_one_connection_error_is_retried_once() -> None:
 
     assert await gemini_over(handler).generate("hi") == "Hello there!"
     assert len(attempts) == 2
+
+
+async def test_the_timeout_is_a_total_deadline_not_a_per_read_one() -> None:
+    """Each chunk arrives well inside the timeout; the whole answer takes four times as long."""
+    handler = trickling(GEMINI_COMPLETION, chunks=20, seconds_between_chunks=0.02)
+
+    with pytest.raises(LanguageModelTimeoutError):
+        await gemini_over(handler, timeout_seconds=0.1).generate("hi")
 
 
 def _echoing_the_key(request: httpx.Request) -> httpx.Response:

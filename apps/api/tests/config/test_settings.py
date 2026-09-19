@@ -252,6 +252,7 @@ def test_ai_defaults_need_no_key(minimal_env: pytest.MonkeyPatch) -> None:
     assert ai.api_key is None
     assert ai.base_url is None
     assert ai.timeout_seconds == 30.0
+    assert ai.check_cache_seconds == 30.0
 
 
 def test_ai_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None:
@@ -259,6 +260,7 @@ def test_ai_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None
     minimal_env.setenv("AI__API_KEY", TEST_AI_KEY)
     minimal_env.setenv("AI__BASE_URL", "https://proxy.example/v1")
     minimal_env.setenv("AI__TIMEOUT_SECONDS", "12.5")
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "5")
 
     ai = load_settings(valid_ai_providers=("fake", "other")).ai
 
@@ -266,18 +268,23 @@ def test_ai_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None
     assert ai.api_key.get_secret_value() == TEST_AI_KEY
     assert ai.base_url == "https://proxy.example/v1"
     assert ai.timeout_seconds == 12.5
+    assert ai.check_cache_seconds == 5.0
 
 
 @pytest.mark.parametrize("key", [None, "", "   "])
-def test_a_real_provider_without_an_api_key_fails_fast_and_names_the_variable(
+def test_settings_demand_no_api_key_of_any_provider(
     minimal_env: pytest.MonkeyPatch, key: str | None
 ) -> None:
+    """Whether a provider needs a key is its registry factory's rule (``test_bootstrap``):
+    a keyless provider must be addable with no edit to the settings module."""
     minimal_env.setenv("AI__PROVIDER", "other")
     if key is not None:
         minimal_env.setenv("AI__API_KEY", key)
 
-    with pytest.raises(ConfigurationError, match="AI__API_KEY"):
-        load_settings(valid_ai_providers=("fake", "other"))
+    ai = load_settings(valid_ai_providers=("fake", "other")).ai
+
+    assert ai.provider == "other"
+    assert ai.api_key is None
 
 
 def test_an_unknown_provider_is_reported_before_its_missing_key(
@@ -306,6 +313,17 @@ def test_the_ai_timeout_must_be_positive(minimal_env: pytest.MonkeyPatch, timeou
     minimal_env.setenv("AI__TIMEOUT_SECONDS", timeout)
 
     with pytest.raises(ValidationError, match="timeout_seconds"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_the_ai_check_cache_may_be_turned_off_but_not_negative(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "0")
+    assert load_settings(valid_ai_providers=PROVIDERS).ai.check_cache_seconds == 0
+
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "-1")
+    with pytest.raises(ValidationError, match="check_cache_seconds"):
         load_settings(valid_ai_providers=PROVIDERS)
 
 

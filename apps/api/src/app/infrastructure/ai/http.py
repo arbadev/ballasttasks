@@ -5,6 +5,7 @@ Secrets: an error built here carries a status code or a fixed phrase, never a he
 URL query or a response body, so a provider that echoes the key back cannot leak it.
 """
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -31,8 +32,17 @@ _UNAVAILABLE = frozenset({402})
 
 
 def create_http_client(*, timeout_seconds: float) -> httpx.AsyncClient:
-    """The one client an adapter shares across calls; whoever creates it closes it."""
+    """The one client an adapter shares across calls; whoever creates it closes it.
+
+    ``timeout_seconds`` bounds each phase of a request here and, in ``send``, the whole of it.
+    """
     return httpx.AsyncClient(timeout=timeout_seconds)
+
+
+def _deadline_seconds(timeout: httpx.Timeout) -> float | None:
+    """The longest phase the client allows is also all the time one exchange may take."""
+    phases = [timeout.connect, timeout.read, timeout.write, timeout.pool]
+    return max((phase for phase in phases if phase is not None), default=None)
 
 
 def error_for_status(provider: str, status: int) -> LanguageModelError:
@@ -62,18 +72,23 @@ async def send(
 
     One bounded retry, and only when the connection was never made: the request cannot
     have reached the provider, so it cannot be billed twice. Anything later is not retried.
+
+    The timeout is a total deadline, retry and body included: httpx alone bounds each phase,
+    so a response that trickles in would otherwise outlive it.
     """
     timeout = httpx.USE_CLIENT_DEFAULT if timeout_seconds is None else timeout_seconds
+    deadline = _deadline_seconds(client.timeout) if timeout_seconds is None else timeout_seconds
 
     async def attempt() -> httpx.Response:
         return await client.request(method, url, headers=headers, json=json, timeout=timeout)
 
     try:
-        try:
-            return await attempt()
-        except httpx.ConnectError:
-            return await attempt()
-    except httpx.TimeoutException as error:
+        async with asyncio.timeout(deadline):
+            try:
+                return await attempt()
+            except httpx.ConnectError:
+                return await attempt()
+    except (TimeoutError, httpx.TimeoutException) as error:
         raise LanguageModelTimeoutError(provider, "request timed out") from error
     except httpx.ConnectError as error:
         raise LanguageModelUnavailableError(provider, "connection failed") from error

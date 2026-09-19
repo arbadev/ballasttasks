@@ -18,6 +18,7 @@ Each adapter is one module under `infrastructure/ai/` that calls the provider's 
 - The port needs one request per method. An SDK would bring its own client, retry policy, exception tree and transitive dependencies for that.
 - With the transport in our hands, the contract suite and every failure case run against `httpx.MockTransport` with bodies copied from the official references: offline, deterministic, no key.
 - The client's lifetime is explicit: `build_container` creates it with `AI__TIMEOUT_SECONDS`, the adapter borrows it, `Container.aclose` closes it.
+- `AI__TIMEOUT_SECONDS` is a total deadline for one generation. `httpx` bounds each phase (connect, write, every read) separately, so a response that trickles in could outlive it; `send` therefore wraps the whole exchange, the connection retry and the body included, in `asyncio.timeout` and reports its expiry as `LanguageModelTimeoutError`. The per-phase timeouts are the same value, so none is larger than the total.
 - `httpx` moved from the dev group to the runtime dependencies (it was already locked; the production image installs without dev packages). No package was added.
 
 The APIs were read at implementation time, not recalled, and two findings changed the code:
@@ -32,7 +33,9 @@ The APIs were read at implementation time, not recalled, and two findings change
 - OpenRouter: `GET /key`. The models listing is public and answers `200` to any key, so it would report a broken configuration as healthy. The reference does not state a price for `/key`; it returns key metadata and generates nothing.
 - Gemini: `GET /models/{id}`, which proves the key and the model id in one call.
 
-`check()` uses a 2 second timeout and returns `False` on any failure; it never raises.
+`check()` has 2 seconds in total and returns `False` on any failure; it never raises.
+
+Free is not enough: `GET /health/ready` is public and unauthenticated, and each `check()` is an outbound call carrying the API key, so anyone could drive rate-limit pressure on the key. `LanguageModelHealthCheck` therefore keeps the last result in memory for `AI__CHECK_CACHE_SECONDS` (default 30, `0` turns it off) and serialises concurrent checks, so the provider is asked at most once per window however often readiness is hit. A failure is cached for the same window: a recovered provider shows as `failed` for up to 30 seconds, which is the price of not letting a failing provider be hammered. The clock is injected, so the tests do not sleep.
 
 ### Failures are typed at the port
 
@@ -40,13 +43,17 @@ The APIs were read at implementation time, not recalled, and two findings change
 
 | Provider signal | Error |
 | --- | --- |
-| `401`, `403`; Gemini `400` with `API_KEY_INVALID` | `LanguageModelAuthenticationError` |
+| `401`; `403` (for OpenRouter only without moderation or guardrail metadata); Gemini `400` with `API_KEY_INVALID` | `LanguageModelAuthenticationError` |
 | `429` | `LanguageModelRateLimitedError` |
 | `408`, `504`, `524`; any `httpx` timeout | `LanguageModelTimeoutError` |
 | `402` (OpenRouter: out of credits), `5xx`; connection and other transport errors | `LanguageModelUnavailableError` |
-| Any other status; a body that is not a JSON object; no, empty or blank completion; a blocked prompt | `LanguageModelInvalidResponseError` |
+| Any other status; a body that is not a JSON object; no, empty or blank completion; a blocked prompt (Gemini: `200` with no candidates, only `promptFeedback`; OpenRouter: `403` whose `error.metadata` carries `reasons`, `flagged_input` or `patterns`) | `LanguageModelInvalidResponseError` |
 
 OpenRouter documents that an error can arrive with HTTP `200` and the status in `error.code`; the adapter maps that code through the same table.
+
+The same event gets the same category on every provider. OpenRouter documents `403` on inference as insufficient permissions, a guardrail block or a moderation flag, so the status alone would label a refused prompt as a refused key. The adapter reads `error.metadata` (in a `403` body or in a `200` body with `error.code: 403`): moderation fields (`reasons`, `flagged_input`) or guardrail fields (`patterns`) make it `LanguageModelInvalidResponseError`, as Gemini's blocked prompt already was; a bare `403` stays an authentication failure. The contract suite holds one blocked-prompt case per provider and asserts the same error type from all of them.
+
+Which providers need `AI__API_KEY` is not a settings rule. The `_over_http` factory in the registry raises a `ConfigurationError` naming the variable, and `build_container` runs it at startup, so a missing key still stops the process before the first request while a keyless provider stays one registry line with no edit to `settings.py`.
 
 One retry, and only after `httpx.ConnectError`: the request never reached the provider, so it cannot be billed twice. A read timeout is not retried, because the generation may have completed.
 
@@ -63,6 +70,6 @@ Positive:
 Negative, accepted:
 
 - We own the request and response shapes. When a provider changes its API, the stubbed tests keep passing; only the opt-in live tests (`uv run pytest -m live`) notice. They need a real key and have not been run in this change.
-- Readiness makes one outbound call per request when a real provider is configured. It is bounded by the 2 second timeout; caching the result is left for when it is needed.
+- Readiness reports the AI provider's state as of up to `AI__CHECK_CACHE_SECONDS` ago, not as of now. The cache is per process: each API worker asks once per window.
 - The five categories are coarse: an unknown model id and a malformed body are both `LanguageModelInvalidResponseError`. The `reason` text distinguishes them for a log reader; a new category is added when a use case needs to branch on it.
 - The OpenRouter `401` test fixture is the documented example body. With a key-shaped dummy, `401` was observed on both `GET /key` and `POST /chat/completions`, but the body was not inspected and no real or revoked key was available; the mapping depends only on the status.
