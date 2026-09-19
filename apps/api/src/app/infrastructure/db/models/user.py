@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.user import MAX_EMAIL_LENGTH
+from app.domain.user import FULL_NAME_MAX_LENGTH, MAX_EMAIL_LENGTH, ROLE_LABEL_MAX_LENGTH
 from app.infrastructure.db.base import Base
 
 EMAIL_UNIQUE_CONSTRAINT = "uq_users_email"
@@ -18,7 +18,8 @@ class UserModel(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(MAX_EMAIL_LENGTH))
-    full_name: Mapped[str] = mapped_column(String(200))
+    full_name: Mapped[str] = mapped_column(String(FULL_NAME_MAX_LENGTH))
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    role_label: Mapped[str | None] = mapped_column(String(ROLE_LABEL_MAX_LENGTH))

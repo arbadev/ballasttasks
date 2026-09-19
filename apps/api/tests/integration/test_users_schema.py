@@ -43,6 +43,7 @@ def test_upgrade_head_from_an_empty_database_creates_users(migrated_database_url
                 "hashed_password",
                 "is_active",
                 "created_at",
+                "role_label",
             }
     finally:
         engine.dispose()
@@ -70,4 +71,5 @@ def test_there_is_one_head_and_users_follow_tasks() -> None:
         "create tasks",
         "create users",
         "wire tasks to users",
+        "design task model",
     ]

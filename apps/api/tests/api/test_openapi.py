@@ -65,8 +65,8 @@ async def test_openapi_documents_the_task_components(client: httpx.AsyncClient) 
         "TaskStatus",
         "ErrorResponse",
     } <= set(schemas)
-    assert schemas["TaskStatus"]["enum"] == ["todo", "in_progress", "done"]
-    assert schemas["TaskListResponse"]["required"] == ["items"]
+    assert schemas["TaskStatus"]["enum"] == ["todo", "in_progress", "testing", "done"]
+    assert schemas["TaskListResponse"]["required"] == ["items", "total", "limit", "offset"]
     assert schemas["TaskCreate"]["required"] == ["title"]
     assert "created_by" not in schemas["TaskCreate"]["properties"]
     assert set(schemas["TaskResponse"]["required"]) == set(schemas["TaskResponse"]["properties"])
@@ -106,16 +106,21 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         "422": invalid,
         "429": error,
     }
-    assert documented("/tasks", "get") == {"200": "TaskListResponse", "401": error, "429": error}
+    assert documented("/tasks", "get") == {
+        "200": "TaskListResponse",
+        "401": error,
+        "422": invalid,
+        "429": error,
+    }
     for method in ("get", "patch"):
-        assert documented("/tasks/{task_id}", method) == {
+        assert documented("/tasks/{id_or_key}", method) == {
             "200": "TaskResponse",
             "401": error,
             "404": error,
             "422": invalid,
             "429": error,
         }
-    assert documented("/tasks/{task_id}", "delete") == {
+    assert documented("/tasks/{id_or_key}", "delete") == {
         "204": None,
         "401": error,
         "404": error,
@@ -135,6 +140,8 @@ async def test_openapi_documents_the_auth_contract(client: httpx.AsyncClient) ->
         "full_name",
         "is_active",
         "created_at",
+        "initials",
+        "role_label",
     }
     assert components["TokenResponse"]["properties"]["token_type"]["const"] == "bearer"
     assert components["RegisterRequest"]["properties"]["password"]["writeOnly"] is True
@@ -171,3 +178,112 @@ async def test_openapi_says_who_a_task_can_be_assigned_to(
     schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
 
     assert "active user" in schemas[model]["properties"]["assignee_id"]["description"]
+
+
+async def test_openapi_documents_the_design_model(client: httpx.AsyncClient) -> None:
+    document = (await client.get("/openapi.json")).json()
+    schemas, paths = document["components"]["schemas"], document["paths"]
+
+    assert {
+        "AttentionResponse",
+        "PeopleResponse",
+        "PersonResponse",
+        "ProfileUpdate",
+        "ProjectCreate",
+        "ProjectListResponse",
+        "ProjectResponse",
+        "ProjectUpdate",
+        "SignalCountsResponse",
+        "TaskCountsResponse",
+        "TaskPriority",
+        "TaskSummaryResponse",
+    } <= set(schemas)
+    assert schemas["TaskPriority"]["enum"] == ["P0", "P1", "P2", "P3"]
+    reasons = schemas["AttentionResponse"]["properties"]["reasons"]
+    assert reasons["items"] == {"$ref": "#/components/schemas/AttentionReason"}
+    assert schemas["AttentionReason"]["enum"] == [
+        "overdue",
+        "p0_at_risk",
+        "due_today",
+        "due_soon",
+        "needs_owner",
+    ]
+    assert {"attention", "key", "project_id", "priority", "importance"} <= set(
+        schemas["TaskResponse"]["required"]
+    )
+    importance = schemas["TaskCreate"]["properties"]["importance"]
+    assert (importance["minimum"], importance["maximum"], importance["default"]) == (0, 100, 50)
+    assert "email" not in schemas["PersonResponse"]["properties"]
+    assert "key" not in schemas["ProjectUpdate"]["properties"]
+    assert "key" not in schemas["TaskUpdate"]["properties"]
+    assert "/tasks/{task_id}" not in paths
+    assert set(paths["/projects"]) == {"get", "post"}
+    assert set(paths["/projects/{project_id}"]) == {"get", "patch"}
+    assert set(paths["/users"]) == {"get"}
+    assert set(paths["/auth/me"]) == {"get", "patch"}
+
+
+async def test_openapi_documents_every_new_response(client: httpx.AsyncClient) -> None:
+    paths = (await client.get("/openapi.json")).json()["paths"]
+
+    def documented(path: str, method: str) -> dict[str, str | None]:
+        return {
+            code: response.get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+            .get("$ref", "")
+            .rpartition("/")[2]
+            or None
+            for code, response in paths[path][method]["responses"].items()
+        }
+
+    error, invalid = "ErrorResponse", "HTTPValidationError"
+    assert documented("/tasks/summary", "get") == {
+        "200": "TaskSummaryResponse",
+        "401": error,
+        "422": invalid,
+        "429": error,
+    }
+    assert documented("/projects", "get") == {
+        "200": "ProjectListResponse",
+        "401": error,
+        "429": error,
+    }
+    assert documented("/projects", "post") == {
+        "201": "ProjectResponse",
+        "401": error,
+        "409": error,
+        "422": invalid,
+        "429": error,
+    }
+    for method in ("get", "patch"):
+        assert documented("/projects/{project_id}", method) == {
+            "200": "ProjectResponse",
+            "401": error,
+            "404": error,
+            "422": invalid,
+            "429": error,
+        }
+    assert documented("/users", "get") == {"200": "PeopleResponse", "401": error, "429": error}
+    assert documented("/auth/me", "patch") == {
+        "200": "UserResponse",
+        "401": error,
+        "422": invalid,
+        "429": error,
+    }
+
+
+async def test_openapi_documents_the_list_parameters(client: httpx.AsyncClient) -> None:
+    paths = (await client.get("/openapi.json")).json()["paths"]
+    parameters = {p["name"]: p for p in paths["/tasks"]["get"]["parameters"]}
+    summary = {p["name"] for p in paths["/tasks/summary"]["get"]["parameters"]}
+
+    assert set(parameters) == {
+        "scope", "project_id", "status", "due", "due_before", "due_after", "priority",
+        "assignee_id", "q", "signal", "sort", "limit", "offset",
+    }  # fmt: skip
+    assert summary == set(parameters) - {"sort", "limit", "offset"}
+    limit = parameters["limit"]["schema"]
+    assert (limit["default"], limit["minimum"], limit["maximum"]) == (50, 1, 200)
+    assert parameters["sort"]["schema"]["default"] == "urgency"
+    assert all(parameter["description"] for parameter in parameters.values())

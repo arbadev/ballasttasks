@@ -89,7 +89,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Change your own full name and role label */
+        patch: operations["update_me_auth_me_patch"];
         trace?: never;
     };
     "/tasks": {
@@ -99,10 +100,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List every task, newest first */
+        /**
+         * List tasks: filtered, sorted and paged by the database
+         * @description Defaults to the design's view: open tasks, most urgent first, 50 per page. Every filter narrows the result; `total` counts what matches, whatever the page. Dates are evaluated on the current UTC date.
+         */
         get: operations["list_tasks_tasks_get"];
         put?: never;
-        /** Create a task */
+        /**
+         * Create a task
+         * @description The task gets the next key of its project (`BT-01`, `BT-02`, ...). Without a `project_id` it lands in the Inbox.
+         */
         post: operations["create_task_tasks_post"];
         delete?: never;
         options?: never;
@@ -110,23 +117,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/tasks/{task_id}": {
+    "/tasks/summary": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get one task */
-        get: operations["get_task_tasks__task_id__get"];
+        /**
+         * The numbers around the list: sidebar counts and Attention signals
+         * @description `counts` and `projects` describe the open tasks of the whole workspace, whatever is filtered. `signals` describes the open tasks the filters select; `status` and `signal` are accepted and ignored there, so the same query string as the list can be sent, and choosing one chip never blanks the others.
+         */
+        get: operations["summarise_tasks_tasks_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one task by its id or its key */
+        get: operations["get_task_tasks__id_or_key__get"];
         put?: never;
         post?: never;
         /** Delete a task */
-        delete: operations["delete_task_tasks__task_id__delete"];
+        delete: operations["delete_task_tasks__id_or_key__delete"];
         options?: never;
         head?: never;
-        /** Change a task: edit it, assign it, or complete it with status=done */
-        patch: operations["update_task_tasks__task_id__patch"];
+        /** Change a task: edit it, assign it, move it, or complete it with status=done */
+        patch: operations["update_task_tasks__id_or_key__patch"];
+        trace?: never;
+    };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every project, by name, with its open-task count */
+        get: operations["list_projects_projects_get"];
+        put?: never;
+        /** Create a project */
+        post: operations["create_project_projects_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one project */
+        get: operations["get_project_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename or recolour a project; its key is fixed */
+        patch: operations["update_project_projects__project_id__patch"];
+        trace?: never;
+    };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the active users, by name, for the assignee picker
+         * @description Id, full name, initials and role label only. No email address of another user is ever exposed; a user reads their own through `GET /auth/me`.
+         */
+        get: operations["list_people_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
 }
@@ -139,6 +222,54 @@ export interface components {
             provider: string;
             /** Model */
             model: string;
+        };
+        /**
+         * AttentionReason
+         * @description Machine-readable, most severe first. ``due_today`` and ``due_soon`` exclude each other.
+         * @enum {string}
+         */
+        AttentionReason: "overdue" | "p0_at_risk" | "due_today" | "due_soon" | "needs_owner";
+        /**
+         * AttentionResponse
+         * @description What about the task asks for attention today, computed by the API so a client does not
+         *     re-implement the rules. "Today" is the current UTC date.
+         */
+        AttentionResponse: {
+            /**
+             * Is Overdue
+             * @description Open, and its due date has passed.
+             */
+            is_overdue: boolean;
+            /**
+             * Is Due Soon
+             * @description Open, not overdue, and due today or within the window: 2 days, 3 for `P1`, 4 for `P0`.
+             */
+            is_due_soon: boolean;
+            /**
+             * Is P0 At Risk
+             * @description Open, `P0`, and due today or within its window.
+             */
+            is_p0_at_risk: boolean;
+            /**
+             * Needs Owner
+             * @description Open and assigned to nobody.
+             */
+            needs_owner: boolean;
+            /**
+             * Days Until Due
+             * @description Whole days until the due date, negative once it has passed; `null` undated.
+             */
+            days_until_due: number | null;
+            /**
+             * Urgency
+             * @description The score `sort=urgency` orders by, highest first.
+             */
+            urgency: number;
+            /**
+             * Reasons
+             * @description Why the task asks for attention, most severe first; empty when nothing does.
+             */
+            reasons: components["schemas"]["AttentionReason"][];
         };
         /** Body_login_auth_login_post */
         Body_login_auth_login_post: {
@@ -175,6 +306,11 @@ export interface components {
             status: "ok" | "failed";
         };
         /**
+         * DueFilter
+         * @enum {string}
+         */
+        DueFilter: "overdue" | "today" | "week" | "none";
+        /**
          * ErrorResponse
          * @description Body of every error except request validation (``422`` uses ``HTTPValidationError``).
          */
@@ -195,6 +331,115 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /** PeopleResponse */
+        PeopleResponse: {
+            /** Items */
+            items: components["schemas"]["PersonResponse"][];
+        };
+        /**
+         * PersonResponse
+         * @description Deliberately no email address: the people list is for picking an assignee.
+         */
+        PersonResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Full Name */
+            full_name: string;
+            /**
+             * Initials
+             * @description Derived from the full name, for the avatar.
+             */
+            initials: string;
+            /**
+             * Role Label
+             * @description Free text the person wrote about themselves; it grants nothing.
+             */
+            role_label: string | null;
+        };
+        /**
+         * ProfileUpdate
+         * @description What a user may change about themselves. Partial: an absent field is left alone.
+         *
+         *     Nothing else is accepted: not the email, not the password, not ``is_active``.
+         */
+        ProfileUpdate: {
+            /** Full Name */
+            full_name?: string;
+            /**
+             * Role Label
+             * @description Free text shown next to the name in the people list, such as `backend`. `null` or blank text clears it. It is a label: it grants and refuses nothing.
+             * @example backend
+             */
+            role_label?: string | null;
+        };
+        /** ProjectCreate */
+        ProjectCreate: {
+            /**
+             * Name
+             * @example Ballast Tasks
+             */
+            name: string;
+            /**
+             * Key
+             * @description The prefix of the project's task keys (`BT` gives `BT-01`, `BT-02`, ...): 2 to 5 upper-case letters, unique, and fixed once the project exists.
+             * @example BT
+             */
+            key: string;
+            /** Color */
+            color?: string | null;
+        };
+        /**
+         * ProjectListResponse
+         * @description An envelope, like the task list; projects are few, so there are no pages.
+         */
+        ProjectListResponse: {
+            /** Items */
+            items: components["schemas"]["ProjectResponse"][];
+        };
+        /** ProjectResponse */
+        ProjectResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Key */
+            key: string;
+            /** Color */
+            color: string | null;
+            /**
+             * Open Tasks
+             * @description How many of the project's tasks are not `done`.
+             */
+            open_tasks: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ProjectUpdate
+         * @description Partial update: an absent field is left alone, ``null`` clears the colour.
+         *
+         *     There is no ``key``: every task the project has created carries it.
+         */
+        ProjectUpdate: {
+            /** Name */
+            name?: string;
+            /** Color */
+            color?: string | null;
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -226,6 +471,32 @@ export interface components {
             password: string;
         };
         /**
+         * SignalCountsResponse
+         * @description The Attention strip: how many open tasks in view raise each signal.
+         */
+        SignalCountsResponse: {
+            /** Overdue */
+            overdue: number;
+            /** P0 At Risk */
+            p0_at_risk: number;
+            /** Due Soon */
+            due_soon: number;
+            /** Needs Owner */
+            needs_owner: number;
+        };
+        /**
+         * TaskCountsResponse
+         * @description The sidebar: open tasks in the whole workspace, whatever is filtered.
+         */
+        TaskCountsResponse: {
+            /** All */
+            all: number;
+            /** Mine */
+            mine: number;
+            /** Overdue */
+            overdue: number;
+        };
+        /**
          * TaskCreate
          * @description ``created_by`` is the authenticated user; it is never read from the body.
          */
@@ -241,15 +512,45 @@ export interface components {
              * @description Id of the active user the task is assigned to; `null` leaves it unassigned. An id that is not an active user is rejected with `422`.
              */
             assignee_id?: string | null;
+            /**
+             * Project Id
+             * @description Id of the project the task belongs to, which also gives the task its key. Absent or `null`: the Inbox. An unknown id is rejected with `422`.
+             */
+            project_id?: string | null;
+            /**
+             * @description The board column the task is added to. `done` completes it at once.
+             * @default todo
+             */
+            status: components["schemas"]["TaskStatus"];
+            /** @default P2 */
+            priority: components["schemas"]["TaskPriority"];
+            /**
+             * Importance
+             * @description How much the task matters, 0 to 100. It feeds the urgency order.
+             * @default 50
+             */
+            importance: number;
         };
         /**
          * TaskListResponse
-         * @description An envelope, so pagination can add fields without breaking clients.
+         * @description An envelope: ``total`` is how many tasks match the filters, whatever the page.
          */
         TaskListResponse: {
             /** Items */
             items: components["schemas"]["TaskResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
         };
+        /**
+         * TaskPriority
+         * @description ``P0`` is the most urgent. ``rank`` is the number the design computes with.
+         * @enum {string}
+         */
+        TaskPriority: "P0" | "P1" | "P2" | "P3";
         /** TaskResponse */
         TaskResponse: {
             /**
@@ -257,6 +558,17 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Key
+             * @description `<PROJECT KEY>-<NN>`, given at creation and never changed.
+             * @example BT-04
+             */
+            key: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
             /** Title */
             title: string;
             /** Description */
@@ -283,18 +595,49 @@ export interface components {
             updated_at: string;
             /** Completed At */
             completed_at: string | null;
+            priority: components["schemas"]["TaskPriority"];
+            /** Importance */
+            importance: number;
+            attention: components["schemas"]["AttentionResponse"];
         };
         /**
-         * TaskStatus
+         * TaskScope
+         * @description The sidebar's three views.
          * @enum {string}
          */
-        TaskStatus: "todo" | "in_progress" | "done";
+        TaskScope: "all" | "mine" | "overdue";
+        /**
+         * TaskSignal
+         * @description The four chips of the Attention strip (design lines 727 to 732).
+         * @enum {string}
+         */
+        TaskSignal: "overdue" | "p0_at_risk" | "due_soon" | "needs_owner";
+        /**
+         * TaskSort
+         * @description Every order ends newest first (``created_at``, then ``id``), so pages never overlap.
+         * @enum {string}
+         */
+        TaskSort: "urgency" | "importance" | "due_date" | "updated";
+        /**
+         * TaskStatus
+         * @description The design's four columns. Everything except ``done`` is open.
+         * @enum {string}
+         */
+        TaskStatus: "todo" | "in_progress" | "testing" | "done";
+        /** TaskSummaryResponse */
+        TaskSummaryResponse: {
+            counts: components["schemas"]["TaskCountsResponse"];
+            /** Projects */
+            projects: components["schemas"]["ProjectResponse"][];
+            signals: components["schemas"]["SignalCountsResponse"];
+        };
         /**
          * TaskUpdate
          * @description Partial update: a field that is absent is left alone, ``null`` clears it.
          *
-         *     ``title`` and ``status`` cannot be cleared, so ``null`` is rejected for them and
-         *     kept out of their JSON schema.
+         *     ``title``, ``status``, ``priority``, ``importance`` and ``project_id`` cannot be cleared,
+         *     so ``null`` is rejected for them and kept out of their JSON schema. There is no ``key``:
+         *     a task keeps the key it was created with, also when ``project_id`` moves it elsewhere.
          */
         TaskUpdate: {
             /** Title */
@@ -310,6 +653,19 @@ export interface components {
              * @description Id of the active user the task is assigned to; `null` unassigns it. Checked only when it changes the assignment: an id that is not an active user is rejected with `422`, but the id the task already has is accepted even if that user has since been deactivated.
              */
             assignee_id?: string | null;
+            /** Priority */
+            priority?: components["schemas"]["TaskPriority"];
+            /**
+             * Importance
+             * @description How much the task matters, 0 to 100. It feeds the urgency order.
+             */
+            importance?: number;
+            /**
+             * Project Id
+             * Format: uuid
+             * @description Id of an existing project. An unknown id is rejected with `422`.
+             */
+            project_id?: string;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -343,6 +699,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Initials */
+            initials: string;
+            /** Role Label */
+            role_label: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -581,9 +941,96 @@ export interface operations {
             };
         };
     };
-    list_tasks_tasks_get: {
+    update_me_auth_me_patch: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Missing, invalid or expired token, or the user is no longer active */
+            401: {
+                headers: {
+                    "WWW-Authenticate"?: "Bearer";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_tasks_tasks_get: {
+        parameters: {
+            query?: {
+                /** @description `mine`: assigned to the caller. `overdue`: open and past the due date. */
+                scope?: components["schemas"]["TaskScope"];
+                /** @description Only this project's tasks. */
+                project_id?: string | null;
+                /** @description `open` (the default): everything except `done`. `all`: every status. Or one or more statuses, by repeating the parameter. `open` and `all` stand alone. */
+                status?: ("open" | "all" | "todo" | "in_progress" | "testing" | "done")[];
+                /** @description `overdue`: open and past the due date. `today`. `week`: today and the six days after it. `none`: no due date. Evaluated on the current UTC date. */
+                due?: components["schemas"]["DueFilter"] | null;
+                /** @description Due on or before this date. */
+                due_before?: string | null;
+                /** @description Due on or after this date. */
+                due_after?: string | null;
+                /** @description One or more priorities, by repeating the parameter. */
+                priority?: components["schemas"]["TaskPriority"][] | null;
+                /** @description A user id, or `unassigned` for tasks nobody owns. */
+                assignee_id?: string | "unassigned" | null;
+                /** @description Case-insensitive text to find in the title or the description. */
+                q?: string | null;
+                /** @description Only the tasks behind one chip of the Attention strip. */
+                signal?: components["schemas"]["TaskSignal"] | null;
+                /** @description `urgency` (see `attention.urgency`), `importance`, `due_date` (earliest first, undated last) or `updated` (most recent first). Ties: the newer task first. */
+                sort?: components["schemas"]["TaskSort"];
+                /** @description Page size. */
+                limit?: number;
+                /** @description How many tasks to skip. */
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -606,6 +1053,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description Rate limit exceeded; retry after `Retry-After` seconds */
@@ -686,12 +1142,88 @@ export interface operations {
             };
         };
     };
-    get_task_tasks__task_id__get: {
+    summarise_tasks_tasks_summary_get: {
+        parameters: {
+            query?: {
+                /** @description `mine`: assigned to the caller. `overdue`: open and past the due date. */
+                scope?: components["schemas"]["TaskScope"];
+                /** @description Only this project's tasks. */
+                project_id?: string | null;
+                /** @description `open` (the default): everything except `done`. `all`: every status. Or one or more statuses, by repeating the parameter. `open` and `all` stand alone. */
+                status?: ("open" | "all" | "todo" | "in_progress" | "testing" | "done")[];
+                /** @description `overdue`: open and past the due date. `today`. `week`: today and the six days after it. `none`: no due date. Evaluated on the current UTC date. */
+                due?: components["schemas"]["DueFilter"] | null;
+                /** @description Due on or before this date. */
+                due_before?: string | null;
+                /** @description Due on or after this date. */
+                due_after?: string | null;
+                /** @description One or more priorities, by repeating the parameter. */
+                priority?: components["schemas"]["TaskPriority"][] | null;
+                /** @description A user id, or `unassigned` for tasks nobody owns. */
+                assignee_id?: string | "unassigned" | null;
+                /** @description Case-insensitive text to find in the title or the description. */
+                q?: string | null;
+                /** @description Only the tasks behind one chip of the Attention strip. */
+                signal?: components["schemas"]["TaskSignal"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSummaryResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_task_tasks__id_or_key__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                task_id: string;
+                id_or_key: string;
             };
             cookie?: never;
         };
@@ -715,7 +1247,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description No task has that id */
+            /** @description No task has that id or key */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -752,12 +1284,12 @@ export interface operations {
             };
         };
     };
-    delete_task_tasks__task_id__delete: {
+    delete_task_tasks__id_or_key__delete: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                task_id: string;
+                id_or_key: string;
             };
             cookie?: never;
         };
@@ -779,7 +1311,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description No task has that id */
+            /** @description No task has that id or key */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -816,12 +1348,12 @@ export interface operations {
             };
         };
     };
-    update_task_tasks__task_id__patch: {
+    update_task_tasks__id_or_key__patch: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                task_id: string;
+                id_or_key: string;
             };
             cookie?: never;
         };
@@ -849,7 +1381,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description No task has that id */
+            /** @description No task has that id or key */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -865,6 +1397,302 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_projects_projects_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_project_projects_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Another project already has that key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_project_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No project has that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_project_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No project has that id */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_people_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Rate limit exceeded; retry after `Retry-After` seconds */
