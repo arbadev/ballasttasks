@@ -44,10 +44,20 @@ describe("WorkspaceProvider", () => {
     await ready(result);
     act(() => result.current.workspace.actions.selectScope("mine"));
     act(() => result.current.workspace.actions.toggleSignal("unassigned"));
+    act(() => {
+      result.current.workspace.actions.setStatusFilter("done");
+      result.current.workspace.actions.setDueFilter("today");
+      result.current.workspace.actions.setPriorityFilter("0");
+      result.current.workspace.actions.setSearch("jwt");
+      result.current.workspace.actions.setSort("importance");
+      result.current.workspace.actions.setView("board");
+    });
 
     act(() => result.current.workspace.actions.addProject({ id: "p1", name: "Marketing", key: "MKT", tone: "info" }));
     expect(result.current.directory.projects.map((p) => p.id)).toEqual(["ballast", "inbox", "p1"]);
-    expect(result.current.workspace.state.query).toMatchObject({ project: "p1", scope: "all", signal: null });
+    expect(result.current.workspace.state.query).toEqual({ project: "p1", scope: "all", signal: null, status: "open", due: "any", priority: "any", search: "" });
+    expect(result.current.workspace.state.sort).toBe("importance");
+    expect(result.current.workspace.state.view).toBe("board");
     expect(result.current.visible).toEqual([]);
   });
 

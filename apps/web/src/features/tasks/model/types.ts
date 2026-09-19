@@ -46,7 +46,7 @@ export type ProjectTone = "accent" | "muted" | "info" | "ok" | "warn";
 export interface Project {
   id: string;
   name: string;
-  /** The prefix of the project's task ids, as in BT-04: 2 to 4 uppercase letters. */
+  /** A short code that identifies the project: 2 to 4 uppercase letters. */
   key?: string;
   tone: ProjectTone;
 }

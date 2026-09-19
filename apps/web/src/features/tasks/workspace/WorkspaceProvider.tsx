@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
-import { selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
+import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
 import type { NewTask, TaskPatch } from "../services/types";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
@@ -23,7 +23,7 @@ export interface WorkspaceActions {
   clearSelection(): void;
   /** Fetches the tasks again, after a load error. */
   reload(): void;
-  /** Puts a project the directory just created into the sidebar and shows it, over all tasks. */
+  /** Puts a project the directory just created into the sidebar and shows it with the filters and search reset; sort and view are kept. */
   addProject(project: Project): void;
 }
 
@@ -117,9 +117,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       },
       addProject: (project) => {
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
-        // A scope or signal left on would hide the project's first, unassigned tasks.
+        // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
         dispatch({ type: "scopeSelected", scope: "all" });
         dispatch({ type: "signalCleared" });
+        dispatch({ type: "statusFilterChanged", status: DEFAULT_QUERY.status });
+        dispatch({ type: "dueFilterChanged", due: DEFAULT_QUERY.due });
+        dispatch({ type: "priorityFilterChanged", priority: DEFAULT_QUERY.priority });
+        dispatch({ type: "searchChanged", search: DEFAULT_QUERY.search });
         dispatch({ type: "projectToggled", project: project.id });
       },
     }),

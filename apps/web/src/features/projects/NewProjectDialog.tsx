@@ -45,10 +45,14 @@ export function NewProjectDialog({ opener, onClose, onCreated }: NewProjectDialo
   // Each outcome leaves the keyboard where the next action is: the field to correct, or Retry.
   useEffect(() => {
     if (pending) return;
-    if (failed) document.getElementById(`${id}-retry`)?.focus();
-    else if (focusNext.current) (focusNext.current === "name" ? nameInput : keyInput).current?.focus();
+    if (focusNext.current) (focusNext.current === "name" ? nameInput : keyInput).current?.focus();
     focusNext.current = null;
-  }, [pending, failed, errors, id]);
+  }, [pending, errors]);
+
+  // Retry takes the focus once, when the request fails; typing in a field afterwards keeps it.
+  useEffect(() => {
+    if (failed) document.getElementById(`${id}-retry`)?.focus();
+  }, [failed, id]);
 
   const showErrors = (found: ProjectFieldErrors) => {
     focusNext.current = found.name ? "name" : found.key ? "key" : null;
@@ -149,7 +153,7 @@ export function NewProjectDialog({ opener, onClose, onCreated }: NewProjectDialo
             </div>
           </div>
           <FieldMessage id={`${id}-key-hint`}>
-            2 to {KEY_MAX} letters, used in task ids like <span className="font-mono text-fg-2">{key || "BT"}-04</span>.
+            2 to {KEY_MAX} letters, a short code that identifies the project.
           </FieldMessage>
           {errors.key && (
             <FieldMessage id={`${id}-key-error`} tone="error">

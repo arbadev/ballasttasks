@@ -25,6 +25,8 @@ interface ModalDialogProps {
  */
 export function ModalDialog({ labelledBy, opener, onDismiss, dismissable = true, backdropTestId, children }: ModalDialogProps) {
   const box = useRef<HTMLDivElement>(null);
+  /** A drag that starts in the panel and ends on the backdrop still clicks the backdrop. */
+  const pressedBackdrop = useRef(false);
 
   useEffect(() => {
     const origin = opener.current;
@@ -61,7 +63,13 @@ export function ModalDialog({ labelledBy, opener, onDismiss, dismissable = true,
   return createPortal(
     <div
       data-testid={backdropTestId}
-      onClick={() => dismissable && onDismiss()}
+      onMouseDown={(e) => {
+        pressedBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={() => {
+        if (pressedBackdrop.current && dismissable) onDismiss();
+        pressedBackdrop.current = false;
+      }}
       className="fixed inset-0 z-50 flex animate-bt-fade items-center justify-center overflow-auto bg-backdrop p-6 backdrop-blur-[6px] max-md:p-4"
     >
       <div

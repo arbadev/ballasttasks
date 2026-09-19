@@ -17,6 +17,13 @@ const dialog = () => screen.getByRole("dialog", { name: "New project" });
 const field = (name: string) => within(dialog()).getByRole("textbox", { name });
 const submit = () => fireEvent.submit(within(dialog()).getByRole("form", { name: "New project" }));
 const type = (name: string, value: string) => fireEvent.change(field(name), { target: { value } });
+const backdrop = () => screen.getByTestId("new-project-backdrop");
+
+function clickBackdrop() {
+  fireEvent.mouseDown(backdrop());
+  fireEvent.mouseUp(backdrop());
+  fireEvent.click(backdrop());
+}
 
 function open() {
   fireEvent.click(control());
@@ -59,10 +66,25 @@ describe("the New project control", () => {
     open();
     fireEvent.click(within(dialog()).getByRole("textbox", { name: "Name" }));
     expect(dialog()).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("new-project-backdrop"));
+    clickBackdrop();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     expect(directoryService.calls).toEqual([]);
+  });
+
+  it("stays open when a drag that started inside the dialog ends on the backdrop", async () => {
+    await renderApp();
+    open();
+    type("Name", "Marketing");
+
+    // Selecting text in the name and releasing outside: the click lands on the common ancestor.
+    fireEvent.mouseDown(field("Name"));
+    fireEvent.mouseUp(backdrop());
+    fireEvent.click(backdrop());
+    expect(field("Name")).toHaveValue("Marketing");
+
+    clickBackdrop();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("forgets an abandoned draft", async () => {
@@ -171,7 +193,7 @@ describe("the New project form", () => {
 
     submit();
     fireEvent.keyDown(dialog(), { key: "Escape" });
-    fireEvent.click(screen.getByTestId("new-project-backdrop"));
+    clickBackdrop();
     expect(dialog()).toBeInTheDocument();
     expect(directoryService.calls).toHaveLength(1);
 
@@ -197,6 +219,34 @@ describe("the New project form", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(directoryService.calls).toHaveLength(2);
     expect(sidebar().getByRole("button", { name: /^Marketing/ })).toBeInTheDocument();
+  });
+
+  it("leaves the focus in a field that is edited after a failure, and on the field a later validation rejects", async () => {
+    const directoryService = new FakeDirectoryService();
+    await renderApp(directoryService);
+    const held = directoryService.holdNextCreate();
+    open();
+    type("Name", "Marketing");
+    submit();
+    await act(async () => held.fail(new Error("The connection dropped.")));
+
+    const retry = await within(dialog()).findByRole("button", { name: "Retry" });
+    expect(retry).toHaveFocus();
+
+    act(() => field("Name").focus());
+    type("Name", "Marketing 2");
+    expect(field("Name")).toHaveFocus();
+
+    act(() => field("Key").focus());
+    type("Key", "MK");
+    expect(field("Key")).toHaveFocus();
+
+    type("Key", "BT");
+    act(() => retry.focus());
+    submit();
+    expect(field("Key")).toHaveAccessibleDescription(/The key BT is already used by Ballast Tasks\./);
+    expect(field("Key")).toHaveFocus();
+    expect(directoryService.calls).toHaveLength(1);
   });
 
   it("shows a rejection from the service next to the field it is about", async () => {
@@ -229,7 +279,7 @@ describe("a created project", () => {
     ]);
     expect(screen.getByTestId("crumb")).toHaveTextContent("Marketing");
     expect(screen.getByText("0 tasks")).toBeInTheDocument();
-    expect(control()).toHaveFocus();
+    await waitFor(() => expect(control()).toHaveFocus());
   });
 
   it("shows an empty state that invites the first task, and adds it to the project", async () => {
@@ -252,6 +302,27 @@ describe("a created project", () => {
     expect(taskService.calls).toContainEqual(["create", { title: "Draft the launch post", project: "p1" }]);
     expect(within(screen.getByRole("list", { name: "Tasks" })).getByText("Draft the launch post")).toBeInTheDocument();
     expect(sidebar().getByRole("button", { name: /^Marketing/ })).toHaveTextContent("Marketing1");
+  });
+
+  it("opens over clean filters, so leftover ones cannot hide its first task", async () => {
+    await renderApp();
+    fireEvent.change(screen.getByRole("combobox", { name: "Status" }), { target: { value: "done" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Due" }), { target: { value: "overdue" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "0" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "importance" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "jwt" } });
+    await createMarketing();
+
+    expect(screen.getByRole("combobox", { name: "Status" })).toHaveValue("open");
+    expect(screen.getByRole("combobox", { name: "Due" })).toHaveValue("any");
+    expect(screen.getByRole("combobox", { name: "Priority" })).toHaveValue("any");
+    expect(screen.getByRole("searchbox", { name: "Search tasks" })).toHaveValue("");
+    expect(screen.getByRole("combobox", { name: "Sort" })).toHaveValue("importance");
+
+    const input = within(screen.getByRole("region", { name: "Marketing has no tasks yet" })).getByRole("textbox", { name: "Name the first task" });
+    fireEvent.change(input, { target: { value: "Draft the launch post" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await within(await screen.findByRole("list", { name: "Tasks" })).findByText("Draft the launch post")).toBeInTheDocument();
   });
 
   it("is where New task creates its tasks", async () => {
