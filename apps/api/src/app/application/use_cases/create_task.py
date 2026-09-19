@@ -4,9 +4,12 @@ from datetime import date
 
 from app.application.clock import Clock, utc_now
 from app.application.errors import InvalidAssigneeError
+from app.application.ports.activity_recorder import ActivityRecorder
 from app.application.ports.project_repository import ProjectRepository
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.user_directory import UserDirectory
+from app.domain import activity_log
+from app.domain.activity import ActivityEntry
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import DEFAULT_IMPORTANCE, DEFAULT_PRIORITY, Task, TaskPriority, TaskStatus
 
@@ -17,6 +20,7 @@ class CreateTask:
         tasks: TaskRepository,
         users: UserDirectory,
         projects: ProjectRepository,
+        activity: ActivityRecorder,
         *,
         clock: Clock = utc_now,
         new_id: Callable[[], uuid.UUID] = uuid.uuid4,
@@ -24,6 +28,7 @@ class CreateTask:
         self._tasks = tasks
         self._users = users
         self._projects = projects
+        self._activity = activity
         self._clock = clock
         self._new_id = new_id
 
@@ -69,4 +74,15 @@ class CreateTask:
         if assignee_id is not None and not await self._users.is_active_user(assignee_id):
             raise InvalidAssigneeError(assignee_id)
         await self._tasks.add(task)
+        # The design's ``create``: every task's activity starts with this one line, whatever
+        # column, assignee or date it was created with.
+        await self._activity.record(
+            ActivityEntry.log(
+                entry_id=self._new_id(),
+                task_id=task.id,
+                actor_id=created_by,
+                text=activity_log.CREATED,
+                now=task.created_at,
+            )
+        )
         return task

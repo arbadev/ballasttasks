@@ -144,7 +144,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get one task by its id or its key */
+        /** Get one task by its id or its key, with its steps */
         get: operations["get_task_tasks__id_or_key__get"];
         put?: never;
         post?: never;
@@ -154,6 +154,119 @@ export interface paths {
         head?: never;
         /** Change a task: edit it, assign it, move it, or complete it with status=done */
         patch: operations["update_task_tasks__id_or_key__patch"];
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The steps of a task, in order */
+        get: operations["list_steps_tasks__id_or_key__steps_get"];
+        put?: never;
+        /** Add a step at the end of the list */
+        post: operations["add_step_tasks__id_or_key__steps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/steps/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add several steps at once, all or none
+         * @description How proposed steps are accepted: up to 20 titles, appended in the order given in one transaction, and logged as one activity entry. One invalid title refuses them all.
+         */
+        post: operations["add_steps_tasks__id_or_key__steps_bulk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/steps/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder the steps of a task
+         * @description Answers every step of the task in its new order.
+         */
+        put: operations["reorder_steps_tasks__id_or_key__steps_order_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/steps/{step_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a step; the ones after it move up */
+        delete: operations["delete_step_tasks__id_or_key__steps__step_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a step, tick it or untick it */
+        patch: operations["update_step_tasks__id_or_key__steps__step_id__patch"];
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Comment on a task
+         * @description The comment joins the task's activity as an entry by the caller.
+         */
+        post: operations["post_comment_tasks__id_or_key__comments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The activity of a task: log entries and comments, newest first */
+        get: operations["list_activity_tasks__id_or_key__activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/projects": {
@@ -216,6 +329,63 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityEntryResponse */
+        ActivityEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** @description `log`: written by the API when something happened. `comment`: by a person. */
+            kind: components["schemas"]["ActivityKind"];
+            /** Text */
+            text: string;
+            actor: components["schemas"]["ActorResponse"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * ActivityKind
+         * @enum {string}
+         */
+        ActivityKind: "log" | "comment";
+        /**
+         * ActivityListResponse
+         * @description An envelope like the task list: ``total`` counts every entry, whatever the page.
+         */
+        ActivityListResponse: {
+            /** Items */
+            items: components["schemas"]["ActivityEntryResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /**
+         * ActorResponse
+         * @description Who an entry is by. Never an email, and the user may since have been deactivated.
+         */
+        ActorResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Full Name */
+            full_name: string;
+            /** Initials */
+            initials: string;
+        };
         /** AiInfo */
         AiInfo: {
             /** Provider */
@@ -294,6 +464,17 @@ export interface components {
              * Format: password
              */
             client_secret?: string | null;
+        };
+        /**
+         * CommentCreate
+         * @description The author is the authenticated user; it is never read from the body.
+         */
+        CommentCreate: {
+            /**
+             * Text
+             * @description 1 to 2000 characters once trimmed.
+             */
+            text: string;
         };
         /** ComponentStatus */
         ComponentStatus: {
@@ -484,6 +665,75 @@ export interface components {
             /** Needs Owner */
             needs_owner: number;
         };
+        /** StepCreate */
+        StepCreate: {
+            /**
+             * Title
+             * @description 1 to 200 characters once trimmed.
+             */
+            title: string;
+        };
+        /** StepListResponse */
+        StepListResponse: {
+            /** Items */
+            items: components["schemas"]["StepResponse"][];
+        };
+        /** StepResponse */
+        StepResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /** Title */
+            title: string;
+            /** Done */
+            done: boolean;
+            /**
+             * Position
+             * @description Where the step stands in its task: 0, 1, 2, ... no gaps.
+             */
+            position: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * StepUpdate
+         * @description Partial update: a field that is absent is left alone. Neither can be ``null``.
+         */
+        StepUpdate: {
+            /**
+             * Title
+             * @description 1 to 200 characters once trimmed.
+             */
+            title?: string;
+            /** Done */
+            done?: boolean;
+        };
+        /**
+         * StepsCreate
+         * @description Several steps accepted at once: all of them are created, in this order, or none is.
+         */
+        StepsCreate: {
+            /** Titles */
+            titles: string[];
+        };
+        /** StepsOrder */
+        StepsOrder: {
+            /**
+             * Step Ids
+             * @description Every step of the task, exactly once, in the order wanted. A list that misses a step, repeats one or names a step of another task is rejected with `422`.
+             */
+            step_ids: string[];
+        };
         /**
          * TaskCountsResponse
          * @description The sidebar: open tasks in the whole workspace, whatever is filtered.
@@ -530,6 +780,75 @@ export interface components {
              * @default 50
              */
             importance: number;
+        };
+        /**
+         * TaskDetailResponse
+         * @description One task as the detail panel reads it: the task and its steps, in order.
+         */
+        TaskDetailResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Key
+             * @description `<PROJECT KEY>-<NN>`, given at creation and never changed.
+             * @example BT-04
+             */
+            key: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            status: components["schemas"]["TaskStatus"];
+            /** Due Date */
+            due_date: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /** Assignee Id */
+            assignee_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            priority: components["schemas"]["TaskPriority"];
+            /** Importance */
+            importance: number;
+            attention: components["schemas"]["AttentionResponse"];
+            /**
+             * Steps Total
+             * @description How many steps the task has.
+             */
+            steps_total: number;
+            /**
+             * Steps Done
+             * @description How many of them are done: the row's `2/5`.
+             */
+            steps_done: number;
+            /**
+             * Comments Count
+             * @description How many comments its activity holds.
+             */
+            comments_count: number;
+            /** Steps */
+            steps: components["schemas"]["StepResponse"][];
         };
         /**
          * TaskListResponse
@@ -599,6 +918,21 @@ export interface components {
             /** Importance */
             importance: number;
             attention: components["schemas"]["AttentionResponse"];
+            /**
+             * Steps Total
+             * @description How many steps the task has.
+             */
+            steps_total: number;
+            /**
+             * Steps Done
+             * @description How many of them are done: the row's `2/5`.
+             */
+            steps_done: number;
+            /**
+             * Comments Count
+             * @description How many comments its activity holds.
+             */
+            comments_count: number;
         };
         /**
          * TaskScope
@@ -1235,7 +1569,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaskResponse"];
+                    "application/json": components["schemas"]["TaskDetailResponse"];
                 };
             };
             /** @description Not authenticated */
@@ -1370,6 +1704,559 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_steps_tasks__id_or_key__steps_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_step_tasks__id_or_key__steps_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_steps_tasks__id_or_key__steps_bulk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepsCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reorder_steps_tasks__id_or_key__steps_order_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepsOrder"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_step_tasks__id_or_key__steps__step_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                step_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key, or the task has no such step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_step_tasks__id_or_key__steps__step_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                step_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key, or the task has no such step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_comment_tasks__id_or_key__comments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityEntryResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_activity_tasks__id_or_key__activity_get: {
+        parameters: {
+            query?: {
+                /** @description Page size. */
+                limit?: number;
+                /** @description How many entries to skip. */
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityListResponse"];
                 };
             };
             /** @description Not authenticated */

@@ -36,6 +36,15 @@ Tasks
 - FR-12. A summary gives the sidebar counts (all, mine, overdue, per project) and the four Attention signals (overdue, P0 at risk, due soon, need an owner) for the current filters.
 - FR-13. One shared workspace: any signed-in user sees and changes every task and project. Dates are evaluated on the UTC calendar day.
 
+Steps, comments and activity
+
+- FR-14. A signed-in user adds, renames, ticks, unticks, reorders and deletes steps on any task. Titles are trimmed, 1–200 characters and contain no NUL. Steps remain densely ordered under concurrent changes; a reorder must name every current step exactly once. Deleting a task deletes its steps.
+- FR-15. A user accepts an ordered list of 1–20 step titles in one atomic request. All are appended in that order or none are added; this endpoint does not generate proposals.
+- FR-16. Every task representation carries `steps_total`, `steps_done` and `comments_count`; reading one task also returns its ordered steps. Listing computes counts without a query per task.
+- FR-17. Task creation, status moves (including completion/reopening), assignment/clearing, due-date changes, priority changes, step addition/completion and bulk acceptance append automatic activity in the same transaction. No-op changes log nothing. Wording follows the design where it logs the event; the required design-styled extensions are listed in [ADR 0007](decisions/0007-steps-and-activity.md).
+- FR-18. A signed-in user posts an immutable comment of 1–2000 trimmed characters, rejecting NUL. A task's timeline combines comments and logs, newest first, paginated with `items`, `total`, `limit` (default 50, max 200) and `offset`; every entry identifies its actor by id, full name and initials, never email. Deleting a task deletes its timeline.
+- FR-19. Existing tasks retain all their data and receive only a creation entry attributed to the original creator at creation time; earlier unrecorded changes are not invented. Attachments, AI step generation, comment editing/deletion, mentions, notifications and real-time updates are outside this piece.
+
 ## Non-functional requirements
 
 ## Milestones

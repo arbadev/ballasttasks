@@ -18,6 +18,8 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application.clock import Clock, utc_now
+from app.application.ports.activity_feed import ActivityFeed
+from app.application.ports.activity_recorder import ActivityRecorder
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
@@ -25,26 +27,37 @@ from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.people_directory import PeopleDirectory
 from app.application.ports.project_repository import ProjectRepository
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
+from app.application.ports.step_repository import StepRepository
 from app.application.ports.task_repository import TaskRepository
+from app.application.ports.task_tallies import TaskTallies
 from app.application.ports.token_service import TokenService
 from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_repository import UserRepository
+from app.application.use_cases.add_step import AddStep
+from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
+from app.application.use_cases.delete_step import DeleteStep
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_activity import ListActivity
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
+from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.post_comment import PostComment
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.summarise_tasks import SummariseTasks
+from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
+from app.application.use_cases.update_step import UpdateStep
 from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from app.infrastructure.ai.http import create_http_client
@@ -55,8 +68,11 @@ from app.infrastructure.config import settings as config
 from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
+from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
+from app.infrastructure.db.repositories.step import SqlAlchemyStepRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
+from app.infrastructure.db.repositories.task_tallies import SqlAlchemyTaskTallies
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
 from app.infrastructure.db.session import create_session_factory
@@ -92,6 +108,12 @@ class RequestScope:
     projects: ProjectRepository
     # The people list: names for the assignee picker, never an email or a hash.
     people: PeopleDirectory
+    steps: StepRepository
+    # The one way a use case writes to a task's timeline; bound to this scope's session, so
+    # an entry commits or rolls back with the change it describes.
+    activity: ActivityRecorder
+    activity_feed: ActivityFeed
+    tallies: TaskTallies
     # Every rule that depends on "now" reads this clock; tests pin it.
     clock: Clock = utc_now
 
@@ -109,7 +131,9 @@ class RequestScope:
 
     @property
     def create_task(self) -> CreateTask:
-        return CreateTask(self.tasks, self.user_directory, self.projects, clock=self.clock)
+        return CreateTask(
+            self.tasks, self.user_directory, self.projects, self.activity, clock=self.clock
+        )
 
     @property
     def get_task(self) -> GetTask:
@@ -121,7 +145,9 @@ class RequestScope:
 
     @property
     def update_task(self) -> UpdateTask:
-        return UpdateTask(self.tasks, self.user_directory, self.projects, clock=self.clock)
+        return UpdateTask(
+            self.tasks, self.user_directory, self.projects, self.activity, clock=self.clock
+        )
 
     @property
     def delete_task(self) -> DeleteTask:
@@ -159,6 +185,44 @@ class RequestScope:
     def update_profile(self) -> UpdateProfile:
         return UpdateProfile(self.users)
 
+    @property
+    def tally_tasks(self) -> TallyTasks:
+        return TallyTasks(self.tallies)
+
+    @property
+    def list_steps(self) -> ListSteps:
+        return ListSteps(self.tasks, self.steps)
+
+    @property
+    def add_step(self) -> AddStep:
+        return AddStep(self.tasks, self.steps, self.activity, clock=self.clock)
+
+    @property
+    def add_steps(self) -> AddSteps:
+        return AddSteps(
+            self.tasks, self.steps, self.activity, self.user_directory, clock=self.clock
+        )
+
+    @property
+    def update_step(self) -> UpdateStep:
+        return UpdateStep(self.tasks, self.steps, self.activity, clock=self.clock)
+
+    @property
+    def reorder_steps(self) -> ReorderSteps:
+        return ReorderSteps(self.tasks, self.steps, clock=self.clock)
+
+    @property
+    def delete_step(self) -> DeleteStep:
+        return DeleteStep(self.tasks, self.steps, clock=self.clock)
+
+    @property
+    def post_comment(self) -> PostComment:
+        return PostComment(self.tasks, self.activity, self.user_directory, clock=self.clock)
+
+    @property
+    def list_activity(self) -> ListActivity:
+        return ListActivity(self.tasks, self.activity_feed)
+
 
 RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
 
@@ -172,12 +236,17 @@ def _request_scope_factory(
     async def request_scope() -> AsyncIterator[RequestScope]:
         async with transactional_session(session_factory) as session:
             directory = SqlAlchemyUserDirectory(session)
+            activity = SqlAlchemyActivityLog(session)
             yield RequestScope(
                 tasks=SqlAlchemyTaskRepository(session),
                 users=SqlAlchemyUserRepository(session),
                 user_directory=directory,
                 projects=SqlAlchemyProjectRepository(session),
                 people=directory,
+                steps=SqlAlchemyStepRepository(session),
+                activity=activity,
+                activity_feed=activity,
+                tallies=SqlAlchemyTaskTallies(session),
                 password_hasher=password_hasher,
                 token_service=token_service,
             )

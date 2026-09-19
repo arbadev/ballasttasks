@@ -14,14 +14,17 @@ from app.api.dependencies import (
     CreateTaskDep,
     DeleteTaskDep,
     GetTaskDep,
+    ListStepsDep,
     ListTasksDep,
     SummariseTasksDep,
+    TallyTasksDep,
     UpdateTaskDep,
 )
 from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
 from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.tasks import (
     TaskCreate,
+    TaskDetailResponse,
     TaskFilterParams,
     TaskListParams,
     TaskListResponse,
@@ -30,6 +33,7 @@ from app.api.schemas.tasks import (
     TaskUpdate,
 )
 from app.api.security import CurrentUserId, get_current_user_id
+from app.application.ports.task_tallies import TaskTally
 from app.application.use_cases.get_task import parse_task_reference
 from app.domain.task_key import TaskKey
 
@@ -97,7 +101,8 @@ async def create_task(
         importance=body.importance,
         created_by=user_id,
     )
-    return TaskResponse.of(task, attention.execute(task))
+    # A task that has just been created has no steps and no comments: nothing to count.
+    return TaskResponse.of(task, attention.execute(task), TaskTally())
 
 
 @router.get(
@@ -115,10 +120,15 @@ async def list_tasks(
     user_id: CurrentUserId,
     list_tasks: ListTasksDep,
     attention: AssessAttentionDep,
+    tally_tasks: TallyTasksDep,
 ) -> TaskListResponse:
     query = params.to_query(user_id)
     page = await list_tasks.execute(query)
-    items = [TaskResponse.of(task, attention.execute(task)) for task in page.items]
+    # One statement for the whole page, never one per task.
+    tallies = await tally_tasks.execute([task.id for task in page.items])
+    items = [
+        TaskResponse.of(task, attention.execute(task), tallies[task.id]) for task in page.items
+    ]
     return TaskListResponse.of(page, query, items)
 
 
@@ -145,15 +155,21 @@ async def summarise_tasks(
 
 @router.get(
     "/{id_or_key}",
-    summary="Get one task by its id or its key",
-    response_model=TaskResponse,
+    summary="Get one task by its id or its key, with its steps",
+    response_model=TaskDetailResponse,
     responses={**NOT_FOUND},
 )
 async def get_task(
-    reference: TaskReference, get_task: GetTaskDep, attention: AssessAttentionDep
-) -> TaskResponse:
+    reference: TaskReference,
+    get_task: GetTaskDep,
+    attention: AssessAttentionDep,
+    tally_tasks: TallyTasksDep,
+    list_steps: ListStepsDep,
+) -> TaskDetailResponse:
     task = await get_task.execute(reference)
-    return TaskResponse.of(task, attention.execute(task))
+    tallies = await tally_tasks.execute([task.id])
+    steps = await list_steps.execute(task.id)
+    return TaskDetailResponse.with_steps(task, attention.execute(task), tallies[task.id], steps)
 
 
 @router.patch(
@@ -163,10 +179,16 @@ async def get_task(
     responses={**NOT_FOUND},
 )
 async def update_task(
-    task_id: TaskId, body: TaskUpdate, update_task: UpdateTaskDep, attention: AssessAttentionDep
+    task_id: TaskId,
+    body: TaskUpdate,
+    user_id: CurrentUserId,
+    update_task: UpdateTaskDep,
+    attention: AssessAttentionDep,
+    tally_tasks: TallyTasksDep,
 ) -> TaskResponse:
-    task = await update_task.execute(task_id, body.to_changes())
-    return TaskResponse.of(task, attention.execute(task))
+    task = await update_task.execute(task_id, body.to_changes(), actor_id=user_id)
+    tallies = await tally_tasks.execute([task.id])
+    return TaskResponse.of(task, attention.execute(task), tallies[task.id])
 
 
 @router.delete(

@@ -280,14 +280,14 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 | `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user, project does not exist) |
 | `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset"}` | `401`, `422` (a parameter it does not understand) |
 | `GET /tasks/summary` | `200` `TaskSummaryResponse`: `counts`, `projects`, `signals` | `401`, `422` |
-| `GET /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (neither an id nor a key) |
+| `GET /tasks/{id_or_key}` | `200` `TaskDetailResponse` (includes ordered `steps`) | `401`, `404`, `422` (neither an id nor a key) |
 | `PATCH /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user, the project changes to one that does not exist) |
 | `DELETE /tasks/{id_or_key}` | `204`, no body | `401`, `404`, `422` |
 
-- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`.
+- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`, plus `steps_total`, `steps_done` and `comments_count`.
 - **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
 - **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
-- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues three statements whatever it returns (the caller, the page, the total).
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a nonempty list request issues four statements whatever it returns (the caller, the page, the total, and one set-based tally of steps/comments); an empty page skips the tally statement.
 - **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
 - `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
@@ -298,6 +298,30 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
 - Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`, so `testing` is open work like `todo` and `in_progress`.
+
+### Steps and activity
+
+All routes below accept a task UUID or key, use the same `CurrentUserId` seam and rate limiter as tasks, and declare `401`, `404`, `422` and `429`.
+
+| Route | Success |
+| --- | --- |
+| `GET /tasks/{id_or_key}/steps` | `200`, `{items: [StepResponse, ...]}` in position order |
+| `POST /tasks/{id_or_key}/steps` | `201`, appended step; body `{title}` |
+| `POST /tasks/{id_or_key}/steps/bulk` | `201`, `{items}`; body `{titles}` with 1–20 titles, all or none |
+| `PATCH /tasks/{id_or_key}/steps/{step_id}` | `200`, renamed/ticked/unticked step; body `{title?, done?}` |
+| `PUT /tasks/{id_or_key}/steps/order` | `200`, `{items}`; body `{step_ids}` must be an exact permutation |
+| `DELETE /tasks/{id_or_key}/steps/{step_id}` | `204`, following positions compacted |
+| `POST /tasks/{id_or_key}/comments` | `201`, immutable activity entry; body `{text}` |
+| `GET /tasks/{id_or_key}/activity` | `200`, `{items, total, limit, offset}`, newest first; default limit 50, max 200 |
+
+Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain the three tallies.
+
+| Table | Stored columns and invariants |
+| --- | --- |
+| `task_steps` | UUID `id`, `task_id` (FK tasks, cascade), `title`, `done`, nonnegative `position`, `created_at`; `(task_id, position)` unique, deferred until commit |
+| `task_activity` | UUID `id`, private bigint identity `seq`, `task_id` (FK tasks, cascade), `kind` constrained to log/comment, `text`, `actor_id` (FK users, restrict), `created_at`; feed index `(task_id, created_at, seq)` and partial comment-count index |
+
+Every step writer locks its task before reading positions. Activity is recorded in application use cases through `ActivityRecorder.record(entry)` in the same transaction as the change, never in controllers or triggers. Equal timestamps are ordered by recording sequence. Existing tasks gain only a creation log at their original timestamp; no task is modified. See [ADR 0007](decisions/0007-steps-and-activity.md) for exact wording, ordering, migration and downgrade policy. Contract suites exercise the fake and PostgreSQL adapters; `test_steps_activity_api.py` asserts constant list query count and rollback, and `test_step_positions_concurrency.py` exercises concurrent writers.
 
 ### Tasks reference users
 

@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.application.errors import StepNotFound, TaskNotFound
+from app.application.ports.task_tallies import TaskTally
 from app.application.use_cases.add_step import AddStep
 from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE, AddSteps
 from app.application.use_cases.delete_step import DeleteStep
@@ -18,7 +19,6 @@ from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_step import StepChanges, UpdateStep
-from app.application.ports.task_tallies import TaskTally
 from app.domain.step import InvalidStepError, InvalidStepOrderError, Step
 from app.domain.task import Task
 from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
