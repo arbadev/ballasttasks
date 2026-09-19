@@ -390,9 +390,11 @@ async def generate_steps_in_worker(container: Container, task_id: uuid.UUID) -> 
     return result
 
 
-def _run_generation(settings: Settings, task_id: str) -> dict[str, object]:
+def _run_generation(settings: Settings, task_id: str, celery_app: Celery) -> dict[str, object]:
     async def run() -> GenerationOutcome:
-        container = build_container(settings)
+        # The running process already has its Celery application; only the async handles
+        # are per job, so a job never replaces ``celery.current_app`` with a second one.
+        container = build_container(settings, celery_app=celery_app)
         try:
             return await generate_steps_in_worker(container, uuid.UUID(task_id))
         finally:
@@ -409,16 +411,17 @@ def _run_generation(settings: Settings, task_id: str) -> dict[str, object]:
 
 def build_worker(settings: Settings) -> Celery:
     def generate_steps(task_id: str) -> dict[str, object]:
-        return _run_generation(settings, task_id)
+        return _run_generation(settings, task_id, celery_app)
 
-    return create_celery_app(
+    celery_app = create_celery_app(
         broker_url=settings.redis.url,
         result_backend=settings.redis.url,
         generate_steps=generate_steps,
     )
+    return celery_app
 
 
-def build_container(settings: Settings) -> Container:
+def build_container(settings: Settings, *, celery_app: Celery | None = None) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
     identity_providers = build_identity_providers(settings)
@@ -427,7 +430,8 @@ def build_container(settings: Settings) -> Container:
     ai_http_client = create_http_client(timeout_seconds=settings.ai.timeout_seconds)
     language_model = build_language_model(settings.ai, ai_http_client)
     session_factory = create_session_factory(engine)
-    celery_app = build_worker(settings)
+    # A process builds its Celery application once; the worker passes its own in.
+    celery_app = celery_app if celery_app is not None else build_worker(settings)
     one_time_store = RedisOneTimeStore(redis)
     return Container(
         settings=settings,

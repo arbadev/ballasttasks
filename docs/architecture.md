@@ -395,6 +395,8 @@ job is **not** a successful empty result.
   automatic retry or duplicate acceptance. Enqueue acknowledgement loss can leave an
   unreturned job running; it has no task-write effects and expires normally.
 - `app.worker` is the worker entrypoint; `bootstrap.build_worker` supplies the job callable.
+  A process builds its Celery application once: the worker passes its own into
+  `build_container`, so a job composes only the async handles it closes again.
   The worker reads the task title, description and existing step titles in a short
   `Container.request_scope()`, **closes it before awaiting the model**, then rechecks
   existence in another short scope. `GenerateStepTitles` depends only on `LanguageModel`.
