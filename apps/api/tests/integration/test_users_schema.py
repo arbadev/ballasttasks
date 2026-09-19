@@ -1,6 +1,5 @@
 """The ``users`` migration, proven against real PostgreSQL from an empty database."""
 
-import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
@@ -9,6 +8,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
+import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
 from app.infrastructure.db.base import Base
 from tests.support.database import alembic_config, scratch_database
 

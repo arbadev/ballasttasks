@@ -12,6 +12,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+import app.infrastructure.db.models  # noqa: F401  (registers every model on Base.metadata)
 from app.infrastructure.config.settings import Settings
 from app.infrastructure.db.base import Base
 
