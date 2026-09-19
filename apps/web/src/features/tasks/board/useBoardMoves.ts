@@ -15,8 +15,13 @@ export interface MoveFailure {
 export interface BoardMoves {
   /** The tasks as the board shows them: a move in flight already sits in its new column. */
   tasks: Task[];
-  /** Moving to the column the card is in does nothing. */
-  move(taskId: string, to: TaskStatus): void;
+  /** Moves the card and answers with the move's number; null when there is nothing to move. */
+  move(taskId: string, to: TaskStatus): number | null;
+  /**
+   * The move the service last answered, refusal included. It is state rather than a ref, so the
+   * render that carries it is the first one that shows what the answer did.
+   */
+  settled: { move: number; taskId: string } | null;
   failure: MoveFailure | null;
   retry(): void;
   dismissFailure(): void;
@@ -35,37 +40,63 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
   const all = useWorkspace().state.tasks;
   const [inFlight, setInFlight] = useState<Record<string, TaskStatus>>({});
   const [failed, setFailed] = useState<Omit<MoveFailure, "from"> | null>(null);
+  const [settled, setSettled] = useState<{ move: number; taskId: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  /** The newest move per task, so an older answer never clears a newer move. */
-  const latest = useRef(new Map<string, number>());
+  /** Where each unsettled task is headed: the column the board shows it in, and the move that asked. */
+  const target = useRef(new Map<string, { to: TaskStatus; move: number }>());
+  /**
+   * The tasks whose call is still out. One call per task at a time, so the service is told the
+   * moves in the order the user made them and its last word is the user's last word: an older
+   * answer can neither be shown nor reported over a newer move.
+   */
+  const calling = useRef(new Set<string>());
   const sequence = useRef(0);
 
   const shown = useMemo(() => tasks.map((t) => (inFlight[t.id] && inFlight[t.id] !== t.status ? { ...t, status: inFlight[t.id] } : t)), [tasks, inFlight]);
 
+  const call = useCallback(
+    function issue(taskId: string, title: string): void {
+      const asked = target.current.get(taskId);
+      if (!asked) return;
+      calling.current.add(taskId);
+
+      const answered = (refused: boolean) => {
+        calling.current.delete(taskId);
+        // The user asked for another column while this call was out: that move is the live one.
+        if (target.current.get(taskId)?.move !== asked.move) {
+          issue(taskId, title);
+          return;
+        }
+        target.current.delete(taskId);
+        setInFlight((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== taskId)));
+        setSettled({ move: asked.move, taskId });
+        if (!refused) return;
+        setAnnouncement("");
+        setFailed({ taskId, title, to: asked.to });
+      };
+
+      commands.move(taskId, asked.to).then(
+        () => answered(false),
+        () => answered(true),
+      );
+    },
+    [commands],
+  );
+
   const move = useCallback(
     (taskId: string, to: TaskStatus) => {
       const task = all.find((t) => t.id === taskId);
-      if (!task || (inFlight[taskId] ?? task.status) === to) return;
+      if (!task || (target.current.get(taskId)?.to ?? task.status) === to) return null;
 
-      const ticket = ++sequence.current;
-      latest.current.set(taskId, ticket);
+      const number = ++sequence.current;
+      target.current.set(taskId, { to, move: number });
       setFailed(null);
       setInFlight((current) => ({ ...current, [taskId]: to }));
       setAnnouncement(`Moved "${task.title}" to ${statusName(to)}.`);
-
-      const settle = () => {
-        if (latest.current.get(taskId) !== ticket) return false;
-        latest.current.delete(taskId);
-        setInFlight((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== taskId)));
-        return true;
-      };
-      commands.move(taskId, to).then(settle, () => {
-        if (!settle()) return;
-        setAnnouncement("");
-        setFailed({ taskId, title: task.title, to });
-      });
+      if (!calling.current.has(taskId)) call(taskId, task.title);
+      return number;
     },
-    [all, inFlight, commands],
+    [all, call],
   );
 
   const failure = useMemo(() => {
@@ -79,5 +110,5 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
 
   const dismissFailure = useCallback(() => setFailed(null), []);
 
-  return { tasks: shown, move, failure, retry, dismissFailure, announcement };
+  return { tasks: shown, move, settled, failure, retry, dismissFailure, announcement };
 }

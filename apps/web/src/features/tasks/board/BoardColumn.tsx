@@ -25,6 +25,7 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
   return (
     <section
       aria-labelledby={headingId}
+      data-column={status.id}
       data-drop-target={dropTarget ? "true" : undefined}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -36,7 +37,13 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
     >
       <div className="flex items-center gap-2 border-b border-line px-1 pt-1 pb-2.5">
         <span aria-hidden="true" className={cn("size-2 flex-none rounded-full", DOT[status.tone])} />
-        <h2 id={headingId} className="m-0 text-[13px] font-semibold">
+        {/* Focusable only from code: where focus lands when a move takes the last card out of the column. */}
+        <h2
+          id={headingId}
+          data-column-heading=""
+          tabIndex={-1}
+          className="m-0 rounded-bt-sm text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-acc"
+        >
           {status.name}
         </h2>
         <span data-testid="column-count" className="ml-auto font-mono text-[11px] text-fg-3">

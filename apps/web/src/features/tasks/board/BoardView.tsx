@@ -11,9 +11,18 @@ import { BoardSkeleton } from "./BoardSkeleton";
 import { cardView } from "./cardView";
 import { BOARD_GRID } from "./layout";
 import { TaskCard } from "./TaskCard";
-import { useBoardMoves, type MoveFailure } from "./useBoardMoves";
+import { useBoardMoves } from "./useBoardMoves";
 
 const DRAG_TYPE = "text/plain";
+
+/** A move made without a drag, and where focus goes while it runs and once it has settled. */
+interface FocusAfterMove {
+  move: number;
+  taskId: string;
+  /** The column the card left, and its place in it: where focus lands if the card is gone. */
+  column: TaskStatus;
+  index: number;
+}
 
 /** The board: one column per status. It owns its loading and error states as well. */
 export function BoardView() {
@@ -49,22 +58,33 @@ function Board() {
   /** The column whose "Add a task" was refused. */
   const [addFailedIn, setAddFailedIn] = useState<TaskStatus | null>(null);
   const grid = useRef<HTMLDivElement>(null);
-  /** A card moved without a drag is remounted in its new column; focus follows it there. */
-  const focusAfterMove = useRef<string | null>(null);
-  /** The last card moved without a drag. A refused move remounts it once more, and focus follows it back. */
-  const movedWithoutDrag = useRef<{ taskId: string; previousFailure: MoveFailure | null } | null>(null);
-  const failedId = moves.failure?.taskId ?? null;
+  /**
+   * The card moved without a drag. It is remounted in its new column, and again if the move is
+   * refused, so focus follows it until the move has settled: it is never left on the body.
+   */
+  const focusAfterMove = useRef<FocusAfterMove | null>(null);
+
+  const cardButton = (taskId: string) => grid.current?.querySelector<HTMLElement>(`[data-card-open=${JSON.stringify(taskId)}]`) ?? null;
+  const cardsIn = (status: TaskStatus) => [...(grid.current?.querySelectorAll<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-card-open]`) ?? [])];
 
   useEffect(() => {
-    if (failedId && failedId === movedWithoutDrag.current?.taskId && moves.failure !== movedWithoutDrag.current.previousFailure) {
-      movedWithoutDrag.current = null;
-      // Focus the user has since put somewhere else stays there.
-      if (document.activeElement === document.body) focusAfterMove.current = failedId;
+    const pending = focusAfterMove.current;
+    if (!pending) return;
+    const done = moves.settled?.move === pending.move;
+    if (done) focusAfterMove.current = null;
+    // Focus the user has since put somewhere else stays there.
+    if (document.activeElement !== document.body) return;
+
+    const card = cardButton(pending.taskId);
+    if (card) {
+      card.focus();
+      return;
     }
-    const id = focusAfterMove.current;
-    if (!id) return;
-    focusAfterMove.current = null;
-    grid.current?.querySelector<HTMLElement>(`[data-card-open=${JSON.stringify(id)}]`)?.focus();
+    if (!done) return;
+    // The move took the card off the board: focus what took its place in the column it left.
+    const left = cardsIn(pending.column);
+    const heading = grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(pending.column)}] [data-column-heading]`);
+    (left[Math.max(0, Math.min(pending.index, left.length - 1))] ?? heading)?.focus();
   });
 
   const endDrag = () => {
@@ -77,17 +97,22 @@ function Board() {
     commands.create({ title: "Untitled task", status }, { open: true }).catch(() => setAddFailedIn(status));
   };
 
-  const moveWithoutDrag = (taskId: string, to: TaskStatus) => {
-    focusAfterMove.current = taskId;
-    // A pending focus render can still carry the old alert when Retry is pressed.
-    // Only a new refusal belongs to this attempt.
-    movedWithoutDrag.current = { taskId, previousFailure: moves.failure };
-    moves.move(taskId, to);
+  /** A move that happens replaces whatever the board was reporting, so nothing older comes back. */
+  const startMove = (taskId: string, to: TaskStatus) => {
+    const move = moves.move(taskId, to);
+    if (move !== null) setAddFailedIn(null);
+    return move;
+  };
+
+  const moveWithoutDrag = (taskId: string, from: TaskStatus, to: TaskStatus) => {
+    const index = cardsIn(from).findIndex((c) => c.dataset.cardOpen === taskId);
+    const move = startMove(taskId, to);
+    if (move !== null) focusAfterMove.current = { move, taskId, column: from, index };
   };
 
   /** Retry is a button press: its alert goes away, so focus goes to the card it moves. */
   const retryMove = () => {
-    if (moves.failure) moveWithoutDrag(moves.failure.taskId, moves.failure.to);
+    if (moves.failure) moveWithoutDrag(moves.failure.taskId, moves.failure.from, moves.failure.to);
   };
 
   return (
@@ -123,8 +148,9 @@ function Board() {
               onDrop={(event: DragEvent<HTMLElement>) => {
                 event.preventDefault();
                 const id = draggedId ?? event.dataTransfer.getData(DRAG_TYPE);
-                if (id === movedWithoutDrag.current?.taskId) movedWithoutDrag.current = null;
-                if (id) moves.move(id, status.id);
+                // A dragged card is where the pointer put it: this move does not take focus.
+                if (id === focusAfterMove.current?.taskId) focusAfterMove.current = null;
+                if (id) startMove(id, status.id);
                 endDrag();
               }}
               onAddTask={() => addTask(status.id)}
@@ -143,7 +169,7 @@ function Board() {
                     previous={STATUSES[position - 1] ?? null}
                     next={STATUSES[position + 1] ?? null}
                     onOpen={() => actions.selectTask(task.id)}
-                    onMove={(to) => moveWithoutDrag(task.id, to.id)}
+                    onMove={(to) => moveWithoutDrag(task.id, status.id, to.id)}
                     onDragStart={(event) => {
                       event.dataTransfer.setData(DRAG_TYPE, task.id);
                       event.dataTransfer.effectAllowed = "move";

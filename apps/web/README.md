@@ -76,7 +76,7 @@ than `useTaskService()` directly.
 | Command | Service method | Used by |
 | --- | --- | --- |
 | `create({ title, status? }, { open? })` | `create` | List quick-add (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
-| `toggleDone(id)` | `toggleDone` | List and board checkboxes; detail "Mark complete" / "Reopen". |
+| `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |

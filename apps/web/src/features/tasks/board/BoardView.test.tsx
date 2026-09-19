@@ -42,13 +42,21 @@ function drag(title: string, to: string) {
   };
 }
 
-/** A service whose next move can be made to fail, or held until the test releases it. */
+/** A service whose next move or create can be made to fail, or held until the test releases it. */
 class ControlledTaskService extends FakeTaskService {
   failNextMove = false;
+  failNextCreate = false;
   /** Every move to this status fails, whatever order the moves are answered in. */
   refuses: TaskStatus | null = null;
   hold: Promise<void> | null = null;
+  /** The first move to this status waits for its promise; later ones are answered at once. */
+  readonly holds = new Map<TaskStatus, Promise<void>>();
   override async move(id: string, status: TaskStatus) {
+    const held = this.holds.get(status);
+    if (held) {
+      this.holds.delete(status);
+      await held;
+    }
     if (this.hold) await this.hold;
     if (this.failNextMove || this.refuses === status) {
       this.failNextMove = false;
@@ -56,6 +64,13 @@ class ControlledTaskService extends FakeTaskService {
       throw new Error("The server said no.");
     }
     return super.move(id, status);
+  }
+  override async create(input: Parameters<FakeTaskService["create"]>[0]) {
+    if (this.failNextCreate) {
+      this.failNextCreate = false;
+      throw new Error("The server said no.");
+    }
+    return super.create(input);
   }
 }
 
@@ -446,6 +461,54 @@ describe("moving without a drag", () => {
     expect(openButton(PRD)).not.toHaveFocus();
   });
 
+  it("sends focus to the column the card left when a successful move takes it off the board", async () => {
+    await renderBoard();
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Workspace" })).getByRole("button", { name: /^Overdue/ }));
+    expect(titlesIn("To Do")).toEqual([PRD]);
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(titlesIn("In Progress")).toEqual([PRD]));
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(titlesIn("Testing")).toEqual([PRD]));
+
+    // Done is not overdue-and-open, so this move drops the card out of the Overdue scope.
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(screen.queryByRole("article", { name: PRD })).not.toBeInTheDocument());
+    await waitFor(() => expect(within(column("Testing")).getByRole("heading", { level: 2 })).toHaveFocus());
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("sends focus to the card that took its place when the column it left still has cards", async () => {
+    const overdue = (id: string, title: string) => makeTask({ id, title, status: "testing", due: due(-2) });
+    await renderBoard({ tasks: [overdue("o1", "First overdue"), overdue("o2", "Second overdue"), overdue("o3", "Third overdue")] });
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Workspace" })).getByRole("button", { name: /^Overdue/ }));
+    expect(titlesIn("Testing")).toEqual(["First overdue", "Second overdue", "Third overdue"]);
+
+    openButton("Second overdue").focus();
+    fireEvent.keyDown(openButton("Second overdue"), { key: "ArrowRight", shiftKey: true });
+
+    await waitFor(() => expect(titlesIn("Testing")).toEqual(["First overdue", "Third overdue"]));
+    await waitFor(() => expect(openButton("Third overdue")).toHaveFocus());
+  });
+
+  it("keeps the newer of two chained moves when the older answer comes back last", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    expect(titlesIn("Testing")).toContain(PRD);
+
+    await act(async () => release());
+    await waitFor(() => expect(moveCalls(service)).toHaveLength(2));
+    await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+    expect(titlesIn("In Progress")).not.toContain(PRD);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("leaves a failed move to the alert, with nothing in the polite region", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     service.failNextMove = true;
@@ -487,6 +550,23 @@ describe("add a task", () => {
     await screen.findByRole("dialog", { name: "Untitled task" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(titlesIn("Testing")).toContain("Untitled task");
+  });
+
+  it("does not bring the add-a-task failure back once a move has taken over the alert", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+
+    service.failNextMove = true;
+    drag(PRD, "Testing").drop();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}" to Testing.`));
+
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
