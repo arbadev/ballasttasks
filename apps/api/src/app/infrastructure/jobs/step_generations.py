@@ -7,6 +7,7 @@ No task text or provider exception is stored in the reservation.
 
 import json
 from datetime import datetime, timedelta
+from typing import get_args
 from uuid import UUID, uuid4
 
 from celery import Celery
@@ -22,13 +23,7 @@ from app.application.step_generation import (
 from app.application.use_cases.generate_step_titles import parse_titles
 
 JOB_NAME = "generate_step_titles"
-ERRORS: set[GenerationError] = {
-    "invalid_output",
-    "provider_unavailable",
-    "timeout",
-    "task_deleted",
-    "worker_failed",
-}
+ERRORS: frozenset[GenerationError] = frozenset(get_args(GenerationError))
 
 
 class CeleryStepGenerationJobs:
