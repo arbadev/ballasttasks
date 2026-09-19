@@ -155,6 +155,14 @@ async def test_delete_removes_the_file_and_deleting_again_is_not_an_error(
     assert await content_of(storage, "kept") == b"kept"
 
 
+async def test_deleting_a_directory_key_is_a_no_op(storage: FileStorage) -> None:
+    await storage.save("tasks/report", chunks_of(b"kept"))
+
+    await storage.delete("tasks")
+
+    assert await content_of(storage, "tasks/report") == b"kept"
+
+
 @pytest.mark.parametrize("key", INVALID_KEYS)
 async def test_a_key_the_server_would_never_generate_is_refused_everywhere(
     storage: FileStorage, key: str
