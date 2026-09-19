@@ -1,6 +1,8 @@
 """Real TCP HTTP, PostgreSQL, Redis and disk; no auth or storage doubles."""
 
 import asyncio
+import errno
+import os
 import socket
 import uuid
 from collections.abc import AsyncIterator
@@ -246,3 +248,48 @@ async def test_a_slow_upload_leaves_the_only_connection_for_other_requests(
 
 def _stored_files(container: Container) -> list[Path]:
     return [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
+
+
+async def test_an_oversize_upload_is_still_413_when_the_cleanup_fails(
+    http: httpx.AsyncClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The documented answer survives a storage root that turns hostile mid-request.
+
+    The body passes the limit only after the file has been created, so removing it is
+    compensation, not the outcome the client asked about: its failure is logged and the
+    original 413 still reaches them, orphan and all (ADR 0008).
+    """
+    user = await register_and_log_in(http, "Unlucky uploader")
+    task = (await http.post("/tasks", json={"title": "Oversize"}, headers=user.headers)).json()
+    unlink = os.unlink
+
+    def refuse_under_the_root(path: str, *, dir_fd: int | None = None) -> None:
+        if dir_fd is None:
+            unlink(path)
+            return
+        raise OSError(errno.EIO, "Input/output error")
+
+    async def body() -> AsyncIterator[bytes]:
+        yield UPLOAD_HEAD
+        for _ in range(5):
+            # Separate network chunks: the limit is passed inside the storage write, not
+            # in the signature loop that runs before it.
+            await asyncio.sleep(0.01)
+            yield b"x" * 400
+        yield b"\r\n--bt--\r\n"
+
+    monkeypatch.setattr(os, "unlink", refuse_under_the_root)
+
+    response = await http.post(
+        f"/tasks/{task['key']}/attachments/files",
+        content=body(),
+        headers={**user.headers, "content-type": "multipart/form-data; boundary=bt"},
+    )
+
+    assert response.status_code == 413, response.text
+    assert "detail" in response.json()
+    assert _stored_files(container) != [], "the compensating removal really was attempted"
+    monkeypatch.undo()
+    for orphan in _stored_files(container):
+        orphan.unlink()
+    assert (await http.delete(f"/tasks/{task['id']}", headers=user.headers)).status_code == 204

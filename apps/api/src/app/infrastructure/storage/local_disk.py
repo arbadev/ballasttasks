@@ -6,6 +6,7 @@ when another process swaps a directory during an operation. Disk I/O runs off-lo
 
 import asyncio
 import errno
+import logging
 import os
 import stat
 from collections.abc import AsyncIterator
@@ -20,6 +21,8 @@ from app.application.ports.file_storage import (
     StoredFileNotFound,
 )
 from app.domain.storage_key import valid_storage_key
+
+logger = logging.getLogger(__name__)
 
 
 class LocalDiskFileStorage:
@@ -81,6 +84,18 @@ class LocalDiskFileStorage:
                 raise OSError("Short write")
             offset += written
 
+    @staticmethod
+    async def _remove(name: str, parent: int) -> None:
+        """Compensate a write, best effort.
+
+        A cleanup that fails leaves an orphan file and a warning, never an exception in
+        place of the one that caused the compensation (ADR 0008).
+        """
+        try:
+            await asyncio.to_thread(os.unlink, name, dir_fd=parent)
+        except Exception:
+            logger.warning("Removing the partial file %s failed", name)
+
     async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile:
         creating = asyncio.create_task(asyncio.to_thread(self._create, key))
         try:
@@ -89,7 +104,7 @@ class LocalDiskFileStorage:
             # Threads cannot be cancelled: settle creation before compensating its write.
             descriptor, parent, name = await creating
             try:
-                await asyncio.to_thread(os.unlink, name, dir_fd=parent)
+                await self._remove(name, parent)
             finally:
                 os.close(descriptor)
                 os.close(parent)
@@ -107,7 +122,7 @@ class LocalDiskFileStorage:
                 size += len(chunk)
             return StoredFile(key, size)
         except BaseException:
-            await asyncio.to_thread(os.unlink, name, dir_fd=parent)
+            await self._remove(name, parent)
             raise
         finally:
             os.close(descriptor)

@@ -1,6 +1,8 @@
 """What only the local-disk adapter can get wrong: the file system under its root."""
 
 import asyncio
+import errno
+import logging
 import os
 import stat
 import threading
@@ -202,3 +204,26 @@ async def test_a_disk_that_refuses_the_write_leaves_no_partial_file(
         await storage.save(KEY, chunks_of(b"first", b"second"))
 
     assert everything_under(root) == []
+
+
+async def test_a_cleanup_that_fails_does_not_replace_the_error_that_caused_it(
+    root: Path,
+    storage: LocalDiskFileStorage,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The caller still learns why the write was abandoned; the orphan is only logged."""
+
+    def refuse(path: str, *, dir_fd: int | None = None) -> None:
+        raise OSError(errno.EIO, "Input/output error")
+
+    monkeypatch.setattr(os, "unlink", refuse)
+
+    with (
+        caplog.at_level(logging.WARNING),
+        pytest.raises(ConnectionResetError, match="the client went away"),
+    ):
+        await storage.save(KEY, failing_after(b"half a file"))
+
+    assert everything_under(root) == [KEY]
+    assert "Removing the partial file" in caplog.text

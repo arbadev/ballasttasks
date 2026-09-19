@@ -28,7 +28,13 @@ Compose sets the api container's `STORAGE__LOCAL_DIRECTORY` to the volume's own 
 point, so a `.env` written before attachments existed cannot point the API at a directory
 the volume is not on (and that the image's non-root user could not create);
 `tests/integration/test_compose_storage.py` renders the file through `docker compose
-config` and asserts the two agree.
+config` and asserts the two agree. That alignment is all the variable can do: the server
+runs as uid 1001 and `apps/api/Dockerfile` creates and chowns exactly one directory, whose
+ownership an empty named volume then inherits. A different `STORAGE__LOCAL_DIRECTORY`
+therefore also needs that path created and owned in the image; without it the mount point
+belongs to root, the first upload raises `PermissionError` and the request is a `500`.
+Nothing is chowned at run time: the container would need to start privileged to do it, and
+an environment variable does not grant permissions.
 
 ## HTTP and validation
 

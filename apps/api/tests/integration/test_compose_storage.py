@@ -69,7 +69,11 @@ def test_the_api_writes_where_the_attachments_volume_is_mounted(
 ) -> None:
     """Whatever ``.env`` says, the API is told the same path the named volume is mounted
     at: it must not fall back to its own relative default, which the volume is not on and
-    the image's non-root user cannot create."""
+    the image's non-root user cannot create.
+
+    Alignment is all this proves, and all the variable does. A path other than the default
+    is writable only once ``apps/api/Dockerfile`` creates and owns it too; see ADR 0008.
+    """
     api = _rendered(tmp_path / "project", REQUIRED_ENV + dotenv)["services"]["api"]
 
     mounted = [volume for volume in api["volumes"] if volume["source"] == "attachments-data"]
