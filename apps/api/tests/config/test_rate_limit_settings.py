@@ -1,13 +1,13 @@
 """The ``rate_limit`` settings group, and what the composition root builds from it."""
 
 import pytest
-from app.application.ports.rate_limiter import RateLimitPolicy
-from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
 from pydantic import ValidationError
 
+from app.application.ports.rate_limiter import RateLimitPolicy
 from app.bootstrap import build_container
 from app.bootstrap import load_settings as load_app_settings
 from app.infrastructure.config.settings import load_settings
+from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
 
 PROVIDERS = {"fake"}
 

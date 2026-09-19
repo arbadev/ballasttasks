@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
-from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from fastapi import FastAPI
 
 from app.bootstrap import build_container, load_settings
 from app.domain.user import User
+from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from app.main import create_app
 from tests.api.conftest import ALL_HEALTHY, AuthFakes, RecordingRequestScopes
 from tests.rate_limit_fakes import FakeClock

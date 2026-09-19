@@ -101,6 +101,13 @@ class TaskRepository(Protocol):
     async def list(self) -> Sequence[Task]: ...        # newest first
     async def update(self, task: Task) -> None: ...    # raises TaskNotFound
     async def delete(self, task_id: UUID) -> None: ... # raises TaskNotFound
+
+
+class RateLimiter(Protocol):
+    """Counts hits per key; atomic, so concurrent hits never exceed the policy's limit."""
+
+    async def hit(self, key: str, policy: RateLimitPolicy) -> RateLimitDecision: ...
+    # policy: name, limit, window_seconds; decision: allowed, limit, remaining, reset_after_seconds
 ```
 
 The Protocol files are the source of truth for exact signatures; if this section and the code disagree, the code wins and this section is corrected in the same commit.
@@ -115,6 +122,7 @@ Adapters in this setup:
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker |
 | `UserRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_user_repository_contract.py`. `add` raises `EmailAlreadyRegisteredError`, also when a concurrent transaction wins: the unique constraint is the guarantee, and the insert runs in a savepoint so the rest of the unit of work survives the rejection |
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
+| `RateLimiter` | Redis (one Lua script per hit), in-memory, and `FailOpenRateLimiter`, which wraps the first with the second | All three pass `tests/contract/test_rate_limiter_contract.py`; the Redis run is under the `integration` marker. The in-memory adapter serves the tests and stands in while Redis is unreachable |
 | `TokenService` | JWT (`PyJWT`, HMAC), in-memory fake for tests | Tokens carry only `sub`, `iat`, `exp`; `decode` raises `InvalidTokenError` |
 
 ## Composition roots
@@ -232,6 +240,16 @@ flowchart LR
 - **Control characters** (C0, DEL, C1; PostgreSQL text cannot even hold NUL) are refused before any query: `normalise_email` raises `InvalidEmailError`, so login answers its uniform `401`, and `RegisterRequest` rejects them in `full_name` and `password` with `422`.
 - **Settings**: the `auth` group (`AUTH__JWT_SECRET`, `AUTH__JWT_ALGORITHM`, `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES`). Startup fails when the secret is missing or shorter than the algorithm's digest (RFC 7518 section 3.2). Only HMAC algorithms are accepted, and decoding pins the configured one, which rules out `alg=none` and algorithm confusion.
 - Out of scope by decision: refresh tokens, password reset, email verification, roles.
+
+## Rate limiting
+
+Decision, algorithm and limits of the protection: [ADR 0004](decisions/0004-rate-limiting.md).
+
+- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (`POST /auth/login` and `POST /auth/register`, the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
+- **Contract**: over the limit is `429` `ErrorResponse` with `Retry-After`; every response of a limited route (errors too) carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds from now). The limiter runs first, so `429` wins over `401` and `422`.
+- **Who is calling**: `get_optional_user_id` in `api/security.py` (same seam, same per-request resolution as `CurrentUserId`, but `None` instead of a `401`). Client IP is the connection's peer; `X-Forwarded-For` (last entry) only with `RATE_LIMIT__TRUST_PROXY=true`.
+- **Wiring**: `bootstrap.py` builds `Container.rate_limiting` (the limiter plus the three policies and flags from the `rate_limit` settings group); the API reads it through the `RateLimiting` Protocol in `api/dependencies.py`. API tests replace the limiter with the in-memory adapter on a clock they move.
+- **Redis down**: the API keeps serving and counts per process; one warning per outage (`FailOpenRateLimiter`).
 
 ## SOLID mapping
 

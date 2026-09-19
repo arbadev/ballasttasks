@@ -11,13 +11,13 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
+from app.bootstrap import load_settings
+from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
 from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
-
-from app.bootstrap import load_settings
-from app.infrastructure.cache.client import create_redis_client
 from tests.rate_limit_fakes import FakeClock
 
 ADAPTERS = [

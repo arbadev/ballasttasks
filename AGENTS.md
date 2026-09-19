@@ -15,6 +15,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **PostgreSQL only**, including tests. No SQLite. A table = an ORM model in `infrastructure/db/models/` plus one Alembic revision (`--autogenerate`, then reviewed by hand).
 - **Transactions**: repositories never commit. `Container.request_scope()` is the unit of work (one session, commit or rollback in one place); see "Unit of work" in `docs/architecture.md`.
 - **Auth seam**: routes get the caller only through `CurrentUserId` (`api/security.py`); API tests set it with `app.dependency_overrides[get_current_user_id]`. No other module touches JWTs, and no response, log line or error ever carries a password, a hash or a token.
+- **Rate limiting**: a new router outside `/health` opts in with `Depends(limit_requests)` (credential routes: `limit_auth_attempts`) and `responses={**TOO_MANY_REQUESTS}` from `api/rate_limit.py`; see "Rate limiting" in `docs/architecture.md`. API tests swap `Container.rate_limiting.limiter`, never Redis.
 - **Versions**: latest stable, verified from the official source at install time. Let `uv add` / `npm install` resolve; never type versions from memory.
 - **TDD order**: write the test, see it fail, implement, run all checks, commit (`chore(scope): ...`, conventional commits). Never weaken or delete a test to get green.
 - **No AI attribution**: commits, PR titles and PR descriptions never carry an AI or agent attribution (no `Co-Authored-By: Claude ...` trailer, no "Generated with ..." line).

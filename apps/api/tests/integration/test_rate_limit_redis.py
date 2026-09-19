@@ -7,12 +7,12 @@ from collections.abc import AsyncIterator
 
 import httpx
 import pytest
-from app.application.ports.rate_limiter import RateLimitPolicy
-from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 from redis.asyncio import Redis
 
+from app.application.ports.rate_limiter import RateLimitPolicy
 from app.bootstrap import build_container, load_settings
 from app.infrastructure.cache.client import create_redis_client
+from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 from app.main import create_app
 
 pytestmark = pytest.mark.integration

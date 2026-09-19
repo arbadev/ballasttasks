@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_error_handlers
+from app.api.rate_limit import RATE_LIMIT_HEADERS, RateLimitHeadersMiddleware
 from app.api.routes import auth, health, tasks
 from app.bootstrap import Container, Settings, build_container, load_settings
 
@@ -31,12 +32,15 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         lifespan=lifespan,
     )
     app.state.container = container
+    app.add_middleware(RateLimitHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors.allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Without this a browser hides them from the frontend.
+        expose_headers=list(RATE_LIMIT_HEADERS),
     )
     register_error_handlers(app)
     app.include_router(health.router)

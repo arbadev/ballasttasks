@@ -3,10 +3,10 @@
 import logging
 
 import pytest
+
 from app.application.ports.rate_limiter import RateLimitPolicy
 from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
 from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
-
 from tests.rate_limit_fakes import (
     FakeClock,
     FakeMonotonic,
