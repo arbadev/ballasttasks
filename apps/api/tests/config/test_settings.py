@@ -173,3 +173,72 @@ def test_the_jwt_secret_never_appears_in_a_repr_or_a_dump(
     assert TEST_JWT_SECRET not in repr(settings)
     assert TEST_JWT_SECRET not in str(settings.model_dump())
     assert TEST_JWT_SECRET not in settings.model_dump_json()
+
+
+
+def _startup_error() -> ValidationError:
+    with pytest.raises(ValidationError) as error:
+        load_settings(valid_ai_providers=PROVIDERS)
+    return error.value
+
+
+def _assert_never_shown(value: str, error: ValidationError) -> None:
+    """Not even a fragment: pydantic shortens long inputs, which still shows part of a key."""
+    fragments = {value[start : start + 8] for start in range(len(value) - 7)}
+    for text in (str(error), repr(error)):
+        assert not [fragment for fragment in fragments if fragment in text]
+
+
+@pytest.mark.parametrize(
+    ("algorithm", "secret"),
+    [
+        ("HS256", "S3cretValue-31-bytes-long-abcde"),
+        ("HS384", "S3cretValue-47-bytes-long-" + "a" * 21),
+        ("HS512", "S3cretValue-63-bytes-long-" + "a" * 37),
+    ],
+)
+def test_a_rejected_jwt_secret_never_appears_in_the_startup_error(
+    minimal_env: pytest.MonkeyPatch, algorithm: str, secret: str
+) -> None:
+    """A key that is one byte too short is still a real key: it must not reach the logs."""
+    minimal_env.setenv("AUTH__JWT_ALGORITHM", algorithm)
+    minimal_env.setenv("AUTH__JWT_SECRET", secret)
+
+    error = _startup_error()
+
+    assert "AUTH__JWT_SECRET" in str(error)
+    _assert_never_shown(secret, error)
+
+
+def test_a_misspelt_auth_variable_does_not_echo_its_value(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    secret = "S3cretValue-under-a-misspelt-name-" + "a" * 30
+    minimal_env.setenv("AUTH__JWT_SECRT", secret)
+
+    error = _startup_error()
+
+    assert "jwt_secrt" in str(error)
+    _assert_never_shown(secret, error)
+
+
+def test_a_rejected_database_url_never_shows_its_password(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("DATABASE__URL", "postgresql://app:Db-Passw0rd-xyz@db/app")
+
+    error = _startup_error()
+
+    assert "DATABASE__URL" in str(error)
+    _assert_never_shown("Db-Passw0rd-xyz", error)
+
+
+def test_a_rejected_redis_url_never_shows_its_password(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("REDIS__URL", "http://:Redis-Passw0rd-xyz@redis:6379/0")
+
+    error = _startup_error()
+
+    assert "REDIS__URL" in str(error)
+    _assert_never_shown("Redis-Passw0rd-xyz", error)

@@ -28,7 +28,8 @@ class ConfigurationError(ValueError):
 
 
 class _Group(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # A rejected value may be a secret (a signing key, a URL with a password): never echo it.
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
 
 class AppSettings(_Group):
@@ -84,7 +85,9 @@ class AuthSettings(_Group):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_nested_delimiter="__", frozen=True, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__", frozen=True, extra="ignore", hide_input_in_errors=True
+    )
 
     app: AppSettings = AppSettings()
     database: DatabaseSettings
