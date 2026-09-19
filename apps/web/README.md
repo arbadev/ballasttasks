@@ -114,6 +114,10 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 Calls for the same task never overlap. The newest queued target wins, so intermediate queued
 targets are never sent; serialization prevents stale answers without a shared workspace guard.
+A refused move is therefore carried on the user's newest target and not on the one the service
+refused, because the intermediate hops were never sent, which is why the alert states only that
+the card did not move and which column it is back in. A retry consequently records a single
+status change rather than one per hop; that follows from coalescing and is intended.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.

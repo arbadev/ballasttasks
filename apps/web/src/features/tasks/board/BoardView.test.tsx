@@ -251,7 +251,7 @@ describe("drag and drop", () => {
 
     drag(PRD, "Testing").drop();
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in To Do.`);
+    expect(alert).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
     expect(titlesIn("To Do")).toContain(PRD);
     expect(titlesIn("Testing")).not.toContain(PRD);
 
@@ -380,7 +380,7 @@ describe("moving without a drag", () => {
     await act(async () => release());
     const alert = await screen.findByRole("alert");
     await waitFor(() => expect(titlesIn("In Progress")).toContain(PRD));
-    expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in In Progress.`);
+    expect(alert).toHaveTextContent(`Could not move "${PRD}". It is back in In Progress.`);
   });
 
   it("puts focus back on the card when a Shift+Arrow move is refused and the card returns to its column", async () => {
@@ -567,7 +567,7 @@ describe("moving without a drag", () => {
 
     await act(async () => release());
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in To Do.`);
+    expect(alert).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
     expect(titlesIn("To Do")).toContain(PRD);
     expect(titlesIn("In Progress")).not.toContain(PRD);
     expect(titlesIn("Testing")).not.toContain(PRD);
@@ -635,7 +635,7 @@ describe("add a task", () => {
 
     service.failNextMove = true;
     drag(PRD, "Testing").drop();
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}" to Testing.`));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`));
 
     fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));

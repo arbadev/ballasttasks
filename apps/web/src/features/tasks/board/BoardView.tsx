@@ -123,7 +123,7 @@ function Board() {
 
       {moves.failure && (
         <BoardAlert
-          message={`Could not move "${moves.failure.title}" to ${statusName(moves.failure.to)}. It is back in ${statusName(moves.failure.from)}.`}
+          message={`Could not move "${moves.failure.title}". It is back in ${statusName(moves.failure.from)}.`}
           onRetry={retryMove}
           onDismiss={moves.dismissFailure}
         />
