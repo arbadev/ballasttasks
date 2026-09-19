@@ -49,6 +49,7 @@ class ControlledTaskService extends FakeTaskService {
   /** Every move to this status fails, whatever order the moves are answered in. */
   refuses: TaskStatus | null = null;
   hold: Promise<void> | null = null;
+  holdCreate: Promise<void> | null = null;
   /** The first move to this status waits for its promise; later ones are answered at once. */
   readonly holds = new Map<TaskStatus, Promise<void>>();
   override async move(id: string, status: TaskStatus) {
@@ -66,6 +67,7 @@ class ControlledTaskService extends FakeTaskService {
     return super.move(id, status);
   }
   override async create(input: Parameters<FakeTaskService["create"]>[0]) {
+    if (this.holdCreate) await this.holdCreate;
     if (this.failNextCreate) {
       this.failNextCreate = false;
       throw new Error("The server said no.");
@@ -589,6 +591,106 @@ describe("moving without a drag", () => {
     fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
     await screen.findByRole("alert");
     expect(screen.getByTestId("board-live")).toBeEmptyDOMElement();
+  });
+});
+
+describe("concurrent board attempts", () => {
+  it("replaces a move error with the newer add error, without reviving either on dismissal", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+    drag(PRD, "Testing").drop();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`);
+
+    service.failNextCreate = true;
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing."));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not revive a late add failure after a newer move succeeds", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    drag(PRD, "In Progress").drop();
+    await waitFor(() => expect(moveCalls(service)).toHaveLength(1));
+    await act(async () => release());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(titlesIn("In Progress")).toContain(PRD);
+  });
+
+  it("does not revive a late move failure after a newer add succeeds", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "In Progress").drop();
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    await screen.findByRole("dialog", { name: "Untitled task" });
+    await act(async () => release());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(titlesIn("To Do")).toContain(PRD);
+  });
+
+  it("does not overwrite the newest move error when an older task's refusal arrives later", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "In Progress").drop();
+    drag(JWT, "In Progress").drop();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
+    await act(async () => release());
+    expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(PRD);
+  });
+
+  it("keeps a keyboard task's settlement when another task answers in the same batch", async () => {
+    const service = new ControlledTaskService([
+      makeTask({ id: "a", title: "Keyboard task", status: "testing", due: due(-1) }),
+      makeTask({ id: "b", title: "Dragged task", status: "todo", due: due(-1) }),
+    ]);
+    let release = () => {};
+    service.hold = new Promise<void>((resolve) => (release = resolve));
+    await renderBoard({ taskService: service });
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Workspace" })).getByRole("button", { name: /^Overdue/ }));
+
+    openButton("Keyboard task").focus();
+    fireEvent.keyDown(openButton("Keyboard task"), { key: "ArrowRight", shiftKey: true });
+    drag("Dragged task", "In Progress").drop();
+    await act(async () => release());
+
+    expect(screen.queryByRole("article", { name: "Keyboard task" })).not.toBeInTheDocument();
+    expect(titlesIn("In Progress")).toContain("Dragged task");
+    await waitFor(() => expect(within(column("Testing")).getByRole("heading")).toHaveFocus());
+  });
+
+  it("does not consume a pending keyboard move's focus when a different task settles earlier", async () => {
+    const service = new ControlledTaskService([
+      makeTask({ id: "a", title: "Keyboard task", status: "testing", due: due(-1) }),
+      makeTask({ id: "b", title: "Dragged task", status: "todo", due: due(-1) }),
+    ]);
+    let release = () => {};
+    service.holds.set("done", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+    fireEvent.click(within(screen.getByRole("complementary", { name: "Workspace" })).getByRole("button", { name: /^Overdue/ }));
+
+    openButton("Keyboard task").focus();
+    fireEvent.keyDown(openButton("Keyboard task"), { key: "ArrowRight", shiftKey: true });
+    drag("Dragged task", "In Progress").drop();
+    await waitFor(() => expect(moveCalls(service)).toEqual([["move", "b", "progress"]]));
+    expect(openButton("Keyboard task")).toHaveFocus();
+    await act(async () => release());
+    await waitFor(() => expect(within(column("Testing")).getByRole("heading")).toHaveFocus());
   });
 });
 
