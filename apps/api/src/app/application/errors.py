@@ -33,6 +33,47 @@ class StoredTaskInvalid(RuntimeError):  # noqa: N818 - named for what happened
         self.task_id = task_id
 
 
+class AttachmentNotFound(LookupError):  # noqa: N818 - named for what happened, as the API reports it
+    """No attachment has that id, or it belongs to another task than the one named."""
+
+    def __init__(self, attachment_id: uuid.UUID) -> None:
+        super().__init__(f"Attachment {attachment_id} not found")
+        self.attachment_id = attachment_id
+
+
+class FileTooLargeError(ValueError):
+    def __init__(self, max_bytes: int) -> None:
+        super().__init__(f"File exceeds {max_bytes} bytes")
+        self.max_bytes = max_bytes
+
+
+class EmptyFileError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("File must not be empty")
+
+
+class UnsupportedFileTypeError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("File must have PDF, PNG, JPEG, GIF or WebP leading bytes")
+
+
+class AttachmentHasNoContent(LookupError):  # noqa: N818
+    def __init__(self) -> None:
+        super().__init__("Links have no stored content")
+
+
+class AttachmentContentMissing(AttachmentNotFound):
+    pass
+
+
+class StoredAttachmentInvalid(RuntimeError):  # noqa: N818 - named for what happened
+    """A stored attachment breaks a domain rule: a server fault, never the caller's request."""
+
+    def __init__(self, attachment_id: uuid.UUID) -> None:
+        super().__init__(f"Stored attachment {attachment_id} is invalid")
+        self.attachment_id = attachment_id
+
+
 class StepNotFound(LookupError):  # noqa: N818 - named for what happened, as the API reports it
     """The task has no step with that id (a step of another task is not found either)."""
 

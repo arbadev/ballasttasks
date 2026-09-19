@@ -13,6 +13,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.application.errors import (
+    AttachmentHasNoContent,
+    AttachmentNotFound,
+    EmptyFileError,
+    FileTooLargeError,
     InvalidAssigneeError,
     InvalidTaskReferenceError,
     ProjectKeyTakenError,
@@ -20,8 +24,12 @@ from app.application.errors import (
     StepNotFound,
     TaskNotFound,
     UnknownProjectError,
+    UnsupportedFileTypeError,
 )
+from app.application.ports.step_generation_jobs import GenerationJobsUnavailable
+from app.application.step_generation import GenerationNotFound
 from app.domain.activity import InvalidActivityError
+from app.domain.attachment import InvalidAttachmentError
 from app.domain.project import InvalidProjectError
 from app.domain.step import InvalidStepError, InvalidStepOrderError
 from app.domain.task import InvalidTaskError
@@ -85,10 +93,28 @@ async def _validation_error_without_input(_: Request, error: Exception) -> JSONR
     )
 
 
+async def _generation_unavailable(_: Request, error: Exception) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(error)})
+
+
+def _file_error(code: int) -> ExceptionHandler:
+    async def handler(_: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(status_code=code, content={"detail": str(error)})
+
+    return handler
+
+
 def register_error_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(GenerationNotFound, _not_found)
+    app.add_exception_handler(GenerationJobsUnavailable, _generation_unavailable)
+    app.add_exception_handler(AttachmentHasNoContent, _not_found)
+    app.add_exception_handler(EmptyFileError, _unprocessable("empty_file", ["body", "file"]))
+    app.add_exception_handler(FileTooLargeError, _file_error(413))
+    app.add_exception_handler(UnsupportedFileTypeError, _file_error(415))
     app.add_exception_handler(RequestValidationError, _validation_error_without_input)
     app.add_exception_handler(TaskNotFound, _not_found)
     app.add_exception_handler(ProjectNotFound, _not_found)
+    app.add_exception_handler(AttachmentNotFound, _not_found)
     app.add_exception_handler(StepNotFound, _not_found)
     app.add_exception_handler(ProjectKeyTakenError, _conflict)
     app.add_exception_handler(
@@ -99,6 +125,9 @@ def register_error_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(InvalidProjectError, _unprocessable("invalid_project", ["body"]))
     app.add_exception_handler(InvalidProfileError, _unprocessable("invalid_profile", ["body"]))
+    app.add_exception_handler(
+        InvalidAttachmentError, _unprocessable("invalid_attachment", ["body"])
+    )
     app.add_exception_handler(InvalidStepError, _unprocessable("invalid_step", ["body"]))
     app.add_exception_handler(
         InvalidStepOrderError, _unprocessable("invalid_step_order", ["body", "step_ids"])

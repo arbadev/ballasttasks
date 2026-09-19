@@ -45,6 +45,8 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "PT", "RUF", "ASYNC",
 [tool.ruff.lint.per-file-ignores]
 # S608: test SQL is assembled from constants in tests/postgres.py, never from input.
 "tests/**" = ["S101", "S105", "S106", "S608"]
+# ASYNC240: these tests look at the disk the adapter wrote to; blocking there is the point.
+"tests/unit/test_local_disk_file_storage.py" = ["ASYNC240"]
 
 [tool.mypy]
 strict = true
@@ -84,9 +86,9 @@ type = "forbidden"
 source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
-    "app.seed_demo",
+    "app.worker", "app.seed_demo",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx", "cryptography",
+    "jwt", "argon2", "httpx", "cryptography", "python_multipart",
 ]
 
 [[tool.importlinter.contracts]]
@@ -94,9 +96,9 @@ name = "application imports only domain (no framework)"
 type = "forbidden"
 source_modules = ["app.application"]
 forbidden_modules = [
-    "app.infrastructure", "app.api", "app.bootstrap", "app.main", "app.seed_demo",
+    "app.infrastructure", "app.api", "app.bootstrap", "app.main", "app.worker", "app.seed_demo",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx", "cryptography",
+    "jwt", "argon2", "httpx", "cryptography", "python_multipart",
 ]
 
 [[tool.importlinter.contracts]]
@@ -104,7 +106,7 @@ name = "api does not import infrastructure adapters or the composition root"
 type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
-    "app.infrastructure", "app.bootstrap", "app.main", "app.seed_demo",
+    "app.infrastructure", "app.bootstrap", "app.main", "app.worker", "app.seed_demo",
     "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx", "cryptography",
 ]
 
@@ -113,12 +115,12 @@ name = "infrastructure does not import api or the composition root"
 type = "forbidden"
 source_modules = ["app.infrastructure"]
 forbidden_modules = [
-    "app.api", "app.bootstrap", "app.main", "app.seed_demo", "fastapi", "starlette",
+    "app.api", "app.bootstrap", "app.main", "app.worker", "app.seed_demo", "fastapi", "starlette",
 ]
 
 [[tool.importlinter.contracts]]
 name = "only app.bootstrap imports app.infrastructure (entry points go through bootstrap)"
 type = "forbidden"
-source_modules = ["app.main", "app.seed_demo"]
+source_modules = ["app.main", "app.worker", "app.seed_demo"]
 forbidden_modules = ["app.infrastructure"]
 allow_indirect_imports = true

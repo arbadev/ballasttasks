@@ -112,7 +112,7 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         "422": invalid,
         "429": error,
     }
-    # One task is read with its steps; a change answers like the list, without them.
+    # The detail adds steps and attachments; a change answers like the list, without them.
     for method, model in (("get", "TaskDetailResponse"), ("patch", "TaskResponse")):
         assert documented("/tasks/{id_or_key}", method) == {
             "200": model,
@@ -388,6 +388,6 @@ async def test_openapi_documents_every_step_comment_and_activity_response(
     )
     assert set(schemas["TaskDetailResponse"]["properties"]) == set(
         schemas["TaskResponse"]["properties"]
-    ) | {"steps"}
+    ) | {"steps", "attachments"}
     assert schemas["StepsCreate"]["properties"]["titles"]["maxItems"] == 20
     assert schemas["StepsCreate"]["properties"]["titles"]["minItems"] == 1

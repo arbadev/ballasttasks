@@ -221,7 +221,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get one task by its id or its key, with its steps */
+        /** Get one task by its id or its key, with its steps and attachments */
         get: operations["get_task_tasks__id_or_key__get"];
         put?: never;
         post?: never;
@@ -231,6 +231,83 @@ export interface paths {
         head?: never;
         /** Change a task: edit it, assign it, move it, or complete it with status=done */
         patch: operations["update_task_tasks__id_or_key__patch"];
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a link to a task
+         * @description Only absolute `http` and `https` URLs. Without a `name` the link is named after its host. Attaching touches the task's `updated_at`.
+         */
+        post: operations["attach_link_tasks__id_or_key__attachments_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a PDF or image attachment
+         * @description One multipart file. Type is determined by leading bytes, never the supplied MIME type. PDF, PNG, JPEG, GIF and WebP only. Default limit: 10 MiB, checked while streaming.
+         */
+        post: operations["attach_file_tasks__id_or_key__attachments_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/{attachment_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download an attachment */
+        get: operations["attachment_content_tasks__id_or_key__attachments__attachment_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an attachment from a task
+         * @description A link is forgotten; a file is also deleted from the storage.
+         */
+        delete: operations["remove_attachment_tasks__id_or_key__attachments__attachment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/tasks/{id_or_key}/steps": {
@@ -310,6 +387,40 @@ export interface paths {
         head?: never;
         /** Rename a step, tick it or untick it */
         patch: operations["update_step_tasks__id_or_key__steps__step_id__patch"];
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/step-generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue draft step titles without adding steps */
+        post: operations["start_tasks__id_or_key__step_generations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/step-generations/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll a task's retained generation */
+        get: operations["poll_tasks__id_or_key__step_generations__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/tasks/{id_or_key}/comments": {
@@ -474,6 +585,60 @@ export interface components {
             model: string;
         };
         /**
+         * AttachmentKind
+         * @description The design's three kinds. ``link`` has a URL; ``pdf`` and ``image`` are stored files.
+         * @enum {string}
+         */
+        AttachmentKind: "link" | "pdf" | "image";
+        /**
+         * AttachmentResponse
+         * @description Where a file is stored is never part of the contract; its bytes come from
+         *     ``GET /tasks/{id_or_key}/attachments/{attachment_id}/content``.
+         */
+        AttachmentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            kind: components["schemas"]["AttachmentKind"];
+            /**
+             * Name
+             * @description Display name: the link's name, or the file's sanitised name.
+             */
+            name: string;
+            /**
+             * Url
+             * @description The link's address; `null` for a file.
+             */
+            url: string | null;
+            /**
+             * Content Type
+             * @description What the file's leading bytes say it is; `null` for a link.
+             */
+            content_type: string | null;
+            /**
+             * Size Bytes
+             * @description Size of the stored file; `null` for a link.
+             */
+            size_bytes: number | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
          * AttentionReason
          * @description Machine-readable, most severe first. ``due_today`` and ``due_soon`` exclude each other.
          * @enum {string}
@@ -592,6 +757,24 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /**
+         * LinkCreate
+         * @description ``created_by`` is the authenticated user; the kind is ``link``: neither is read.
+         */
+        LinkCreate: {
+            /**
+             * Url
+             * @description An absolute `http` or `https` URL with a host. Anything else is a `422`: another scheme (`javascript:`, `data:`, `file:`), a relative reference, a user name or password in the URL, whitespace or control characters.
+             * @example https://github.com/arbadev/ballasttasks
+             */
+            url: string;
+            /**
+             * Name
+             * @description What people see. Absent, `null` or blank: the URL's host.
+             * @example The repository
+             */
+            name?: string | null;
         };
         /** PeopleResponse */
         PeopleResponse: {
@@ -782,6 +965,31 @@ export interface components {
              */
             title: string;
         };
+        /** StepGenerationResponse */
+        StepGenerationResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "success" | "failure";
+            /**
+             * Titles
+             * @description 1-20 validated draft titles on success; empty in every other state. Not stored steps.
+             */
+            titles: string[];
+            /** Error */
+            error: ("invalid_output" | "provider_unavailable" | "timeout" | "worker_failed") | null;
+        };
         /** StepListResponse */
         StepListResponse: {
             /** Items */
@@ -892,7 +1100,7 @@ export interface components {
         };
         /**
          * TaskDetailResponse
-         * @description One task as the detail panel reads it: the task and its steps, in order.
+         * @description One task as the detail panel reads it: its steps and attachments, in order.
          */
         TaskDetailResponse: {
             /**
@@ -942,6 +1150,11 @@ export interface components {
             importance: number;
             attention: components["schemas"]["AttentionResponse"];
             /**
+             * Attachments Count
+             * @description How many links and files are attached; the detail lists them.
+             */
+            attachments_count: number;
+            /**
              * Steps Total
              * @description How many steps the task has.
              */
@@ -956,6 +1169,11 @@ export interface components {
              * @description How many comments its activity holds.
              */
             comments_count: number;
+            /**
+             * Attachments
+             * @description Oldest first.
+             */
+            attachments: components["schemas"]["AttachmentResponse"][];
             /**
              * Steps
              * @description Every step of the task, in order: 100 of them at most.
@@ -1030,6 +1248,11 @@ export interface components {
             /** Importance */
             importance: number;
             attention: components["schemas"]["AttentionResponse"];
+            /**
+             * Attachments Count
+             * @description How many links and files are attached; the detail lists them.
+             */
+            attachments_count: number;
             /**
              * Steps Total
              * @description How many steps the task has.
@@ -2077,6 +2300,302 @@ export interface operations {
             };
         };
     };
+    attach_link_tasks__id_or_key__attachments_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    attach_file_tasks__id_or_key__attachments_files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * File
+                     * Format: binary
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description File too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unsupported leading bytes */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    attachment_content_tasks__id_or_key__attachments__attachment_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachment_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored file, with Content-Disposition and nosniff */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key, or the task has no such attachment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_attachment_tasks__id_or_key__attachments__attachment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachment_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key, or the task has no such attachment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_steps_tasks__id_or_key__steps_get: {
         parameters: {
             query?: never;
@@ -2481,6 +3000,157 @@ export interface operations {
                     "X-RateLimit-Remaining"?: number;
                     /** @description Seconds until the current window ends */
                     "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_tasks__id_or_key__step_generations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepGenerationResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown task or retained generation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Generation queue unavailable; retry later */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    poll_tasks__id_or_key__step_generations__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepGenerationResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unknown task or retained generation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Generation queue unavailable; retry later */
+            503: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

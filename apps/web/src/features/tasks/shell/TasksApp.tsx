@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
-import { Button } from "@/components/ui/Button";
 import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
 import { BoardView } from "../board/BoardView";
 import { TaskDetail } from "../detail/TaskDetail";
@@ -22,7 +21,7 @@ export function TasksApp() {
 }
 
 function Shell() {
-  const { state, actions } = useWorkspace();
+  const { state } = useWorkspace();
   const navigationId = useId();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
@@ -50,31 +49,13 @@ function Shell() {
         <Header navigationId={navigationId} navigationOpen={navigationOpen} onOpenNavigation={() => setNavigationOpen(true)} />
         <FilterToolbar />
         <AttentionStrip />
-        {/* A project with no tasks invites the first one. Otherwise the list draws its own loading
-            and error states; the board still uses the shell's. */}
+        {/* A project with no tasks invites the first one. Each view owns its loading and error states. */}
         {emptyProject ? (
           <EmptyProject project={emptyProject} onFirstTask={() => setFocusQuickAdd(state.view === "list")} />
         ) : state.view === "list" ? (
           <ListView focusQuickAdd={focusQuickAdd} onQuickAddFocused={quickAddFocused} />
         ) : (
-          <>
-            {state.load.status === "loading" && (
-              <p role="status" className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">
-                Loading tasks…
-              </p>
-            )}
-            {state.load.status === "error" && (
-              <div role="alert" className="flex flex-col items-start gap-3 px-6 py-14 text-[13px] text-fg-2 max-md:px-4">
-                <p className="m-0">
-                  Could not load the tasks. <span className="text-fg-3">{state.load.message}</span>
-                </p>
-                <Button variant="ghost" onClick={actions.reload} className="border border-line bg-card text-fg-2">
-                  Retry
-                </Button>
-              </div>
-            )}
-            {state.load.status === "ready" && <BoardView />}
-          </>
+          <BoardView />
         )}
       </main>
       <TaskDetail />

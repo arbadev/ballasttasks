@@ -19,6 +19,10 @@ from tests.api.conftest import USER_ID, AuthFakes, RecordingRequestScopes
 from tests.auth_fakes import a_user
 from tests.builders import a_project
 
+# ``GET /tasks/{id_or_key}`` is the detail: the task as every other route shows it, plus what
+# is attached to it.
+NOTHING_ATTACHED: dict[str, object] = {"attachments": []}
+
 NOW = datetime(2026, 3, 10, 9, 30, tzinfo=UTC)
 TODAY = date(2026, 3, 10)
 
@@ -152,7 +156,7 @@ async def test_a_task_is_found_by_its_key_in_any_case_and_padding(
     response = await task_client.get(f"/tasks/{reference}")
 
     assert response.status_code == 200
-    assert response.json() == created | {"steps": []}
+    assert response.json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 async def test_an_unknown_key_is_404_and_a_malformed_reference_is_422(
@@ -219,7 +223,9 @@ async def test_patch_rejects_an_invalid_body_and_leaves_the_task_alone(
     response = await task_client.patch(f"/tasks/{created['id']}", json=body)
 
     assert response.status_code == 422
-    assert (await task_client.get(f"/tasks/{created['id']}")).json() == created | {"steps": []}
+    assert (
+        await task_client.get(f"/tasks/{created['id']}")
+    ).json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 async def test_patch_refuses_a_move_to_a_project_that_does_not_exist(
@@ -233,7 +239,9 @@ async def test_patch_refuses_a_move_to_a_project_that_does_not_exist(
 
     assert response.status_code == 422
     assert response.json()["detail"][0]["type"] == "unknown_project"
-    assert (await task_client.get(f"/tasks/{created['id']}")).json() == created | {"steps": []}
+    assert (
+        await task_client.get(f"/tasks/{created['id']}")
+    ).json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 # --- attention -----------------------------------------------------------------------------

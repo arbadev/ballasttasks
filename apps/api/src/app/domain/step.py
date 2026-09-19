@@ -37,7 +37,7 @@ class Step:
     created_at: datetime
 
     def __post_init__(self) -> None:
-        self.title = _valid_title(self.title)
+        self.title = valid_step_title(self.title)
         if type(self.position) is not int or self.position < 0:
             raise InvalidStepError("position must be a whole number, zero or more")
         if self.created_at.utcoffset() is None:
@@ -52,7 +52,7 @@ class Step:
         )
 
     def rename(self, title: str) -> None:
-        self.title = _valid_title(title)
+        self.title = valid_step_title(title)
 
     def mark(self, *, done: bool) -> bool:
         """``True`` when this changed the step: ticking a ticked step is not an event."""
@@ -91,7 +91,8 @@ def close_gap(remaining: Sequence[Step], removed: Step) -> list[Step]:
     return moved
 
 
-def _valid_title(title: str) -> str:
+def valid_step_title(title: str) -> str:
+    """Normalise a stored step or an unaccepted generated proposal by the same rule."""
     if "\x00" in title:
         raise InvalidStepError("title must not contain the NUL character")
     stripped = title.strip()
