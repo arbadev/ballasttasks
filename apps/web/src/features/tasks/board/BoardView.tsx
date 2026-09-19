@@ -51,8 +51,16 @@ function Board() {
   const grid = useRef<HTMLDivElement>(null);
   /** A card moved without a drag is remounted in its new column; focus follows it there. */
   const focusAfterMove = useRef<string | null>(null);
+  /** The last card moved without a drag. A refused move remounts it once more, and focus follows it back. */
+  const movedWithoutDrag = useRef<string | null>(null);
+  const failedId = moves.failure?.taskId ?? null;
 
   useEffect(() => {
+    if (failedId && failedId === movedWithoutDrag.current) {
+      movedWithoutDrag.current = null;
+      // Focus the user has since put somewhere else stays there.
+      if (document.activeElement === document.body) focusAfterMove.current = failedId;
+    }
     const id = focusAfterMove.current;
     if (!id) return;
     focusAfterMove.current = null;
@@ -71,7 +79,13 @@ function Board() {
 
   const moveWithoutDrag = (taskId: string, to: TaskStatus) => {
     focusAfterMove.current = taskId;
+    movedWithoutDrag.current = taskId;
     moves.move(taskId, to);
+  };
+
+  /** Retry is a button press: its alert goes away, so focus goes to the card it moves. */
+  const retryMove = () => {
+    if (moves.failure) moveWithoutDrag(moves.failure.taskId, moves.failure.to);
   };
 
   return (
@@ -83,7 +97,7 @@ function Board() {
       {moves.failure && (
         <BoardAlert
           message={`Could not move "${moves.failure.title}" to ${statusName(moves.failure.to)}. It is back in ${statusName(moves.failure.from)}.`}
-          onRetry={moves.retry}
+          onRetry={retryMove}
           onDismiss={moves.dismissFailure}
         />
       )}
@@ -107,6 +121,7 @@ function Board() {
               onDrop={(event: DragEvent<HTMLElement>) => {
                 event.preventDefault();
                 const id = draggedId ?? event.dataTransfer.getData(DRAG_TYPE);
+                if (id === movedWithoutDrag.current) movedWithoutDrag.current = null;
                 if (id) moves.move(id, status.id);
                 endDrag();
               }}

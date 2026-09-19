@@ -368,6 +368,84 @@ describe("moving without a drag", () => {
     expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in In Progress.`);
   });
 
+  it("puts focus back on the card when a Shift+Arrow move is refused and the card returns to its column", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await screen.findByRole("alert");
+
+    expect(titlesIn("To Do")).toContain(PRD);
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+  });
+
+  it("puts focus back on the card when a move button's move is refused", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+
+    const button = within(card(COMPOSE)).getByRole("button", { name: `Move "${COMPOSE}" to Done` });
+    button.focus();
+    fireEvent.click(button);
+    await screen.findByRole("alert");
+
+    expect(titlesIn("Testing")).toContain(COMPOSE);
+    await waitFor(() => expect(openButton(COMPOSE)).toHaveFocus());
+  });
+
+  it("keeps focus off the body when Retry is refused again", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    retry.focus();
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(moveCalls(service)).toHaveLength(2));
+    await screen.findByRole("alert");
+    expect(titlesIn("To Do")).toContain(PRD);
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+  });
+
+  it("leaves focus where the user has put it while the refused move was pending", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    let release = () => {};
+    service.hold = new Promise<void>((resolve) => (release = resolve));
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+    const search = screen.getByRole("searchbox", { name: "Search tasks" });
+    search.focus();
+
+    await act(async () => release());
+    await screen.findByRole("alert");
+    expect(search).toHaveFocus();
+  });
+
+  it("does not take focus when a dragged move is refused, even for a card the keyboard moved before", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(moveCalls(service)).toHaveLength(1));
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+
+    service.failNextMove = true;
+    drag(PRD, "Testing").drop();
+    await screen.findByRole("alert");
+    expect(titlesIn("In Progress")).toContain(PRD);
+    expect(openButton(PRD)).not.toHaveFocus();
+  });
+
   it("leaves a failed move to the alert, with nothing in the polite region", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     service.failNextMove = true;
