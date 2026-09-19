@@ -7,12 +7,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.api.security import get_current_user_id
+from app.api.security import get_current_user_id, get_streaming_user_id
 from app.application.clock import Clock, utc_now
+from app.application.file_changes import FileChanges
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.infrastructure.identity.fake import FakeIdentityProvider
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from app.main import create_app
 from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
 from tests.auth_fakes import (
@@ -21,7 +23,12 @@ from tests.auth_fakes import (
     InMemoryUserDirectory,
     InMemoryUserRepository,
 )
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository, StubHealthCheck
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+    StubHealthCheck,
+)
 from tests.sso_fakes import InMemoryOneTimeStore, InMemoryUserIdentityRepository, MutableClock
 
 ClientFactory = Callable[
@@ -89,19 +96,36 @@ class RecordingRequestScopes:
     """Stands in for ``Container.request_scope``: the same in-memory repositories for
     every request, and a record of how each scope ended."""
 
-    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes, sso: SsoFakes) -> None:
+    def __init__(
+        self,
+        tasks: InMemoryTaskRepository,
+        auth: AuthFakes,
+        attachments: InMemoryAttachmentRepository,
+        sso: SsoFakes,
+    ) -> None:
         self.tasks = tasks
         self.auth = auth
+        self.attachments = attachments
         self.steps = InMemoryStepRepository(tasks)
         self.activity = InMemoryActivityLog(tasks)
         self.sso = sso
+        self.storage = InMemoryFileStorage()
+        self.max_file_bytes = 10 * 1024 * 1024
         self.events: list[str] = []
         # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
         self.clock: Clock = utc_now
 
+    @property
+    def open_units(self) -> int:
+        """How many units of work are open right now. A request that waits for the client,
+        such as a file upload, must hold none: see ADR 0008."""
+        events = self.events
+        return events.count("begin") - events.count("commit") - events.count("rollback")
+
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
         self.events.append("begin")
+        files = FileChanges(self.storage)
         try:
             yield RequestScope(
                 tasks=self.tasks,
@@ -109,10 +133,14 @@ class RecordingRequestScopes:
                 user_directory=InMemoryUserDirectory(self.auth.users),
                 projects=self.tasks.projects,
                 people=InMemoryUserDirectory(self.auth.users),
+                attachments=self.attachments,
+                file_storage=self.storage,
+                file_changes=files,
+                max_file_bytes=self.max_file_bytes,
                 steps=self.steps,
                 activity=self.activity,
                 activity_feed=self.activity,
-                tallies=InMemoryTaskTallies(self.steps, self.activity),
+                tallies=InMemoryTaskTallies(self.steps, self.activity, self.attachments),
                 clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
@@ -121,9 +149,11 @@ class RecordingRequestScopes:
                 one_time_store=self.sso.store,
             )
         except BaseException:
+            await files.rolled_back()
             self.events.append("rollback")
             raise
         self.events.append("commit")
+        await files.committed()
 
 
 @pytest.fixture
@@ -137,6 +167,11 @@ def tasks(auth_fakes: AuthFakes) -> InMemoryTaskRepository:
 
 
 @pytest.fixture
+def attachments(tasks: InMemoryTaskRepository) -> InMemoryAttachmentRepository:
+    return InMemoryAttachmentRepository(tasks)
+
+
+@pytest.fixture
 def sso_fakes() -> SsoFakes:
     clock = MutableClock()
     return SsoFakes(clock, InMemoryOneTimeStore(clock), InMemoryUserIdentityRepository())
@@ -144,9 +179,12 @@ def sso_fakes() -> SsoFakes:
 
 @pytest.fixture
 def request_scopes(
-    tasks: InMemoryTaskRepository, auth_fakes: AuthFakes, sso_fakes: SsoFakes
+    tasks: InMemoryTaskRepository,
+    auth_fakes: AuthFakes,
+    attachments: InMemoryAttachmentRepository,
+    sso_fakes: SsoFakes,
 ) -> RecordingRequestScopes:
-    return RecordingRequestScopes(tasks, auth_fakes, sso_fakes)
+    return RecordingRequestScopes(tasks, auth_fakes, attachments, sso_fakes)
 
 
 @pytest.fixture
@@ -173,12 +211,20 @@ async def anonymous_client(tasks_app: FastAPI) -> AsyncIterator[httpx.AsyncClien
         yield http_client
 
 
+def sign_in(app: FastAPI, user_id: uuid.UUID = USER_ID) -> None:
+    """Both halves of the pinned seam: ``get_current_user_id`` for every route, and
+    ``get_streaming_user_id`` for the upload, which reads its caller apart from the
+    request's unit of work (``api/security.py``)."""
+    app.dependency_overrides[get_current_user_id] = lambda: user_id
+    app.dependency_overrides[get_streaming_user_id] = lambda: user_id
+
+
 @pytest.fixture
 async def task_client(
     tasks_app: FastAPI, anonymous_client: httpx.AsyncClient
 ) -> AsyncIterator[httpx.AsyncClient]:
     """Signed in as ``USER_ID`` through the pinned seam, ``get_current_user_id``."""
-    tasks_app.dependency_overrides[get_current_user_id] = lambda: USER_ID
+    sign_in(tasks_app)
     yield anonymous_client
     tasks_app.dependency_overrides.clear()
 

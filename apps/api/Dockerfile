@@ -29,8 +29,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.14-slim AS runtime
 
+# The one directory the server may write to, and the mount point of the attachments
+# volume: an empty named volume inherits the ownership found here. STORAGE__LOCAL_DIRECTORY
+# names it; pointing it elsewhere means adding that path here as well, because a mount
+# point this image does not create belongs to root and uid 1001 cannot write in it.
 RUN groupadd --system --gid 1001 app \
-    && useradd --system --uid 1001 --gid app --no-create-home app
+    && useradd --system --uid 1001 --gid app --no-create-home app \
+    && mkdir -p /var/lib/ballasttasks/attachments \
+    && chown app:app /var/lib/ballasttasks/attachments \
+    && chmod 700 /var/lib/ballasttasks/attachments
 
 WORKDIR /app
 

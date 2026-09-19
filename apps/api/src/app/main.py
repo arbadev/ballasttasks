@@ -11,6 +11,7 @@ from app.api.errors import register_error_handlers
 from app.api.rate_limit import RATE_LIMIT_HEADERS, RateLimitHeadersMiddleware
 from app.api.routes import (
     activity,
+    attachments,
     auth,
     health,
     projects,
@@ -59,6 +60,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     app.include_router(auth.router)
     app.include_router(sso.router)
     app.include_router(tasks.router)
+    app.include_router(attachments.router)
     app.include_router(steps.router)
     app.include_router(step_generations.router)
     app.include_router(activity.router)

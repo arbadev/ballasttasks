@@ -75,4 +75,5 @@ def test_there_is_one_head_and_users_follow_tasks() -> None:
         "design task model",
         "add user identities",
         "steps and activity",
+        "create attachments",
     ]

@@ -9,6 +9,7 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.file_changes import FileChanges
 from app.application.task_query import TaskQuery
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
@@ -18,10 +19,15 @@ from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from tests.activity_fakes import InMemoryActivityLog
 from tests.auth_fakes import InMemoryUserDirectory, InMemoryUserRepository, a_user
 from tests.builders import a_project, a_task
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+)
 
 NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 LATER = NOW + timedelta(days=1)
@@ -41,6 +47,10 @@ def directory(users: InMemoryUserRepository) -> InMemoryUserDirectory:
 @pytest.fixture
 def tasks(users: InMemoryUserRepository) -> InMemoryTaskRepository:
     return InMemoryTaskRepository(users, InMemoryProjectRepository())
+
+
+def no_attachments(tasks: InMemoryTaskRepository) -> InMemoryAttachmentRepository:
+    return InMemoryAttachmentRepository(tasks)
 
 
 async def stored_user(users: InMemoryUserRepository, *, is_active: bool = True) -> uuid.UUID:
@@ -386,7 +396,9 @@ async def test_update_task_reports_an_unknown_task_before_an_unknown_assignee(
 async def test_delete_task_removes_the_task(tasks: InMemoryTaskRepository) -> None:
     task = await stored_task(tasks)
 
-    await DeleteTask(tasks).execute(task.id)
+    await DeleteTask(tasks, no_attachments(tasks), FileChanges(InMemoryFileStorage())).execute(
+        task.id
+    )
 
     assert await tasks.get(task.id) is None
 
@@ -395,7 +407,9 @@ async def test_delete_task_raises_task_not_found_for_an_unknown_id(
     tasks: InMemoryTaskRepository,
 ) -> None:
     with pytest.raises(TaskNotFound):
-        await DeleteTask(tasks).execute(uuid.uuid4())
+        await DeleteTask(tasks, no_attachments(tasks), FileChanges(InMemoryFileStorage())).execute(
+            uuid.uuid4()
+        )
 
 
 # --- the design's model: projects, keys, status at creation, priority and importance ----------

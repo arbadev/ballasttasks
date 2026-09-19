@@ -65,6 +65,16 @@ def priority_changed(old: TaskPriority, new: TaskPriority) -> str:
     return f"Priority {old.value} → {new.value}"
 
 
+def attachment_added(name: str) -> str:
+    """The design's ``addAttachment`` (line 597)."""
+    return f"Attached {name}"
+
+
+def attachment_removed(name: str) -> str:
+    """Not in the design; the symmetric event for removing an attachment."""
+    return f"Removed {name}"
+
+
 def step_added(title: str) -> str:
     """Not in the design (``addStep``, line 585, logs nothing)."""
     return f"Added step “{title}”"
