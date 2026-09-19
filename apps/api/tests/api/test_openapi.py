@@ -189,10 +189,10 @@ async def test_openapi_documents_the_single_sign_on_contract(client: httpx.Async
     callback = schema["paths"]["/auth/sso/{provider}/callback"]["get"]["responses"]
     exchange = schema["paths"]["/auth/sso/exchange"]["post"]["responses"]
 
-    assert set(providers) == {"200"}
-    assert set(start) == {"303", "404", "422"}
-    assert set(callback) == {"303", "404", "422"}
-    assert set(exchange) == {"200", "401", "422"}
+    assert set(providers) == {"200", "429"}
+    assert set(start) == {"303", "404", "422", "429"}
+    assert set(callback) == {"303", "404", "422", "429"}
+    assert set(exchange) == {"200", "401", "422", "429"}
     for redirect in (start["303"], callback["303"]):
         assert "Location" in redirect["headers"]
         assert "content" not in redirect
