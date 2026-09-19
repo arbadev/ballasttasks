@@ -81,7 +81,7 @@ export function TaskRow({ task, view, projectName, assignee, assigneeIsCurrentUs
       onKeyDown={onRowKey}
       style={{ animationDelay: `${view.delayMs}ms` }}
       className={cn(
-        "relative grid animate-bt-in cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-[14px] border-b border-line px-6 py-[11px] transition-colors duration-[160ms] ease-bt",
+        "relative grid animate-bt-in cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-[14px] border-b border-line px-6 py-[11px] transition-[background-color] duration-[160ms] ease-bt",
         "has-[[data-row-title]:focus-visible]:outline-2 has-[[data-row-title]:focus-visible]:-outline-offset-2 has-[[data-row-title]:focus-visible]:outline-acc",
         "max-md:grid-cols-[18px_minmax(0,1fr)] max-md:items-start max-md:gap-x-3 max-md:gap-y-2 max-md:px-4",
         selected ? "bg-acc-soft" : "bg-transparent hover:bg-card",
@@ -114,7 +114,7 @@ export function TaskRow({ task, view, projectName, assignee, assigneeIsCurrentUs
           data-row-title=""
           onKeyDown={onTitleKey}
           className={cn(
-            "block w-full cursor-pointer truncate bg-transparent p-0 text-left text-sm leading-[1.3] font-medium tracking-[-0.005em] outline-none transition-colors duration-200 ease-bt",
+            "block w-full cursor-pointer truncate bg-transparent p-0 text-left text-sm leading-[1.3] font-medium tracking-[-0.005em] outline-none transition-[color] duration-200 ease-bt",
             "max-md:line-clamp-2 max-md:whitespace-normal",
             view.done ? "text-fg-3 line-through" : "text-fg",
           )}
@@ -126,7 +126,7 @@ export function TaskRow({ task, view, projectName, assignee, assigneeIsCurrentUs
             height, and the design's meta line inherits 1.5 (18px, 15px and 16.5px per size). */}
         <div className="flex flex-wrap items-center gap-3 text-[12px] text-fg-3 max-md:gap-x-2.5 max-md:gap-y-1">
           <span className="font-mono text-[10px] tracking-[.08em] uppercase">{projectName}</span>
-          <span data-testid="due" data-tone={view.dueTone} className={cn(CHIP, "transition-colors duration-200 ease-bt", DUE_TONES[view.dueTone])}>
+          <span data-testid="due" data-tone={view.dueTone} className={cn(CHIP, "transition-[background-color,color] duration-200 ease-bt", DUE_TONES[view.dueTone])}>
             <DueIconGlyph.icon aria-hidden="true" size={12} strokeWidth={DueIconGlyph.strokeWidth} />
             {view.dueLabel}
           </span>
