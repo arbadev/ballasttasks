@@ -26,7 +26,14 @@ export function PropertiesPanel({ task }: { task: Task }) {
 
   const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
   const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(task.id, commands.update(task.id, { assignee: v })) });
-  const due = useAutosaveField({ saved: task.due, save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })) });
+  // A date input reports an empty value while one of its segments is being retyped, so an
+  // empty date is only the user's word for "no due date" once they have left the field.
+  const due = useAutosaveField({
+    saved: task.due,
+    savable: (v: string | null, settling: boolean) => settling || v !== null,
+    save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })),
+    delay: AUTOSAVE_DELAY_MS,
+  });
   const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(task.id, commands.update(task.id, { prio: v })) });
   const project = useAutosaveField({ saved: task.project, save: (v: string) => track(task.id, commands.update(task.id, { project: v })) });
   // Held as text while typing so the field can be emptied: an empty or half-typed box is not a
@@ -66,6 +73,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
           type="date"
           value={due.value ?? ""}
           onChange={(e) => due.change(e.target.value || null)}
+          onBlur={due.flush}
           className={`${BOX_INPUT} h-[34px] px-2.5 font-mono text-[13px] pointer-coarse:h-11`}
         />
         {due.failed && <SaveError what="due date" onRetry={due.retry} />}

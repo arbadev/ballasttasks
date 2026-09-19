@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ListView } from "../list/ListView";
 import type { Task } from "../model/types";
@@ -389,6 +389,44 @@ describe("closing the panel, from a list row", () => {
     await settle();
     expect(opened).toHaveFocus();
     expect(rowTitles()).toHaveLength(3);
+  });
+
+  it("finds the row again when it left the list and came back before the panel closed", async () => {
+    await openFirstRow(threeTasks);
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+    expect(rowTitles()).toHaveLength(2);
+
+    // Reopening mounts a new row node, so the button the panel remembered is gone for good.
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    await settle();
+    expect(rowTitles()).toHaveLength(3);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    expect(document.body).not.toHaveFocus();
+    expect(document.activeElement).toHaveAccessibleName("Alpha");
+  });
+
+  it("does not pull the focus into the list later, once the panel has come and gone", async () => {
+    renderWithServices(<TasksApp />);
+    await screen.findByText("13 tasks");
+    const row = rowTitles()[0];
+    row.focus();
+    fireEvent.click(row);
+    await settle();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    expect(row).toHaveFocus();
+
+    act(() => row.blur());
+    expect(document.body).toHaveFocus();
+
+    // Searching the row away asks for no focus move: the panel is long gone.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "no task says this" } });
+    await settle();
+    await screen.findByText("No tasks match these filters.");
+    expect(document.body).toHaveFocus();
   });
 });
 

@@ -112,14 +112,18 @@ export function useDetailSession(): DetailSession {
   return session;
 }
 
-/** A text box whose unsent content survives the panel closing: [text, setText]. */
-export function useDraft(key: string): [string, (text: string) => void] {
+/**
+ * A text box whose unsent content survives the panel closing: [text, setText]. The setter
+ * takes an updater too, so a late failure can read what the box holds now before writing.
+ */
+export function useDraft(key: string): [string, (text: string | ((current: string) => string)) => void] {
   const { drafts } = useDetailSession();
   const [text, setText] = useState(() => drafts.get(key));
   const update = useCallback(
-    (next: string) => {
-      drafts.set(key, next);
-      setText(next);
+    (next: string | ((current: string) => string)) => {
+      const value = typeof next === "function" ? next(drafts.get(key)) : next;
+      drafts.set(key, value);
+      setText(value);
     },
     [drafts, key],
   );

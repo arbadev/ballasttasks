@@ -66,6 +66,49 @@ describe("steps checklist", () => {
     expect(steps().getByText("0/1")).toBeInTheDocument();
   });
 
+  it("puts a step back in the box when adding fails, and says so", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = async () => {
+      throw new Error("offline");
+    };
+    openTask("t4");
+    const input = steps().getByRole("textbox", { name: "Add a step" });
+    fireEvent.change(input, { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("Pick the token lifetime");
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+  });
+
+  it("keeps what was typed since, and Retry sends the step that failed", async () => {
+    const { taskService } = await renderDetail();
+    const original = taskService.addStep.bind(taskService);
+    let reject!: () => void;
+    taskService.addStep = () =>
+      new Promise<never>((_resolve, rejectRequest) => {
+        reject = () => rejectRequest(new Error("offline"));
+      });
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    fireEvent.change(input(), { target: { value: "Rotate the refresh token" } });
+
+    reject();
+    await settle();
+    expect(input()).toHaveValue("Rotate the refresh token");
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+
+    taskService.addStep = original;
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(taskService.calls).toContainEqual(["addStep", "t4", "Pick the token lifetime"]);
+    expect(input()).toHaveValue("Rotate the refresh token");
+    expect(steps().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("keeps a half-typed step when the panel closes and reopens", async () => {
     await renderDetail();
     openTask("t4");

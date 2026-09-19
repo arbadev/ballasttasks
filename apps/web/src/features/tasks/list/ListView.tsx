@@ -20,8 +20,9 @@ interface PendingFocus {
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
   /**
-   * "opened" waits for the panel: the task can be edited and completed in there before it is
-   * deleted, so the entry lives until the row has both left the list and let the focus go.
+   * "opened" belongs to the panel it opened: the task can be edited, completed and deleted in
+   * there, so the entry lives exactly until that panel closes and is spent then, whether or
+   * not the focus needed handing on.
    */
   kind: "toggled" | "opened";
 }
@@ -54,24 +55,23 @@ export function ListView() {
         : null;
   }, []);
 
-  // A completed row usually leaves the list (the default filter hides done tasks), and a row
-  // opened in the panel can be deleted or edited out of the filter there; either way it takes
-  // the focus with it, so hand the focus to the row that took its place, or to the quick-add.
-  // A row that stays keeps its own focus, so a toggle spends its entry as soon as it lands.
-  // The panel closing is the other moment focus comes loose, and it changes no task at all.
+  // Completing a row usually takes it out of the list (the default filter hides done tasks),
+  // and a row opened in the panel can be completed, filtered away or deleted in there. What
+  // decides is whether the focus came loose, not whether the task is still listed: the row's
+  // own control if it is there (it may have unmounted and come back), else the row that took
+  // its place, else the quick-add. Focus that is still somewhere is left alone.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
+    if (pending.kind === "opened" && state.selectedId === pending.taskId) return;
     const row = tasks.find((t) => t.id === pending.taskId);
-    const orphaned = !document.activeElement || document.activeElement === document.body;
-    if (row || !orphaned) {
-      const landed = !row || row.status !== pending.status;
-      if (pending.kind === "toggled" && landed) pendingFocus.current = null;
-      return;
-    }
+    if (pending.kind === "toggled" && row && row.status === pending.status) return;
+
     pendingFocus.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
-    (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
+    const own = candidates.find((c) => c.closest("[data-task-id]")?.getAttribute("data-task-id") === pending.taskId);
+    (own ?? candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
   }, [tasks, state.selectedId]);
 
   const toggle = useCallback(

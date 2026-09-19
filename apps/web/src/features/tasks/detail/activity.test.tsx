@@ -8,6 +8,15 @@ const section = () => within(screen.getByRole("region", { name: "Activity" }));
 const entries = () => within(section().getByRole("list", { name: "Activity" })).getAllByRole("listitem");
 const box = () => section().getByRole("textbox", { name: "Write a comment" });
 
+/** A request the test holds open, so it can reject it after the user has typed again. */
+function deferred() {
+  let reject!: () => void;
+  const promise = new Promise<never>((_resolve, rejectRequest) => {
+    reject = () => rejectRequest(new Error("offline"));
+  });
+  return { promise, reject };
+}
+
 const TALKED_ABOUT = makeTask({
   id: "t1",
   activity: [
@@ -102,5 +111,30 @@ describe("activity", () => {
     await settle();
     expect(box()).toHaveValue("Will bounce");
     expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+  });
+
+  it("keeps what was typed since, and Retry sends the comment that failed", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    const original = taskService.addComment.bind(taskService);
+    const held = deferred();
+    taskService.addComment = () => held.promise;
+    openTask("t1");
+
+    fireEvent.change(box(), { target: { value: "Will bounce" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    fireEvent.change(box(), { target: { value: "Typed while it was in flight" } });
+
+    held.reject();
+    await settle();
+    expect(box()).toHaveValue("Typed while it was in flight");
+    expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+
+    taskService.addComment = original;
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(taskService.calls).toContainEqual(["addComment", "t1", "Will bounce"]);
+    expect(box()).toHaveValue("Typed while it was in flight");
+    expect(section().queryByRole("alert")).not.toBeInTheDocument();
   });
 });

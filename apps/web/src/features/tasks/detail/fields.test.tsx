@@ -326,13 +326,50 @@ describe("property controls", () => {
     openTask("t1");
     const input = properties().getByLabelText("Due date");
     fireEvent.change(input, { target: { value: due(9) } });
+    fireEvent.blur(input);
     await settle();
     fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
     await settle();
     expect(updates(taskService)).toEqual([
       ["update", "t1", { due: due(9) }],
       ["update", "t1", { due: null }],
     ]);
+    expect(input).toHaveValue("");
+  });
+
+  it("saves one complete date when a segment is retyped, and never the empty value in between", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+    fakeDebounce();
+
+    // A date input reports an empty value while one of its segments is being retyped.
+    fireEvent.change(input, { target: { value: "" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(taskService.calls.filter((c) => c[0] === "update")).toEqual([]);
+
+    fireEvent.change(input, { target: { value: due(9) } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(taskService.calls.filter((c) => c[0] === "update")).toEqual([["update", "t1", { due: due(9) }]]);
+    expect(input).toHaveValue(due(9));
+  });
+
+  it("clears the due date once the emptied box is left", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+    fakeDebounce();
+
+    fireEvent.change(input, { target: { value: "" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(updates(taskService)).toEqual([]);
+    expect(input).toHaveValue("");
+
+    fireEvent.blur(input);
+    await elapse(0);
+    expect(updates(taskService)).toEqual([["update", "t1", { due: null }]]);
+    expect(input).toHaveValue("");
   });
 
   it("priority and project save on change", async () => {

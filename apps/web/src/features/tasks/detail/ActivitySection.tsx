@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "../model/time";
 import type { Person, Task } from "../model/types";
 import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
-import { BOX_INPUT, PanelButton, SECTION_LABEL } from "./controls";
+import { ActionError, BOX_INPUT, PanelButton, SECTION_LABEL } from "./controls";
 import { useDetailSession, useDraft } from "./DetailSession";
 
 const AVATAR_TONES = {
@@ -33,21 +33,26 @@ export function ActivitySection({ task }: { task: Task }) {
   const commands = useTaskCommands();
   const { track } = useDetailSession();
   const [comment, setComment] = useDraft(`comment:${task.id}`);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   const entries = [...task.activity].sort((a, b) => a.at - b.at);
   const person = (id: string) => people.find((p) => p.id === id) ?? (id === ASSISTANT.id ? ASSISTANT : null);
   const tone = (id: string): keyof typeof AVATAR_TONES => (id === ASSISTANT.id ? "solid" : id === currentUser?.id ? "accent" : "neutral");
 
+  const send = (text: string) => {
+    setFailed(null);
+    void track(task.id, commands.addComment(task.id, text)).catch(() => {
+      // The box belongs to the user: take it back only when nothing has been typed since.
+      setComment((current) => current || text);
+      setFailed(text);
+    });
+  };
+
   const post = () => {
     const text = comment.trim();
     if (!text) return;
     setComment("");
-    setFailed(false);
-    void track(task.id, commands.addComment(task.id, text)).catch(() => {
-      setComment(text);
-      setFailed(true);
-    });
+    send(text);
   };
 
   return (
@@ -105,11 +110,7 @@ export function ActivitySection({ task }: { task: Task }) {
           Comment
         </PanelButton>
       </div>
-      {failed && (
-        <p role="alert" className="m-0 text-[12px] text-danger">
-          Could not post the comment. It is back in the box; press Enter to try again.
-        </p>
-      )}
+      {failed !== null && <ActionError onRetry={() => send(failed)}>Could not post the comment. It is kept, and Retry sends it again.</ActionError>}
     </section>
   );
 }

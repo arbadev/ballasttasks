@@ -83,16 +83,21 @@ export function PropertySelect({ id, name, value, options, onChange, mono }: Pro
   );
 }
 
-/** The inline message under a field whose save failed: what happened, and a way forward. */
-export function SaveError({ what, onRetry }: { what: string; onRetry: () => void }) {
+/** The inline message under something that failed: what happened, and a way to try it again. */
+export function ActionError({ children, onRetry }: { children: ReactNode; onRetry: () => void }) {
   return (
     <p role="alert" className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-danger">
-      <span>Could not save the {what}. Your change was undone.</span>
+      <span>{children}</span>
       <button type="button" onClick={onRetry} className="cursor-pointer rounded-bt-sm border-0 bg-transparent p-0 text-[12px] font-medium text-danger underline underline-offset-2 hover:text-fg">
         Retry
       </button>
     </p>
   );
+}
+
+/** The inline message under a field whose save failed: what happened, and a way forward. */
+export function SaveError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return <ActionError onRetry={onRetry}>Could not save the {what}. Your change was undone.</ActionError>;
 }
 
 export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {

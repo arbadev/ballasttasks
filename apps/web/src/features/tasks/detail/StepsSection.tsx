@@ -1,11 +1,11 @@
 "use client";
 
 import { Check, Sparkles, X } from "lucide-react";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { cn } from "@/lib/cn";
 import type { Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
-import { HIT_AREA, PanelButton, SECTION_LABEL } from "./controls";
+import { ActionError, HIT_AREA, PanelButton, SECTION_LABEL } from "./controls";
 import { useDetailSession, useDraft } from "./DetailSession";
 import { StepGenerationPanel } from "./StepGenerationPanel";
 import type { StepGenerationView } from "./useStepGeneration";
@@ -16,6 +16,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
   const commands = useTaskCommands();
   const { track } = useDetailSession();
   const [newStep, setNewStep] = useDraft(`step:${task.id}`);
+  const [failedStep, setFailedStep] = useState<string | null>(null);
 
   const total = task.steps.length;
   const done = task.steps.filter((s) => s.done).length;
@@ -24,11 +25,20 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
 
   const save = (change: Promise<unknown>) => void track(task.id, change).catch(() => {});
 
+  const sendStep = (text: string) => {
+    setFailedStep(null);
+    void track(task.id, commands.addStep(task.id, text)).catch(() => {
+      // The box belongs to the user: take it back only when nothing has been typed since.
+      setNewStep((current) => current || text);
+      setFailedStep(text);
+    });
+  };
+
   const addStep = () => {
     const text = newStep.trim();
     if (!text) return;
     setNewStep("");
-    void track(task.id, commands.addStep(task.id, text)).catch(() => setNewStep(text));
+    sendStep(text);
   };
 
   return (
@@ -108,6 +118,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           className="min-w-0 flex-1 border-0 bg-transparent py-1 text-[13.5px] text-fg placeholder:text-fg-3 placeholder:opacity-100"
         />
       </div>
+      {failedStep !== null && <ActionError onRetry={() => sendStep(failedStep)}>Could not add the step. It is kept, and Retry sends it again.</ActionError>}
 
       <StepGenerationPanel generation={generation} attachmentCount={task.attachments.length} />
     </section>
