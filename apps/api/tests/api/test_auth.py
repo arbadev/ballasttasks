@@ -36,7 +36,15 @@ async def test_register_returns_201_and_the_user_without_any_secret(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"id", "email", "full_name", "is_active", "created_at"}
+    assert set(body) == {
+        "id",
+        "email",
+        "full_name",
+        "is_active",
+        "created_at",
+        "initials",
+        "role_label",
+    }
     assert uuid.UUID(body["id"])
     assert body["email"] == "ada@example.com"
     assert body["full_name"] == "Ada Lovelace"
@@ -58,6 +66,7 @@ async def test_register_stores_a_hash_not_the_password(
 
     stored = await auth_fakes.users.get_by_email("ada@example.com")
     assert stored is not None
+    assert stored.hashed_password is not None
     assert stored.hashed_password != ADA["password"]
     assert auth_fakes.hasher.verify(ADA["password"], stored.hashed_password)
 
@@ -352,5 +361,6 @@ async def test_passwords_hashes_and_tokens_never_reach_the_logs(
     await auth_client.get("/auth/me", headers=_bearer(token))
     await _login(auth_client, password="a wrong password")
 
+    assert user.hashed_password is not None
     for secret in (ADA["password"], user.hashed_password, token, "a wrong password"):
         assert secret not in caplog.text

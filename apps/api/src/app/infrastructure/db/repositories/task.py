@@ -1,15 +1,36 @@
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors import InvalidAssigneeError, StoredTaskInvalid, TaskNotFound
-from app.domain.task import InvalidTaskError, Task, TaskStatus
+from app.application.errors import (
+    InvalidAssigneeError,
+    StoredTaskInvalid,
+    TaskNotFound,
+    UnknownProjectError,
+)
+from app.application.task_query import (
+    SignalCounts,
+    TaskCounts,
+    TaskFilter,
+    TaskPage,
+    TaskQuery,
+    TaskSignal,
+)
+from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
+from app.domain.task_key import TaskKey
 from app.infrastructure.db.constraints import violated_constraint
-from app.infrastructure.db.models.task import ASSIGNEE_FOREIGN_KEY, TaskModel
+from app.infrastructure.db.models.task import ASSIGNEE_FOREIGN_KEY, PROJECT_FOREIGN_KEY, TaskModel
+from app.infrastructure.db.repositories.task_queries import (
+    IS_OPEN,
+    conditions,
+    ordering,
+    signal_condition,
+)
 
 _FIELDS = (
     "title",
@@ -20,6 +41,9 @@ _FIELDS = (
     "created_at",
     "updated_at",
     "completed_at",
+    "project_id",
+    "key",
+    "importance",
 )
 
 
@@ -34,7 +58,7 @@ class SqlAlchemyTaskRepository:
         self._session = session
 
     async def add(self, task: Task) -> None:
-        async with self._refusing_an_unknown_assignee(task):
+        async with self._refusing_unknown_references(task):
             self._session.add(_copy_onto(TaskModel(id=task.id), task))
 
     async def get(self, task_id: uuid.UUID) -> Task | None:
@@ -47,17 +71,53 @@ class SqlAlchemyTaskRepository:
         )
         return None if row is None else _to_task(row)
 
-    async def list(self) -> Sequence[Task]:
+    async def get_by_key(self, key: TaskKey) -> Task | None:
+        row = await self._session.scalar(select(TaskModel).where(TaskModel.key == str(key)))
+        return None if row is None else _to_task(row)
+
+    async def search(self, query: TaskQuery, *, today: date) -> TaskPage:
+        """Two statements whatever the page holds: the page, and the count of what matches."""
+        where = conditions(query.filter, today)
         rows = await self._session.scalars(
-            select(TaskModel).order_by(TaskModel.created_at.desc(), TaskModel.id.desc())
+            select(TaskModel)
+            .where(*where)
+            .order_by(*ordering(query.sort, today))
+            .limit(query.limit)
+            .offset(query.offset)
         )
-        return [_to_task(row) for row in rows]
+        items = [_to_task(row) for row in rows]
+        total = await self._session.scalar(
+            select(func.count()).select_from(TaskModel).where(*where)
+        )
+        return TaskPage(items=items, total=total or 0)
+
+    async def count_open(self, *, viewer_id: uuid.UUID, today: date) -> TaskCounts:
+        row = (
+            await self._session.execute(
+                select(
+                    func.count(),
+                    func.count().filter(TaskModel.assignee_id == viewer_id),
+                    func.count().filter(signal_condition(TaskSignal.OVERDUE, today)),
+                ).where(IS_OPEN)
+            )
+        ).one()
+        return TaskCounts(all=row[0], mine=row[1], overdue=row[2])
+
+    async def count_signals(self, task_filter: TaskFilter, *, today: date) -> SignalCounts:
+        row = (
+            await self._session.execute(
+                select(
+                    *(func.count().filter(signal_condition(s, today)) for s in TaskSignal)
+                ).where(*conditions(task_filter, today))
+            )
+        ).one()
+        return SignalCounts(overdue=row[0], p0_at_risk=row[1], due_soon=row[2], needs_owner=row[3])
 
     async def update(self, task: Task) -> None:
         row = await self._session.get(TaskModel, task.id)
         if row is None:
             raise TaskNotFound(task.id)
-        async with self._refusing_an_unknown_assignee(task):
+        async with self._refusing_unknown_references(task):
             _copy_onto(row, task)
 
     async def delete(self, task_id: uuid.UUID) -> None:
@@ -68,21 +128,25 @@ class SqlAlchemyTaskRepository:
         await self._session.flush()
 
     @asynccontextmanager
-    async def _refusing_an_unknown_assignee(self, task: Task) -> AsyncIterator[None]:
-        """Write inside a savepoint and let the assignee foreign key have the last word.
+    async def _refusing_unknown_references(self, task: Task) -> AsyncIterator[None]:
+        """Write inside a savepoint and let the foreign keys have the last word.
 
         The use cases ask the ``UserDirectory`` first, but a user can vanish between that
         answer and this write; the key, not the earlier SELECT, is what makes it race-safe.
         The savepoint undoes only this write, so the rest of the unit of work stays usable.
-        A missing creator is not mapped: ``created_by`` is the caller the same transaction
-        has just authenticated, so that violation is a server fault, not a bad request.
+        The same goes for the project. A missing creator is not mapped: ``created_by`` is the
+        caller the same transaction has just authenticated, so that violation is a server
+        fault, not a bad request.
         """
         try:
             async with self._session.begin_nested():
                 yield
         except IntegrityError as error:
-            if violated_constraint(error) == ASSIGNEE_FOREIGN_KEY and task.assignee_id is not None:
+            violated = violated_constraint(error)
+            if violated == ASSIGNEE_FOREIGN_KEY and task.assignee_id is not None:
                 raise InvalidAssigneeError(task.assignee_id) from error
+            if violated == PROJECT_FOREIGN_KEY:
+                raise UnknownProjectError(task.project_id) from error
             raise
 
 
@@ -90,6 +154,7 @@ def _copy_onto(row: TaskModel, task: Task) -> TaskModel:
     for field in _FIELDS:
         setattr(row, field, getattr(task, field))
     row.status = task.status.value
+    row.priority = task.priority.rank
     return row
 
 
@@ -98,7 +163,8 @@ def _to_task(row: TaskModel) -> Task:
         return Task(
             id=row.id,
             status=TaskStatus(row.status),
+            priority=TaskPriority.from_rank(row.priority),
             **{field: getattr(row, field) for field in _FIELDS},
         )
-    except InvalidTaskError as error:
+    except (InvalidTaskError, ValueError) as error:
         raise StoredTaskInvalid(row.id) from error

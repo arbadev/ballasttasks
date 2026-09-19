@@ -2,7 +2,7 @@
 
 A task management app: a Python REST API with a web frontend, built as a Clean Architecture exercise.
 
-The repository currently contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and the first product feature: the task CRUD API under `/tasks` (create, read, update, delete, assign, mark as completed; see the [task contract](docs/architecture.md#task-contract) and Swagger UI). It sits behind **JWT authentication** (`/auth/register`, `/auth/login`, `/auth/me`; see [authentication](docs/architecture.md#authentication)): a `/tasks` request without a valid bearer token is answered `401`. Pagination, filtering, seed data and the task UI arrive in later phases.
+The repository currently contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and the first product feature: the task CRUD API under `/tasks` (create, read, update, delete, assign, mark as completed; see the [task contract](docs/architecture.md#task-contract) and Swagger UI). It sits behind **JWT authentication** (`/auth/register`, `/auth/login`, `/auth/me`; see [authentication](docs/architecture.md#authentication)): a `/tasks` request without a valid bearer token is answered `401`. The API also carries the model the web design shows: projects (`/projects`), task keys such as `BT-04`, four statuses, priority and importance, a people list (`/users`), a task list that is filtered, sorted, searched and paged by the database, and the computed attention data (`attention` on every task, `GET /tasks/summary`); see [projects and task keys](docs/architecture.md#projects-and-task-keys) and [ADR 0005](docs/decisions/0005-task-keys-and-urgency.md). **Single sign-on** (Google first, off by default) is a second way in under `/auth/sso/*` that ends in the same access token; see [single sign-on](docs/architecture.md#single-sign-on). Its API is complete; the web page that receives the sign-in (`SSO__WEB_CALLBACK_URL`) is not built yet. Seed data and the task UI arrive in later phases.
 
 Every route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md).
 
@@ -13,7 +13,7 @@ Every route except the health endpoints is **rate limited** (strict per-IP limit
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
 - **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and the shared rate limit counters.
 
-Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md).
+Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md).
 
 ## Prerequisites
 
@@ -33,7 +33,7 @@ To run tests and linters on the host:
 cp .env.example .env && docker compose up --build
 ```
 
-That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe.
+That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe. Single sign-on ships disabled, so password login works with no credentials; the `SSO__*` comments in `.env.example` describe how to enable Google or the credential-free `fake` provider.
 
 | What | URL |
 | --- | --- |

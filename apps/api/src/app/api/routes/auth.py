@@ -3,9 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.api.dependencies import AuthenticateUserDep, RegisterUserDep
+from app.api.dependencies import AuthenticateUserDep, RegisterUserDep, UpdateProfileDep
 from app.api.rate_limit import TOO_MANY_REQUESTS, limit_auth_attempts, limit_requests
-from app.api.schemas.auth import RegisterRequest, TokenResponse, UserResponse
+from app.api.schemas.auth import ProfileUpdate, RegisterRequest, TokenResponse, UserResponse
 from app.api.schemas.errors import ErrorResponse
 from app.api.security import CurrentUser, unauthorized
 from app.application.errors import EmailAlreadyRegisteredError, InvalidCredentialsError
@@ -82,3 +82,21 @@ async def login(
 )
 async def me(user: CurrentUser) -> UserResponse:
     return UserResponse.from_user(user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Change your own full name and role label",
+    dependencies=[Depends(limit_requests)],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {
+            **UNAUTHORIZED,
+            "description": "Missing, invalid or expired token, or the user is no longer active",
+        }
+    },
+)
+async def update_me(
+    body: ProfileUpdate, user: CurrentUser, update_profile: UpdateProfileDep
+) -> UserResponse:
+    return UserResponse.from_user(await update_profile.execute(user, body.to_changes()))

@@ -1,15 +1,18 @@
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
 from app.api.security import get_current_user_id
+from app.application.clock import Clock, utc_now
 from app.application.ports.health_check import HealthCheck
+from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
+from app.infrastructure.identity.fake import FakeIdentityProvider
 from app.main import create_app
 from tests.auth_fakes import (
     FakePasswordHasher,
@@ -17,7 +20,8 @@ from tests.auth_fakes import (
     InMemoryUserDirectory,
     InMemoryUserRepository,
 )
-from tests.fakes import InMemoryTaskRepository, StubHealthCheck
+from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository, StubHealthCheck
+from tests.sso_fakes import InMemoryOneTimeStore, InMemoryUserIdentityRepository, MutableClock
 
 ClientFactory = Callable[
     [Sequence[HealthCheck] | None], AbstractAsyncContextManager[httpx.AsyncClient]
@@ -67,14 +71,30 @@ class AuthFakes:
     tokens: FakeTokenService
 
 
+@dataclass(frozen=True, slots=True)
+class SsoFakes:
+    """Single sign-on with only the fake provider enabled; a test adds or removes providers
+    in ``providers`` and moves ``clock`` to let states and exchange codes expire."""
+
+    clock: MutableClock
+    store: InMemoryOneTimeStore
+    identities: InMemoryUserIdentityRepository
+    providers: dict[str, IdentityProvider] = field(
+        default_factory=lambda: {"fake": FakeIdentityProvider()}
+    )
+
+
 class RecordingRequestScopes:
     """Stands in for ``Container.request_scope``: the same in-memory repositories for
     every request, and a record of how each scope ended."""
 
-    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes) -> None:
+    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes, sso: SsoFakes) -> None:
         self.tasks = tasks
         self.auth = auth
+        self.sso = sso
         self.events: list[str] = []
+        # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
+        self.clock: Clock = utc_now
 
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
@@ -84,8 +104,14 @@ class RecordingRequestScopes:
                 tasks=self.tasks,
                 users=self.auth.users,
                 user_directory=InMemoryUserDirectory(self.auth.users),
+                projects=self.tasks.projects,
+                people=InMemoryUserDirectory(self.auth.users),
+                clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
+                identities=self.sso.identities,
+                identity_providers=self.sso.providers,
+                one_time_store=self.sso.store,
             )
         except BaseException:
             self.events.append("rollback")
@@ -100,12 +126,20 @@ def auth_fakes() -> AuthFakes:
 
 @pytest.fixture
 def tasks(auth_fakes: AuthFakes) -> InMemoryTaskRepository:
-    return InMemoryTaskRepository(auth_fakes.users)
+    return InMemoryTaskRepository(auth_fakes.users, InMemoryProjectRepository())
 
 
 @pytest.fixture
-def request_scopes(tasks: InMemoryTaskRepository, auth_fakes: AuthFakes) -> RecordingRequestScopes:
-    return RecordingRequestScopes(tasks, auth_fakes)
+def sso_fakes() -> SsoFakes:
+    clock = MutableClock()
+    return SsoFakes(clock, InMemoryOneTimeStore(clock), InMemoryUserIdentityRepository())
+
+
+@pytest.fixture
+def request_scopes(
+    tasks: InMemoryTaskRepository, auth_fakes: AuthFakes, sso_fakes: SsoFakes
+) -> RecordingRequestScopes:
+    return RecordingRequestScopes(tasks, auth_fakes, sso_fakes)
 
 
 @pytest.fixture
@@ -114,7 +148,11 @@ async def tasks_app(
 ) -> AsyncIterator[FastAPI]:
     """The real app around a container of fakes: no database, no Redis."""
     container = replace(
-        build_container(load_settings()), health_checks=ALL_HEALTHY, request_scope=request_scopes
+        build_container(load_settings()),
+        health_checks=ALL_HEALTHY,
+        request_scope=request_scopes,
+        identity_providers=request_scopes.sso.providers,
+        one_time_store=request_scopes.sso.store,
     )
     app = create_app(container=container)
     async with app.router.lifespan_context(app):

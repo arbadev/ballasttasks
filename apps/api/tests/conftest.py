@@ -20,6 +20,7 @@ SETTINGS_ENV_PREFIXES = (
     "CORS__",
     "AUTH__",
     "RATE_LIMIT__",
+    "SSO__",
 )
 
 
@@ -44,6 +45,18 @@ def minimal_env(clean_env: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 @pytest.fixture(scope="session")
 def migrated_database_url() -> Iterator[str]:
     """A throwaway database brought from empty to ``alembic upgrade head`` (integration)."""
+    with temporary_database() as database_url:
+        run_alembic(database_url, "upgrade", "head")
+        yield database_url
+
+
+@pytest.fixture(scope="session")
+def pristine_database_url() -> Iterator[str]:
+    """Like ``migrated_database_url``, but nothing is ever committed to it (integration).
+
+    For the contract suites, whose cases run in a transaction that is rolled back and assert
+    exact lists and counts: they must not see rows another test module committed.
+    """
     with temporary_database() as database_url:
         run_alembic(database_url, "upgrade", "head")
         yield database_url
