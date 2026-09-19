@@ -2,17 +2,19 @@
 
 import asyncio
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
 
 from app.application.errors import (
+    AttachmentNotFound,
     InvalidAssigneeError,
     ProjectKeyTakenError,
     ProjectNotFound,
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.ports.file_storage import StoredFile
 from app.application.ports.project_repository import ProjectOverview
 from app.application.task_query import (
     DueFilter,
@@ -25,6 +27,7 @@ from app.application.task_query import (
     TaskSignal,
     TaskSort,
 )
+from app.domain.attachment import Attachment
 from app.domain.attention import WEEK_DAYS, Attention, assess
 from app.domain.project import (
     DEFAULT_PROJECT_ID,
@@ -34,6 +37,7 @@ from app.domain.project import (
 )
 from app.domain.task import Task
 from app.domain.task_key import TaskKey
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import CREATED
 
@@ -133,6 +137,8 @@ class InMemoryTaskRepository:
         self.users = users
         self.projects = projects
         self._tasks: dict[uuid.UUID, Task] = {}
+        # What references tasks ``ON DELETE CASCADE`` registers here (``tests/activity_fakes``).
+        self.on_delete: list[Callable[[uuid.UUID], None]] = []
         projects.open_tasks_in = self._open_tasks_in
 
     def _open_tasks_in(self, project_id: uuid.UUID) -> int:
@@ -202,6 +208,103 @@ class InMemoryTaskRepository:
         if task_id not in self._tasks:
             raise TaskNotFound(task_id)
         del self._tasks[task_id]
+        for forget in self.on_delete:
+            forget(task_id)
+
+
+class InMemoryAttachmentRepository:
+    """AttachmentRepository fake; passes the same contract suite as the PostgreSQL adapter.
+
+    It reads the tasks fake the way the ``attachments`` table references ``tasks``: an
+    attachment of a task that is not stored is refused, and one whose task has been deleted
+    is gone (``ON DELETE CASCADE``). Attachments are frozen, so none is copied.
+    """
+
+    def __init__(self, tasks: InMemoryTaskRepository) -> None:
+        self._tasks = tasks
+        self._attachments: dict[uuid.UUID, Attachment] = {}
+
+    async def _stored(self) -> list[Attachment]:
+        """Oldest first, without the attachments of tasks that no longer exist."""
+        for attachment in list(self._attachments.values()):
+            if await self._tasks.get(attachment.task_id) is None:
+                del self._attachments[attachment.id]
+        return sorted(self._attachments.values(), key=lambda a: (a.created_at, a.id))
+
+    def all(self) -> list[Attachment]:
+        """Not part of the port: every stored attachment, oldest first, for a test to look at."""
+        tasks = {task.id for task in self._tasks.all()}
+        kept = [a for a in self._attachments.values() if a.task_id in tasks]
+        return sorted(kept, key=lambda a: (a.created_at, a.id))
+
+    async def add(self, attachment: Attachment) -> None:
+        if await self._tasks.get(attachment.task_id) is None:
+            raise TaskNotFound(attachment.task_id)
+        self._attachments[attachment.id] = attachment
+
+    async def get(self, attachment_id: uuid.UUID) -> Attachment | None:
+        return next((a for a in await self._stored() if a.id == attachment_id), None)
+
+    async def list_for_task(self, task_id: uuid.UUID) -> Sequence[Attachment]:
+        return [a for a in await self._stored() if a.task_id == task_id]
+
+    async def count_by_task(self, task_ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, int]:
+        stored = await self._stored()
+        return {
+            task_id: sum(1 for a in stored if a.task_id == task_id) for task_id in set(task_ids)
+        }
+
+    async def delete(self, attachment_id: uuid.UUID) -> None:
+        if await self.get(attachment_id) is None:
+            raise AttachmentNotFound(attachment_id)
+        del self._attachments[attachment_id]
+
+
+class UploadedFile:
+    """An ``IncomingFile`` double: a client's stream, and how much of it the server asked for.
+
+    ``fails_with`` is the client going away halfway; ``after`` is the world changing while
+    it sends, such as the task being deleted.
+    """
+
+    def __init__(
+        self,
+        *chunks: bytes,
+        name: str | None = None,
+        fails_with: Exception | None = None,
+        after: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self.name = name
+        self._chunks = chunks
+        self._fails_with = fails_with
+        self._after = after
+        self.chunks_read = 0
+        self.prepared = False
+
+    async def prepare(self) -> None:
+        self.prepared = True
+
+    async def chunks(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            self.chunks_read += 1
+            yield chunk
+        if self._after is not None:
+            await self._after()
+        if self._fails_with is not None:
+            raise self._fails_with
+
+
+class RecordingFileStorage(InMemoryFileStorage):
+    """The in-memory adapter, remembering every key a save was ever started under: a test
+    that says "nothing was written" means not even for a moment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.keys_ever_written: list[str] = []
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile:
+        self.keys_ever_written.append(key)
+        return await super().save(key, chunks)
 
 
 def _has_signal(attention: Attention, signal: TaskSignal) -> bool:

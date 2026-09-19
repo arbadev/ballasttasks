@@ -9,6 +9,7 @@ from app.application.errors import (
     TaskNotFound,
     UnknownProjectError,
 )
+from app.application.file_changes import FileChanges
 from app.application.task_query import TaskQuery
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
@@ -18,9 +19,15 @@ from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.project import DEFAULT_PROJECT_ID
 from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
+from tests.activity_fakes import InMemoryActivityLog
 from tests.auth_fakes import InMemoryUserDirectory, InMemoryUserRepository, a_user
 from tests.builders import a_project, a_task
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+)
 
 NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 LATER = NOW + timedelta(days=1)
@@ -42,6 +49,10 @@ def tasks(users: InMemoryUserRepository) -> InMemoryTaskRepository:
     return InMemoryTaskRepository(users, InMemoryProjectRepository())
 
 
+def no_attachments(tasks: InMemoryTaskRepository) -> InMemoryAttachmentRepository:
+    return InMemoryAttachmentRepository(tasks)
+
+
 async def stored_user(users: InMemoryUserRepository, *, is_active: bool = True) -> uuid.UUID:
     user = a_user(is_active=is_active)
     await users.add(user)
@@ -61,7 +72,12 @@ async def test_create_task_stores_a_todo_task_owned_by_its_creator(
 ) -> None:
     task_id, assignee = uuid.uuid4(), await stored_user(users)
     create_task = CreateTask(
-        tasks, directory, tasks.projects, clock=lambda: NOW, new_id=lambda: task_id
+        tasks,
+        directory,
+        tasks.projects,
+        InMemoryActivityLog(tasks),
+        clock=lambda: NOW,
+        new_id=lambda: task_id,
     )
 
     task = await create_task.execute(
@@ -83,7 +99,7 @@ async def test_create_task_stores_a_todo_task_owned_by_its_creator(
 async def test_create_task_generates_ids_and_utc_timestamps_by_default(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
-    create_task = CreateTask(tasks, directory, tasks.projects)
+    create_task = CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks))
 
     first = await create_task.execute(title="one", created_by=CREATOR)
     second = await create_task.execute(title="two", created_by=CREATOR)
@@ -96,7 +112,9 @@ async def test_create_task_stores_nothing_when_the_task_is_invalid(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     with pytest.raises(InvalidTaskError):
-        await CreateTask(tasks, directory, tasks.projects).execute(title="   ", created_by=CREATOR)
+        await CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
+            title="   ", created_by=CREATOR
+        )
 
     assert tasks.all() == []
 
@@ -113,7 +131,7 @@ async def test_create_task_rejects_an_assignee_who_is_not_an_active_user_and_sto
     )
 
     with pytest.raises(InvalidAssigneeError) as error:
-        await CreateTask(tasks, directory, tasks.projects).execute(
+        await CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
             title="Write the report", created_by=CREATOR, assignee_id=assignee_id
         )
 
@@ -125,7 +143,7 @@ async def test_create_task_rejects_a_broken_domain_rule_before_it_looks_the_assi
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     with pytest.raises(InvalidTaskError):
-        await CreateTask(tasks, directory, tasks.projects).execute(
+        await CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
             title="   ", created_by=CREATOR, assignee_id=uuid.uuid4()
         )
 
@@ -160,13 +178,15 @@ async def test_update_task_changes_only_the_given_fields(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     task = await stored_task(tasks)
-    await UpdateTask(tasks, directory, tasks.projects, clock=lambda: NOW).execute(
-        task.id, TaskChanges(description="Q1 numbers", due_date=date(2026, 2, 1))
+    await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: NOW
+    ).execute(
+        task.id, TaskChanges(description="Q1 numbers", due_date=date(2026, 2, 1)), actor_id=CREATOR
     )
 
-    updated = await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-        task.id, TaskChanges(title="Publish the report")
-    )
+    updated = await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(task.id, TaskChanges(title="Publish the report"), actor_id=CREATOR)
 
     assert updated.title == "Publish the report"
     assert updated.description == "Q1 numbers"
@@ -179,13 +199,17 @@ async def test_update_task_marks_a_task_completed_and_reopens_it(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     task = await stored_task(tasks)
-    update_task = UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER)
+    update_task = UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    )
 
-    done = await update_task.execute(task.id, TaskChanges(status=TaskStatus.DONE))
+    done = await update_task.execute(task.id, TaskChanges(status=TaskStatus.DONE), actor_id=CREATOR)
     assert done.status is TaskStatus.DONE
     assert done.completed_at == LATER
 
-    reopened = await update_task.execute(task.id, TaskChanges(status=TaskStatus.IN_PROGRESS))
+    reopened = await update_task.execute(
+        task.id, TaskChanges(status=TaskStatus.IN_PROGRESS), actor_id=CREATOR
+    )
     assert reopened.completed_at is None
     stored = await tasks.get(task.id)
     assert stored is not None
@@ -199,12 +223,16 @@ async def test_update_task_assigns_and_unassigns(
 ) -> None:
     task = await stored_task(tasks)
     assignee = await stored_user(users)
-    update_task = UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER)
+    update_task = UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    )
 
-    assigned = await update_task.execute(task.id, TaskChanges(assignee_id=assignee))
+    assigned = await update_task.execute(
+        task.id, TaskChanges(assignee_id=assignee), actor_id=CREATOR
+    )
     assert assigned.assignee_id == assignee
 
-    unassigned = await update_task.execute(task.id, TaskChanges(assignee_id=None))
+    unassigned = await update_task.execute(task.id, TaskChanges(assignee_id=None), actor_id=CREATOR)
     assert unassigned.assignee_id is None
 
 
@@ -212,12 +240,16 @@ async def test_update_task_can_clear_the_optional_fields(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     task = await stored_task(tasks)
-    update_task = UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER)
+    update_task = UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    )
     await update_task.execute(
-        task.id, TaskChanges(description="Q1 numbers", due_date=date(2026, 2, 1))
+        task.id, TaskChanges(description="Q1 numbers", due_date=date(2026, 2, 1)), actor_id=CREATOR
     )
 
-    cleared = await update_task.execute(task.id, TaskChanges(description=None, due_date=None))
+    cleared = await update_task.execute(
+        task.id, TaskChanges(description=None, due_date=None), actor_id=CREATOR
+    )
 
     assert cleared.description is None
     assert cleared.due_date is None
@@ -228,9 +260,9 @@ async def test_update_task_without_changes_leaves_the_task_untouched(
 ) -> None:
     task = await stored_task(tasks)
 
-    unchanged = await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-        task.id, TaskChanges()
-    )
+    unchanged = await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(task.id, TaskChanges(), actor_id=CREATOR)
 
     assert unchanged == task
     assert unchanged.updated_at == NOW
@@ -242,9 +274,9 @@ async def test_update_task_stores_nothing_when_a_change_is_invalid(
     task = await stored_task(tasks)
 
     with pytest.raises(InvalidTaskError):
-        await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-            task.id, TaskChanges(status=TaskStatus.DONE, title="   ")
-        )
+        await UpdateTask(
+            tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(task.id, TaskChanges(status=TaskStatus.DONE, title="   "), actor_id=CREATOR)
 
     assert await tasks.get(task.id) == task
 
@@ -253,8 +285,8 @@ async def test_update_task_raises_task_not_found_for_an_unknown_id(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     with pytest.raises(TaskNotFound):
-        await UpdateTask(tasks, directory, tasks.projects).execute(
-            uuid.uuid4(), TaskChanges(title="x")
+        await UpdateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
+            uuid.uuid4(), TaskChanges(title="x"), actor_id=CREATOR
         )
 
 
@@ -271,8 +303,12 @@ async def test_update_task_rejects_an_assignee_who_is_not_an_active_user_and_sto
     )
 
     with pytest.raises(InvalidAssigneeError) as error:
-        await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-            task.id, TaskChanges(title="Publish the report", assignee_id=assignee_id)
+        await UpdateTask(
+            tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(
+            task.id,
+            TaskChanges(title="Publish the report", assignee_id=assignee_id),
+            actor_id=CREATOR,
         )
 
     assert error.value.assignee_id == assignee_id
@@ -290,9 +326,9 @@ async def test_update_task_does_not_recheck_an_assignee_the_request_leaves_alone
     task = a_task(CREATOR, assignee_id=left_the_team, now=NOW)
     await tasks.add(task)
 
-    done = await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-        task.id, TaskChanges(status=TaskStatus.DONE)
-    )
+    done = await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(task.id, TaskChanges(status=TaskStatus.DONE), actor_id=CREATOR)
 
     assert done.status is TaskStatus.DONE
     assert done.assignee_id == left_the_team
@@ -308,8 +344,12 @@ async def test_update_task_accepts_a_change_that_names_the_deactivated_assignee_
     task = a_task(CREATOR, assignee_id=left_the_team, now=NOW)
     await tasks.add(task)
 
-    updated = await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-        task.id, TaskChanges(title="Publish the report", assignee_id=left_the_team)
+    updated = await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(
+        task.id,
+        TaskChanges(title="Publish the report", assignee_id=left_the_team),
+        actor_id=CREATOR,
     )
 
     assert updated.title == "Publish the report"
@@ -332,8 +372,12 @@ async def test_update_task_rejects_a_change_from_a_deactivated_assignee_to_someb
     )
 
     with pytest.raises(InvalidAssigneeError) as error:
-        await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-            task.id, TaskChanges(title="Publish the report", assignee_id=assignee_id)
+        await UpdateTask(
+            tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(
+            task.id,
+            TaskChanges(title="Publish the report", assignee_id=assignee_id),
+            actor_id=CREATOR,
         )
 
     assert error.value.assignee_id == assignee_id
@@ -344,15 +388,17 @@ async def test_update_task_reports_an_unknown_task_before_an_unknown_assignee(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
     with pytest.raises(TaskNotFound):
-        await UpdateTask(tasks, directory, tasks.projects).execute(
-            uuid.uuid4(), TaskChanges(assignee_id=uuid.uuid4())
+        await UpdateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
+            uuid.uuid4(), TaskChanges(assignee_id=uuid.uuid4()), actor_id=CREATOR
         )
 
 
 async def test_delete_task_removes_the_task(tasks: InMemoryTaskRepository) -> None:
     task = await stored_task(tasks)
 
-    await DeleteTask(tasks).execute(task.id)
+    await DeleteTask(tasks, no_attachments(tasks), FileChanges(InMemoryFileStorage())).execute(
+        task.id
+    )
 
     assert await tasks.get(task.id) is None
 
@@ -361,7 +407,9 @@ async def test_delete_task_raises_task_not_found_for_an_unknown_id(
     tasks: InMemoryTaskRepository,
 ) -> None:
     with pytest.raises(TaskNotFound):
-        await DeleteTask(tasks).execute(uuid.uuid4())
+        await DeleteTask(tasks, no_attachments(tasks), FileChanges(InMemoryFileStorage())).execute(
+            uuid.uuid4()
+        )
 
 
 # --- the design's model: projects, keys, status at creation, priority and importance ----------
@@ -370,7 +418,9 @@ async def test_delete_task_raises_task_not_found_for_an_unknown_id(
 async def test_create_task_lands_in_the_inbox_with_the_next_key_and_the_design_defaults(
     tasks: InMemoryTaskRepository, directory: InMemoryUserDirectory
 ) -> None:
-    create_task = CreateTask(tasks, directory, tasks.projects, clock=lambda: NOW)
+    create_task = CreateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: NOW
+    )
 
     first = await create_task.execute(title="one", created_by=CREATOR)
     second = await create_task.execute(title="two", created_by=CREATOR)
@@ -385,7 +435,9 @@ async def test_create_task_takes_its_key_from_the_project_it_is_created_in(
 ) -> None:
     project = a_project(key="BT")
     await tasks.projects.add(project)
-    create_task = CreateTask(tasks, directory, tasks.projects, clock=lambda: NOW)
+    create_task = CreateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: NOW
+    )
 
     task = await create_task.execute(
         title="Board view",
@@ -414,7 +466,7 @@ async def test_create_task_refuses_a_project_that_does_not_exist(
     nowhere = uuid.uuid4()
 
     with pytest.raises(UnknownProjectError) as error:
-        await CreateTask(tasks, directory, tasks.projects).execute(
+        await CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
             title="t", created_by=CREATOR, project_id=nowhere
         )
 
@@ -429,7 +481,7 @@ async def test_create_task_reports_an_unknown_project_before_anything_else(
     task costs no number is the unit of work's doing, proven against PostgreSQL in
     ``tests/integration/test_task_key_allocation.py``."""
     with pytest.raises(UnknownProjectError):
-        await CreateTask(tasks, directory, tasks.projects).execute(
+        await CreateTask(tasks, directory, tasks.projects, InMemoryActivityLog(tasks)).execute(
             title="   ", created_by=CREATOR, project_id=uuid.uuid4(), assignee_id=uuid.uuid4()
         )
 
@@ -474,7 +526,9 @@ async def test_update_task_changes_priority_importance_and_project_and_keeps_the
     await tasks.projects.add(project)
     task = await stored_task(tasks)
 
-    updated = await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
+    updated = await UpdateTask(
+        tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+    ).execute(
         task.id,
         TaskChanges(
             status=TaskStatus.TESTING,
@@ -482,6 +536,7 @@ async def test_update_task_changes_priority_importance_and_project_and_keeps_the
             importance=80,
             project_id=project.id,
         ),
+        actor_id=CREATOR,
     )
 
     assert (updated.status, updated.priority, updated.importance, updated.project_id) == (
@@ -502,9 +557,9 @@ async def test_update_task_refuses_a_move_to_a_project_that_does_not_exist(
     nowhere = uuid.uuid4()
 
     with pytest.raises(UnknownProjectError) as error:
-        await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-            task.id, TaskChanges(project_id=nowhere)
-        )
+        await UpdateTask(
+            tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(task.id, TaskChanges(project_id=nowhere), actor_id=CREATOR)
 
     assert error.value.project_id == nowhere
     assert await tasks.get(task.id) == task
@@ -516,8 +571,8 @@ async def test_update_task_rejects_an_importance_outside_the_range_and_stores_no
     task = await stored_task(tasks)
 
     with pytest.raises(InvalidTaskError, match="importance"):
-        await UpdateTask(tasks, directory, tasks.projects, clock=lambda: LATER).execute(
-            task.id, TaskChanges(title="kept out", importance=101)
-        )
+        await UpdateTask(
+            tasks, directory, tasks.projects, InMemoryActivityLog(tasks), clock=lambda: LATER
+        ).execute(task.id, TaskChanges(title="kept out", importance=101), actor_id=CREATOR)
 
     assert await tasks.get(task.id) == task

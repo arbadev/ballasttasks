@@ -14,6 +14,10 @@ from tests.auth_fakes import a_user
 from tests.builders import a_task
 from tests.fakes import InMemoryTaskRepository
 
+# ``GET /tasks/{id_or_key}`` is the detail: the task as every other route shows it, plus what
+# is attached to it.
+NOTHING_ATTACHED: dict[str, object] = {"attachments": []}
+
 INVALID_ASSIGNEE = {
     "type": "invalid_assignee",
     "loc": ["body", "assignee_id"],
@@ -159,7 +163,7 @@ async def test_get_returns_the_task(task_client: httpx.AsyncClient) -> None:
     response = await task_client.get(f"/tasks/{created['id']}")
 
     assert response.status_code == 200
-    assert response.json() == created
+    assert response.json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 async def test_any_authenticated_user_can_read_a_task_created_by_someone_else(
@@ -211,7 +215,9 @@ async def test_patch_changes_only_the_fields_that_were_sent(
     assert body["description"] == "Q1 numbers"
     assert body["due_date"] == "2026-02-01"
     assert body["created_by"] == created["created_by"]
-    assert (await task_client.get(f"/tasks/{created['id']}")).json() == body
+    assert (await task_client.get(f"/tasks/{created['id']}")).json() == body | NOTHING_ATTACHED | {
+        "steps": []
+    }
 
 
 async def test_patch_marks_a_task_completed_and_reopens_it(
@@ -288,7 +294,9 @@ async def test_patch_answers_422_and_leaves_the_task_unchanged(
 
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
-    assert (await task_client.get(f"/tasks/{created['id']}")).json() == created
+    assert (
+        await task_client.get(f"/tasks/{created['id']}")
+    ).json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 async def test_a_stored_task_that_breaks_a_domain_rule_is_a_server_error_not_a_422(
@@ -353,7 +361,9 @@ async def test_patch_answers_422_on_assignee_id_when_the_assignee_is_not_an_acti
 
     assert response.status_code == 422
     assert response.json() == {"detail": [INVALID_ASSIGNEE]}
-    assert (await task_client.get(f"/tasks/{created['id']}")).json() == created
+    assert (
+        await task_client.get(f"/tasks/{created['id']}")
+    ).json() == created | NOTHING_ATTACHED | {"steps": []}
 
 
 async def test_patch_accepts_the_deactivated_assignee_the_task_already_has(
@@ -369,7 +379,9 @@ async def test_patch_accepts_the_deactivated_assignee_the_task_already_has(
     assert response.status_code == 200, response.text
     assert response.json()["title"] == "Changed"
     assert response.json()["assignee_id"] == left_the_team
-    assert (await task_client.get(f"/tasks/{task_id}")).json() == response.json()
+    assert (
+        await task_client.get(f"/tasks/{task_id}")
+    ).json() == response.json() | NOTHING_ATTACHED | {"steps": []}
 
 
 @pytest.mark.parametrize("assignee", ["unknown", "inactive"])

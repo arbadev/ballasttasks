@@ -112,9 +112,10 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         "422": invalid,
         "429": error,
     }
-    for method in ("get", "patch"):
+    # The detail adds steps and attachments; a change answers like the list, without them.
+    for method, model in (("get", "TaskDetailResponse"), ("patch", "TaskResponse")):
         assert documented("/tasks/{id_or_key}", method) == {
-            "200": "TaskResponse",
+            "200": model,
             "401": error,
             "404": error,
             "422": invalid,
@@ -321,3 +322,72 @@ async def test_openapi_documents_the_list_parameters(client: httpx.AsyncClient) 
     assert (limit["default"], limit["minimum"], limit["maximum"]) == (50, 1, 200)
     assert parameters["sort"]["schema"]["default"] == "urgency"
     assert all(parameter["description"] for parameter in parameters.values())
+
+
+async def test_openapi_documents_every_step_comment_and_activity_response(
+    client: httpx.AsyncClient,
+) -> None:
+    schema = (await client.get("/openapi.json")).json()
+    paths, schemas = schema["paths"], schema["components"]["schemas"]
+
+    def documented(path: str, method: str) -> dict[str, str | None]:
+        return {
+            code: response.get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+            .get("$ref", "")
+            .rpartition("/")[2]
+            or None
+            for code, response in paths[path][method]["responses"].items()
+        }
+
+    errors = {"401": "ErrorResponse", "404": "ErrorResponse", "429": "ErrorResponse"}
+    refused = errors | {"422": "HTTPValidationError"}
+    assert documented("/tasks/{id_or_key}/steps", "get") == {"200": "StepListResponse"} | refused
+    assert documented("/tasks/{id_or_key}/steps", "post") == {"201": "StepResponse"} | refused
+    assert (
+        documented("/tasks/{id_or_key}/steps/bulk", "post") == {"201": "StepListResponse"} | refused
+    )
+    assert (
+        documented("/tasks/{id_or_key}/steps/order", "put") == {"200": "StepListResponse"} | refused
+    )
+    assert (
+        documented("/tasks/{id_or_key}/steps/{step_id}", "patch")
+        == {"200": "StepResponse"} | refused
+    )
+    assert documented("/tasks/{id_or_key}/steps/{step_id}", "delete") == {"204": None} | refused
+    assert (
+        documented("/tasks/{id_or_key}/comments", "post")
+        == {"201": "ActivityEntryResponse"} | refused
+    )
+    assert (
+        documented("/tasks/{id_or_key}/activity", "get")
+        == {"200": "ActivityListResponse"} | refused
+    )
+
+    assert set(schemas["StepResponse"]["properties"]) == {
+        "id",
+        "task_id",
+        "title",
+        "done",
+        "position",
+        "created_at",
+    }
+    assert set(schemas["ActivityEntryResponse"]["properties"]) == {
+        "id",
+        "task_id",
+        "kind",
+        "text",
+        "actor",
+        "created_at",
+    }
+    assert set(schemas["ActorResponse"]["properties"]) == {"id", "full_name", "initials"}
+    assert schemas["ActivityKind"]["enum"] == ["log", "comment"]
+    assert {"steps_total", "steps_done", "comments_count"} <= set(
+        schemas["TaskResponse"]["required"]
+    )
+    assert set(schemas["TaskDetailResponse"]["properties"]) == set(
+        schemas["TaskResponse"]["properties"]
+    ) | {"steps", "attachments"}
+    assert schemas["StepsCreate"]["properties"]["titles"]["maxItems"] == 20
+    assert schemas["StepsCreate"]["properties"]["titles"]["minItems"] == 1

@@ -52,21 +52,30 @@ def run_alembic(database_url: str, action: str, revision: str) -> None:
 
 INSERT_USER = sqlalchemy.text(
     "INSERT INTO users (id, email, full_name, hashed_password, is_active, created_at) "
-    "VALUES (:id, :email, 'Grace Hopper', 'not-a-real-hash', :is_active, now())"
+    "VALUES (:id, :email, 'Grace Hopper', :hashed_password, :is_active, now())"
 )
+
+SOME_HASH = "not-a-real-hash"
 
 
 class UserRow(TypedDict):
     id: uuid.UUID
     email: str
     is_active: bool
+    hashed_password: str | None
 
 
-def user_row(*, is_active: bool = True) -> UserRow:
+def user_row(*, is_active: bool = True, hashed_password: str | None = SOME_HASH) -> UserRow:
     """Parameters for ``INSERT_USER``: tasks reference users, so a test that writes a task
-    row by hand needs somebody to have created it."""
+    row by hand needs somebody to have created it. ``hashed_password=None`` is a user who
+    signs in only through an identity provider."""
     user_id = uuid.uuid4()
-    return {"id": user_id, "email": f"{user_id.hex}@example.com", "is_active": is_active}
+    return {
+        "id": user_id,
+        "email": f"{user_id.hex}@example.com",
+        "is_active": is_active,
+        "hashed_password": hashed_password,
+    }
 
 
 # Since the design's model a task row needs a project, a key of its own, a priority and an

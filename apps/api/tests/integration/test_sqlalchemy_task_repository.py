@@ -16,6 +16,7 @@ from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.task import Task, TaskStatus
 from app.infrastructure.db.engine import create_engine
+from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
@@ -84,7 +85,8 @@ async def test_a_second_writer_waits_and_then_works_from_what_the_first_one_stor
                 SqlAlchemyTaskRepository(session),
                 SqlAlchemyUserDirectory(session),
                 SqlAlchemyProjectRepository(session),
-            ).execute(task.id, TaskChanges(status=TaskStatus.DONE))
+                SqlAlchemyActivityLog(session),
+            ).execute(task.id, TaskChanges(status=TaskStatus.DONE), actor_id=task.created_by)
             first_has_written.set()
             await first_may_commit.wait()
 
@@ -94,7 +96,8 @@ async def test_a_second_writer_waits_and_then_works_from_what_the_first_one_stor
                 SqlAlchemyTaskRepository(session),
                 SqlAlchemyUserDirectory(session),
                 SqlAlchemyProjectRepository(session),
-            ).execute(task.id, TaskChanges(status=TaskStatus.IN_PROGRESS))
+                SqlAlchemyActivityLog(session),
+            ).execute(task.id, TaskChanges(status=TaskStatus.IN_PROGRESS), actor_id=task.created_by)
 
     try:
         async with asyncio.timeout(30):
@@ -178,12 +181,16 @@ async def test_an_assignee_deleted_between_the_check_and_the_write_is_refused_by
                 )
             return answer
 
+        async def full_name_of(self, user_id: uuid.UUID) -> str | None:
+            return await self._directory.full_name_of(user_id)
+
     async def create() -> None:
         async with transactional_session(session_factory) as session:
             await CreateTask(
                 SqlAlchemyTaskRepository(session),
                 DirectoryThatLosesTheRace(session),
                 SqlAlchemyProjectRepository(session),
+                SqlAlchemyActivityLog(session),
             ).execute(title="Write the report", created_by=creator, assignee_id=assignee)
 
     with pytest.raises(InvalidAssigneeError) as error:

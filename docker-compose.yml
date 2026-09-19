@@ -46,6 +46,17 @@ services:
       - alembic upgrade head && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-proxy-headers
     ports:
       - "8000:8000"
+    environment:
+      # The mount below decides where the attachments live in the container, so the API is
+      # told the same path rather than being left to its own default: a .env that predates
+      # attachments would otherwise write beside the code, where the volume is not and the
+      # non-root user may not create directories. Setting it in .env moves the variable and
+      # the mount together, but not the permissions: the server runs as uid 1001, and only
+      # a directory the image itself creates and owns is writable, so another path also
+      # needs its own line in apps/api/Dockerfile. It is not a value one can simply change.
+      STORAGE__LOCAL_DIRECTORY: ${STORAGE__LOCAL_DIRECTORY:-/var/lib/ballasttasks/attachments}
+    volumes:
+      - attachments-data:${STORAGE__LOCAL_DIRECTORY:-/var/lib/ballasttasks/attachments}
     depends_on:
       db:
         condition: service_healthy
@@ -65,7 +76,7 @@ services:
 
   worker:
     <<: *api-image
-    command: celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
+    command: celery -A app.worker worker --loglevel=INFO
     depends_on:
       api:
         condition: service_healthy
@@ -84,3 +95,4 @@ services:
 
 volumes:
   db-data:
+  attachments-data:

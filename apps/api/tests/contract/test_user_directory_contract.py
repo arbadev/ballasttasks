@@ -78,3 +78,19 @@ async def test_the_answer_is_about_that_user_only(store: Store) -> None:
 
     assert await store.directory.is_active_user(active.id) is True
     assert await store.directory.is_active_user(inactive.id) is False
+
+
+async def test_a_stored_user_has_a_name_whether_active_or_not(store: Store) -> None:
+    active = a_user(full_name="Lucía Marín")
+    inactive = a_user(full_name="Grace Hopper", is_active=False)
+    await store.users.add(active)
+    await store.users.add(inactive)
+
+    assert await store.directory.full_name_of(active.id) == "Lucía Marín"
+    assert await store.directory.full_name_of(inactive.id) == "Grace Hopper"
+
+
+async def test_an_id_nobody_has_has_no_name(store: Store) -> None:
+    await store.users.add(a_user())
+
+    assert await store.directory.full_name_of(uuid.uuid4()) is None
