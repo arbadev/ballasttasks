@@ -13,6 +13,7 @@ Celery + Redis. PostgreSQL everywhere, including tests.
 | `app.api` | routes, Pydantic schemas (the HTTP contract), dependencies | `application` |
 | `app.bootstrap` | composition root: the only importer of concrete adapters | everything |
 | `app.main` | `create_app()`: settings -> bootstrap -> routes | `bootstrap`, `api` |
+| `app.seed_demo` | `python -m app.seed_demo`: the explicit local demo seed (below) | `bootstrap`, `application` |
 
 Swapping or adding an adapter = a new adapter file, one registration line, one line in the
 port's contract suite (`tests/contract/`), and an env change. Where each kind of adapter is
@@ -102,10 +103,10 @@ Concurrent invocations serialise on the existing Inbox row. Stable demo IDs and 
 project's creation timestamp identify and date the seed. An intact rerun says `Demo
 unchanged` without rewriting hashes, dates or rows. A conflicting email, ID or project
 key, edited demo record/password, or partial/deleted seed (including creation events) is
-refused, not repaired; all
-in-flight inserts and counters roll back. Unrelated records are never deleted or reset.
-Use a separate fresh local database if you need the original scenarios again after edits
-or as dates age. Failure returns a nonzero exit status without printing credentials.
+refused, not repaired; all in-flight inserts and counters roll back. Unrelated records are
+never deleted or reset. Use a separate fresh local database if you need the original
+scenarios again after edits or as dates age. Failure returns a nonzero exit status
+without printing credentials.
 
 ## Docker
 
