@@ -120,6 +120,49 @@ async def test_the_binding_cookie_is_secure_when_the_api_is_served_over_https(
     assert "secure" in {part.strip().lower() for part in response.headers["set-cookie"].split(";")}
 
 
+def cookie_attributes(response: httpx.Response) -> set[str]:
+    return {part.strip().lower() for part in response.headers["set-cookie"].split(";")[1:]}
+
+
+def behind_a_proxy_that_strips(prefix: str, app: FastAPI) -> httpx.ASGITransport:
+    """The API as the browser reaches it: under ``prefix``, which the proxy removes."""
+
+    async def proxy(scope: dict[str, object], receive: object, send: object) -> None:
+        if scope["type"] == "http":
+            path = str(scope["path"])
+            assert path.startswith(f"{prefix}/")
+            stripped = path.removeprefix(prefix)
+            scope = {**scope, "path": stripped, "raw_path": stripped.encode()}
+        await app(scope, receive, send)  # type: ignore[arg-type]
+
+    return httpx.ASGITransport(app=proxy)  # type: ignore[arg-type]
+
+
+async def test_the_binding_cookie_follows_the_path_of_the_public_api_url(
+    auth_app: FastAPI,
+) -> None:
+    """``SSO__API_PUBLIC_BASE_URL=https://host.example/api``: the browser calls back under
+    ``/api``, so a cookie scoped to ``/auth/sso`` would never come back."""
+    auth_app.state.container = replace(
+        auth_app.state.container,
+        sso=SsoConfig(
+            api_public_base_url="https://host.example/api", web_callback_url=WEB_CALLBACK
+        ),
+    )
+    transport = behind_a_proxy_that_strips("/api", auth_app)
+    async with httpx.AsyncClient(transport=transport, base_url="https://host.example") as browser:
+        started = await browser.get("/api/auth/sso/fake/start")
+        callback_url = started.headers["location"]
+        callback = await browser.get(path_and_query(callback_url))
+
+    assert callback_url.startswith("https://host.example/api/auth/sso/fake/callback?")
+    assert "path=/api/auth/sso" in cookie_attributes(started)
+    assert callback.headers["location"].startswith(f"{WEB_CALLBACK}?code=")
+    # Deleted where it was set, or the browser keeps it.
+    assert 'sso_binding=""' in callback.headers["set-cookie"]
+    assert {"path=/api/auth/sso", "max-age=0"} <= cookie_attributes(callback)
+
+
 async def test_the_state_is_not_the_cookie_value(auth_client: httpx.AsyncClient) -> None:
     """Whoever sees the URL (history, a proxy log) must not learn the browser binding."""
     response = await auth_client.get("/auth/sso/fake/start")

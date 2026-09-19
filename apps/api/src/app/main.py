@@ -44,7 +44,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         expose_headers=list(RATE_LIMIT_HEADERS),
     )
     register_error_handlers(app)
-    install_access_log_redaction()
+    install_access_log_redaction(container.sso.api_public_path)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(sso.router)

@@ -2,10 +2,13 @@
 sign-on callback carries a state and a code there, so the application redacts it."""
 
 import logging
+from dataclasses import replace
 
 import pytest
+from fastapi import FastAPI
 
 from app.api.access_log import RedactSsoQueryStrings
+from app.application.sso import SsoConfig
 from app.main import create_app
 
 
@@ -50,6 +53,53 @@ def test_every_other_request_is_logged_as_it_came(path: str) -> None:
     assert RedactSsoQueryStrings().filter(record) is True
 
     assert f'"GET {path} HTTP/1.1"' in record.getMessage()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/auth/sso/google/callback?code=4%2Fsecret-code&state=secret-state",
+        "/auth/sso/google/callback?code=4%2Fsecret-code&state=secret-state",
+    ],
+)
+def test_the_redaction_follows_the_path_the_api_is_published_under(path: str) -> None:
+    """Served with a root path the log line carries the prefix; behind a proxy that strips
+    it, it does not. Neither may show the query string."""
+    record = access_record(path)
+
+    assert RedactSsoQueryStrings("/api/v1").filter(record) is True
+
+    line = record.getMessage()
+    assert "secret" not in line
+    assert path.partition("?")[0] + "?[redacted]" in line
+
+
+def test_a_path_that_only_contains_the_single_sign_on_prefix_is_logged_as_it_came() -> None:
+    record = access_record("/other/auth/sso/x?page=2")
+
+    assert RedactSsoQueryStrings("/api/v1").filter(record) is True
+
+    assert '"GET /other/auth/sso/x?page=2 HTTP/1.1"' in record.getMessage()
+
+
+def test_the_application_redacts_under_the_path_of_its_public_api_url(
+    tasks_app: FastAPI,
+) -> None:
+    container = replace(
+        tasks_app.state.container,
+        sso=SsoConfig(
+            api_public_base_url="https://host.example/api",
+            web_callback_url="https://host.example/auth/callback",
+        ),
+    )
+    create_app(container=container)
+    record = access_record("/api/auth/sso/google/callback?code=secret-code&state=secret-state")
+
+    logging.getLogger("uvicorn.access").filter(record)
+
+    line = record.getMessage()
+    assert "secret" not in line
+    assert "/api/auth/sso/google/callback?[redacted]" in line
 
 
 @pytest.mark.parametrize("args", [None, (), ("only", "two"), {"a": "mapping"}])

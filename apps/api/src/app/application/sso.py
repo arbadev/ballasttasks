@@ -9,6 +9,7 @@ import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 # Long enough to pick an account and pass a second factor at the provider, no longer.
 STATE_TTL = timedelta(minutes=5)
@@ -31,6 +32,12 @@ class SsoConfig:
     @property
     def cookies_are_secure(self) -> bool:
         return self.api_public_base_url.startswith("https://")
+
+    @property
+    def api_public_path(self) -> str:
+        """The path the API is published under ("" at the root, else ``/api``): what a
+        browser puts in front of every route, so cookie paths and log lines start with it."""
+        return urlsplit(self.api_public_base_url).path.rstrip("/")
 
 
 def new_secret() -> str:

@@ -297,7 +297,7 @@ A second way in, next to password login; the reasons, the flow diagram and the t
 | Route | Success | Errors |
 | --- | --- | --- |
 | `GET /auth/sso/providers` | `200` `SsoProvidersResponse`: `{"providers": [{"name": "google"}]}`, empty while disabled | |
-| `GET /auth/sso/{provider}/start` | `303` to the provider, plus the `sso_binding` cookie (HttpOnly, SameSite=Lax, `Path=/auth/sso`, 5 minutes) | `404` unknown or disabled provider |
+| `GET /auth/sso/{provider}/start` | `303` to the provider, plus the `sso_binding` cookie (HttpOnly, SameSite=Lax, `Path=<path of SSO__API_PUBLIC_BASE_URL>/auth/sso`, 5 minutes) | `404` unknown or disabled provider |
 | `GET /auth/sso/{provider}/callback` | `303` to `SSO__WEB_CALLBACK_URL?code=<one-time code>` | `303` to `SSO__WEB_CALLBACK_URL?error=sso_failed` (or `provider_unavailable`) for every failure; `404` unknown or disabled provider |
 | `POST /auth/sso/exchange` `{"code": "..."}` | `200` `TokenResponse`, the body of `POST /auth/login` | `401` for every failure, `422` |
 

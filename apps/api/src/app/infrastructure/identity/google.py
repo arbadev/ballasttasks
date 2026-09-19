@@ -16,10 +16,14 @@ Discovery and keys are cached for as long as their ``Cache-Control: max-age`` al
 ``kid`` that is not in the cache forces one early refetch (Google rotates keys), at most
 once a minute, so made-up key ids cannot turn this adapter into a load generator.
 
-Nothing here logs, and no error carries a code, a nonce, a token or the client secret.
+No error carries a code, a nonce, a token or the client secret. The one thing logged is
+the OAuth ``error`` code of a token response that blames this deployment's OAuth client
+(a fixed vocabulary, matched against ``CLIENT_MISCONFIGURATION_ERRORS``), never the rest
+of that response.
 """
 
 import hmac
+import logging
 import re
 import time
 from collections.abc import Callable
@@ -34,12 +38,20 @@ from app.application.errors import IdentityCodeRejectedError, IdentityProviderUn
 from app.application.ports.identity_provider import VerifiedIdentity
 from app.infrastructure.config.settings import ConfigurationError, Settings
 
+logger = logging.getLogger(__name__)
+
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 SCOPE = "openid email profile"
 # Asymmetric only, and chosen here, never by the token: no ``alg=none``, no HS256 keyed
 # with the public key. RS256 is the one algorithm Google's discovery document lists.
 SIGNING_ALGORITHMS = ("RS256",)
 REQUIRED_CLAIMS = ("iss", "sub", "aud", "exp", "iat")
+# Token endpoint refusals that are about the OAuth client (a wrong or rotated secret, a
+# redirect URI that is not registered), not about the code: no sign-in can succeed until an
+# operator fixes the configuration.
+CLIENT_MISCONFIGURATION_ERRORS = frozenset(
+    {"invalid_client", "unauthorized_client", "redirect_uri_mismatch"}
+)
 CLOCK_SKEW_SECONDS = 30
 MAX_SUBJECT_LENGTH = 255  # Google: "never exceeds 255 case-sensitive ASCII characters"
 TIMEOUT = httpx.Timeout(5.0)
@@ -168,9 +180,16 @@ class GoogleIdentityProvider:
         try:
             for jwk in body["keys"]:
                 if jwk.get("use", "sig") == "sig" and isinstance(jwk.get("kid"), str):
-                    keys[jwk["kid"]] = jwt.PyJWK(jwk)
-        except KeyError, TypeError, AttributeError, jwt.PyJWTError:
+                    try:
+                        keys[jwk["kid"]] = jwt.PyJWK(jwk)
+                    except jwt.PyJWTError:
+                        # A key type or algorithm this PyJWT cannot load (Google may add
+                        # one during a rotation) must not hide the keys it can.
+                        continue
+        except KeyError, TypeError, AttributeError:
             raise IdentityProviderUnavailableError from None
+        if not keys:
+            raise IdentityProviderUnavailableError
         self._keys = _Cached(keys, self._clock() + max_age)
 
     async def _get_json(self, client: httpx.AsyncClient, url: str) -> tuple[dict[str, Any], float]:
@@ -201,6 +220,15 @@ class GoogleIdentityProvider:
         except httpx.HTTPError:
             raise IdentityProviderUnavailableError from None
         if response.status_code in {400, 401, 403}:
+            error = _oauth_error(response)
+            if error in CLIENT_MISCONFIGURATION_ERRORS:
+                logger.warning(
+                    "google refused this application's OAuth client: %s; check "
+                    "SSO__GOOGLE_CLIENT_ID, SSO__GOOGLE_CLIENT_SECRET and the redirect URI "
+                    "registered for SSO__API_PUBLIC_BASE_URL",
+                    error,
+                )
+                raise IdentityProviderUnavailableError
             # ``invalid_grant`` and friends: Google looked at the code and said no.
             raise IdentityCodeRejectedError
         if response.status_code != httpx.codes.OK:
@@ -256,6 +284,16 @@ def _identity(claims: dict[str, Any]) -> VerifiedIdentity:
         email_verified=claims.get("email_verified") is True,
         full_name=name if isinstance(name, str) else None,
     )
+
+
+def _oauth_error(response: httpx.Response) -> str | None:
+    """The ``error`` field of a token error response (RFC 6749, section 5.2), and nothing
+    else of it: ``error_description`` is free text."""
+    try:
+        error = response.json().get("error")
+    except ValueError, AttributeError:
+        return None
+    return error if isinstance(error, str) else None
 
 
 def _max_age(response: httpx.Response) -> float:

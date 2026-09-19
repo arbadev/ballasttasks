@@ -8,6 +8,7 @@ test per way an ID token can be wrong.
 import base64
 import hmac
 import json
+import logging
 import time
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -260,6 +261,83 @@ async def test_a_code_google_refuses_is_rejected(
         await exchange(provider, "4/some-code")
 
 
+@pytest.mark.parametrize("status", [400, 401])
+@pytest.mark.parametrize(
+    "error", ["invalid_client", "unauthorized_client", "redirect_uri_mismatch"]
+)
+async def test_a_refusal_that_blames_the_oauth_client_is_an_unreachable_provider_and_a_warning(
+    provider: GoogleIdentityProvider,
+    google: FakeGoogle,
+    caplog: pytest.LogCaptureFixture,
+    status: int,
+    error: str,
+) -> None:
+    """A wrong or rotated client secret is the operator's problem, not a bad code: the
+    person is told to try again later and the operator gets a line that names the cause."""
+    google.token_status = status
+    google.token_body = {"error": error, "error_description": "described-by-google"}
+    code = "4/some-secret-code"
+
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(IdentityProviderUnavailableError) as raised,
+    ):
+        await exchange(provider, code)
+
+    warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert error in warnings[0].getMessage()
+    shown = f"{caplog.text} {raised.value!s} {raised.value!r} {raised.value.__cause__!r}"
+    for secret in (code, CLIENT_SECRET, NONCE, "described-by-google"):
+        assert secret not in shown
+    assert str(raised.value) == str(IdentityProviderUnavailableError())
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": "invalid_grant", "error_description": "described-by-google"},
+        {"error": "something-google-made-up"},
+        {"error": ["invalid_client"]},
+        {"error_description": "invalid_client"},
+        {},
+    ],
+)
+async def test_any_other_refusal_is_a_rejected_code_and_logs_nothing(
+    provider: GoogleIdentityProvider,
+    google: FakeGoogle,
+    caplog: pytest.LogCaptureFixture,
+    body: dict[str, Any],
+) -> None:
+    google.token_status = 400
+    google.token_body = body
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(IdentityCodeRejectedError):
+        await exchange(provider, "4/some-code")
+
+    assert [r for r in caplog.records if r.name.startswith("app.")] == []
+
+
+async def test_a_refusal_that_is_not_json_is_a_rejected_code(
+    clock: ManualClock, google: FakeGoogle
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == TOKEN_ENDPOINT:
+            return httpx.Response(400, text="invalid_client")
+        return google.transport().handle_request(request)
+
+    provider = GoogleIdentityProvider(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        discovery_url=DISCOVERY_URL,
+        clock=clock,
+    )
+
+    with pytest.raises(IdentityCodeRejectedError):
+        await exchange(provider, "4/some-code")
+
+
 @pytest.mark.parametrize("status", [429, 500, 503])
 async def test_a_token_endpoint_in_trouble_is_an_unreachable_provider(
     provider: GoogleIdentityProvider, google: FakeGoogle, status: int
@@ -431,6 +509,35 @@ async def test_a_key_document_that_is_not_a_jwk_set_is_an_unreachable_provider(
 
     with pytest.raises(IdentityProviderUnavailableError):
         await exchange(provider, google.approve(nonce=NONCE))
+
+
+async def test_a_published_key_pyjwt_cannot_load_does_not_hide_the_usable_ones(
+    clock: ManualClock, google: FakeGoogle
+) -> None:
+    """Google adds a key of a type this PyJWT does not know during a rotation: the key
+    that signed the token is still there."""
+    unloadable = [
+        {"kid": "from-the-future", "use": "sig", "kty": "XYZ", "alg": "XY512"},
+        {"kid": "half-a-key", "use": "sig", "kty": "RSA"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == JWKS_URI:
+            published = [*unloadable, *(key.jwk() for key in google.keys)]
+            return httpx.Response(200, json={"keys": published})
+        return google.transport().handle_request(request)
+
+    provider = GoogleIdentityProvider(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        discovery_url=DISCOVERY_URL,
+        clock=clock,
+    )
+
+    identity = await exchange(provider, google.approve(nonce=NONCE))
+
+    assert identity.subject == "110169484474386276334"
 
 
 async def test_a_token_response_that_is_not_json_is_an_unreachable_provider(

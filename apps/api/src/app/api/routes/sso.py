@@ -51,8 +51,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth/sso", tags=["auth"], responses={**TOO_MANY_REQUESTS})
 
 BINDING_COOKIE = "sso_binding"
-# The cookie is sent to the start and callback routes and to nothing else.
-BINDING_COOKIE_PATH = "/auth/sso"
 CALLBACK_ROUTE = "sso_callback"
 
 REDIRECT = {
@@ -76,6 +74,12 @@ def _redirect(url: str) -> RedirectResponse:
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
+
+
+def _binding_cookie_path(config: SsoConfig) -> str:
+    """The cookie is sent to the start and callback routes and to nothing else: these
+    routes as the browser addresses them, under the path of the configured public URL."""
+    return f"{config.api_public_path}{router.prefix}"
 
 
 def _provider_redirect_uri(request: Request, config: SsoConfig, provider: str) -> str:
@@ -128,7 +132,7 @@ async def start(
         BINDING_COOKIE,
         started.browser_binding,
         max_age=int(STATE_TTL.total_seconds()),
-        path=BINDING_COOKIE_PATH,
+        path=_binding_cookie_path(config),
         secure=config.cookies_are_secure,
         httponly=True,
         samesite="lax",
@@ -189,7 +193,7 @@ async def callback(
     # Spent either way, like the state it was bound to.
     response.delete_cookie(
         BINDING_COOKIE,
-        path=BINDING_COOKIE_PATH,
+        path=_binding_cookie_path(config),
         secure=config.cookies_are_secure,
         httponly=True,
         samesite="lax",
