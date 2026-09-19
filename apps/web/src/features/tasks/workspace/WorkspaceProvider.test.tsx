@@ -39,6 +39,18 @@ describe("WorkspaceProvider", () => {
     expect(result.current.now).toBe(NOW);
   });
 
+  it("adds a created project to the directory and shows it over a clean scope", async () => {
+    const { result } = setup();
+    await ready(result);
+    act(() => result.current.workspace.actions.selectScope("mine"));
+    act(() => result.current.workspace.actions.toggleSignal("unassigned"));
+
+    act(() => result.current.workspace.actions.addProject({ id: "p1", name: "Marketing", key: "MKT", tone: "info" }));
+    expect(result.current.directory.projects.map((p) => p.id)).toEqual(["ballast", "inbox", "p1"]);
+    expect(result.current.workspace.state.query).toMatchObject({ project: "p1", scope: "all", signal: null });
+    expect(result.current.visible).toEqual([]);
+  });
+
   it("derives the visible tasks: filtered and sorted, with the board ignoring the status filter", async () => {
     const { result } = setup();
     await ready(result);
