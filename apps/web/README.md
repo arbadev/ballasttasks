@@ -207,7 +207,8 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 - `board-behaviour.visual.ts` needs nothing else: a real mouse drag moves a card, Shift+Arrow
   moves the focused card and focus follows it, at 375px the columns scroll and snap inside the
   board with touch-sized move buttons and no page overflow, reduced motion stills the card,
-  the hot P0 mark computes to `--acc-fg` on `--danger` at 4.5:1 or better, and the console
+  the hot P0 mark computes to `--acc-fg` on `--danger` at 4.5:1 or better, the board's move
+  and "Add a task" controls transition neither `outline-color` nor `all`, and the console
   stays silent.
 - `list.visual.ts` compares the list view with the design the same way (1% limit, 2/255
   tolerance): a default, hovered, selected, done, overdue and hot (P0 at risk) row, the quick-add,
