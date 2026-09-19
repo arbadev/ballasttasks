@@ -1,6 +1,8 @@
 """What only the local-disk adapter can get wrong: the file system under its root."""
 
 import os
+import asyncio
+import threading
 import stat
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -154,6 +156,28 @@ async def test_a_stream_that_dies_half_way_leaves_no_partial_file(
     with pytest.raises(ConnectionResetError):
         await storage.save(KEY, failing_after(b"x" * 100_000, b"y" * 100_000))
 
+    assert everything_under(root) == []
+
+
+async def test_cancellation_during_create_removes_the_file(
+    root: Path, storage: LocalDiskFileStorage, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_create = storage._create
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_create(key: str) -> tuple[int, int, str]:
+        result = real_create(key)
+        entered.set()
+        release.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(storage, "_create", slow_create)
+    saving = asyncio.create_task(storage.save(KEY, chunks_of(b"data")))
+    await asyncio.to_thread(entered.wait, 5)
+    saving.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await saving
     assert everything_under(root) == []
 
 
