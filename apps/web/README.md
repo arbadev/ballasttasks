@@ -21,6 +21,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
+| `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
@@ -62,14 +63,14 @@ and labels as the design, but serialisable and the shape an API date column has.
 
 ## Building on the shell
 
-The shell mounts three views. The list is built; the board and the detail panel are still
-placeholders, each owned by one follow-up slice, which replaces the file's contents and adds
-whatever else it needs **inside its own folder**:
+The shell mounts three views. Each is owned by one slice, which keeps whatever it needs
+**inside its own folder**. The list and board are built (see "The board" below); the
+detail panel is still a placeholder, replaced by its slice:
 
-| Folder (owner) | Mounted as | Replace the placeholder with |
+| Folder (owner) | Mounted as | Contents |
 | --- | --- | --- |
 | `src/features/tasks/list/` | `<ListView />` when the view is `list`, in every load state: it draws its own skeleton and load error | Built: the task rows and the quick-add input. |
-| `src/features/tasks/board/` | `<BoardView />` when the view is `board` | The four status columns with drag between them. |
+| `src/features/tasks/board/` | `<BoardView />` when the view is `board`, in every load state; it shows its own loading skeleton and load error | Built: the four status columns, with drag, keyboard and touch moves. |
 | `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
 
 Everything else (`model/`, `services/`, `workspace/`, `shell/`, `components/ui/`) is shared.
@@ -78,8 +79,8 @@ so the other two slices are unaffected.
 
 A view that replaces another hands the focus on: when the empty-project state saves its first
 task, its `onFirstTask` makes the shell set `ListView`'s `focusQuickAdd`, so the caret lands in
-the quick-add without the page scrolling. Only the list claims it today; the board slice wires
-the same prop for its own view.
+the quick-add without the page scrolling. The list is the only view that claims it: the board
+has no quick-add, so a first task saved while the board is showing takes no focus of its own.
 
 All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 
@@ -109,8 +110,8 @@ than `useTaskService()` directly.
 | Command | Service method | Used by |
 | --- | --- | --- |
 | `create({ title, status? }, { open? })` | `create` | List quick-add and the empty project's first task (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
-| `toggleDone(id)` | `toggleDone` | List and board checkboxes; detail "Mark complete" / "Reopen". |
-| `move(id, status)` | `move` | Board drop; detail status select. |
+| `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
+| `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
@@ -126,6 +127,69 @@ than `useTaskService()` directly.
 services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026); wrap the view in
 `WorkspaceProvider`, or render `<TasksApp />` to drive it through the real shell.
 `FakeTaskService.calls` records what the UI asked for.
+
+## The board
+
+`src/features/tasks/board/` is the board view, built from the design's markup and `taskView` rules.
+
+| File | Responsibility |
+| --- | --- |
+| `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state, reports a refused "Add a task", and keeps focus after a move made without a drag: on the card until the move settles, then on whatever took its place in the column it left (that column's heading if it is empty) if the move took the card off the board. |
+| `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once; a rejected move cancels queued moves, restores the last saved status and offers a retry of the newest target. |
+| `cardView.ts` | Pure: everything a card shows (due chip tone and mark, rail, priority tone, step and attachment labels), from `urgency` and `dueInfo`. |
+| `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx`, `BoardLoadError.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
+
+Calls for the same task never overlap. The newest queued target wins, so intermediate queued
+targets are never sent; serialization prevents stale answers without a shared workspace guard.
+A refused move is therefore carried on the user's newest target and not on the one the service
+refused, because the intermediate hops were never sent, which is why the alert states only that
+the card did not move and which column it is back in. A retry consequently records a single
+status change rather than one per hop; that follows from coalescing and is intended.
+Feedback is kept against the card it belongs to, never against one latest attempt: an unsatisfied
+refused move raises its own alert, whatever any other card did. Only that card's next attempt,
+a dismissal, or reaching its target takes it away, so two unsatisfied refused cards show two alerts. A refusal is a failure only when
+the card is not already in the user's newest target: a hop refused on the way back to where the
+card started asked for nothing that did not happen, so it raises no alert and leaves no Retry
+with nothing to do. The same rule holds afterwards: a failure is dropped for good, not hidden,
+as soon as the workspace says the card reached that target, whatever moved it there, so no alert
+can outlive its target or come back if the card moves away again. A fulfilled command updates the
+saved-status snapshot immediately, so a queued refusal in the same microtask chain sees that save
+even before React renders it. Settlement tickets are kept per task as well, so answers batched
+with another task cannot erase the signal that restores keyboard focus. If authoritative target
+satisfaction removes a focused alert, focus returns to its card or column heading; unrelated
+focus is left alone. "Add a task" belongs to its column
+rather than to a card, and a column adds one task at a time: while its call is out, and once that
+call has been refused, the column's "Add a task" reads as unavailable (`aria-disabled`, and
+`aria-busy` while the call is out) and does nothing, so the refusal keeps its place until the
+user retries or dismisses it. Columns are independent of each other, and no add or move ever
+clears another's alert, so several refusals can be on screen at once, each with its own Retry.
+Retrying or dismissing an alert hands focus to what it was about — the card, its column's heading
+once the card is off the board, or that column's "Add a task" — so the keyboard is never left on
+the body, which is why that button is never `disabled` and can still take focus while it is
+unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: could not add a task
+to Testing`) so that stacked alerts do not all read "Retry"; the visible labels, the Dismiss
+tooltip included, stay as the design has them (`IconButton` takes a `title` of its own for that).
+
+A failed load is built from the same parts in both views — the danger badge, the heading, the
+detail line and a Retry carrying the design's refresh mark — each naming its own subject and
+keeping its own content gutter. The board states the failure once: a rejection that carried no
+message of its own is reported as `LOAD_FAILED_WITHOUT_DETAIL`, which says nothing the heading has
+not already said, so the board leaves the detail line out rather than doubling it; the list's own
+doubling is left as it was.
+
+The board's own controls name the properties they animate rather than using `transition-colors`,
+which in Tailwind v4 covers `outline-color` as well: the focus ring is `outline: 2px solid
+var(--acc)`, so transitioning it would tween the ring up from the element's text colour instead
+of showing the accent at once.
+
+The board passes `applyStatus: false`, so every status is a column whatever the Status filter
+says; the header count keeps describing the list's filters. Both are the design's behaviour.
+
+The design can only be dragged. Two additions make the same move reachable without a pointer
+drag: Shift+Left / Shift+Right on a focused card, announced through a polite live region, and
+a row of move buttons that appears while the keyboard is inside a card and is always present
+on a coarse pointer. At rest on a desktop the card is pixel-identical to the design, apart from
+the hot P0 mark's colour (the sanctioned contrast fix under "Visual tests").
 
 ## Commands
 
@@ -162,6 +226,17 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   search placeholder is set in `--fg-3`. With `BT_DESIGN_DIR`: the skin's custom properties on
   the root element, the resolved colours, radii, shadows and type of shell elements, and the
   keyboard focus ring all equal the design's.
+- `board.visual.ts` compares the board with the design at both desktop sizes: the whole
+  board, one column, a card at rest, hovered and selected, a column highlighted as the drop
+  target with the dragged card (a real mouse drag, held), the empty column, and a card with
+  the hot P0 mark (its text is `--acc-fg`, not the design's white, for contrast). Same limits as
+  the shell suite; needs `BT_DESIGN_DIR`. Measurements go to `board-report.json`.
+- `board-behaviour.visual.ts` needs nothing else: a real mouse drag moves a card, Shift+Arrow
+  moves the focused card and focus follows it, at 375px the columns scroll and snap inside the
+  board with touch-sized move buttons and no page overflow, reduced motion stills the card,
+  the hot P0 mark computes to `--acc-fg` on `--danger` at 4.5:1 or better, the board's move
+  and "Add a task" controls transition neither `outline-color` nor `all`, and the console
+  stays silent.
 - `list.visual.ts` compares the list view with the design the same way (1% limit, 2/255
   tolerance): a default, hovered, selected, done, overdue and hot (P0 at risk) row, the quick-add,
   the empty state and the whole list region, at both sizes. For the selected row the task panel
@@ -189,8 +264,8 @@ Both servers are reused when already running. When two checkouts run the suite a
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
 other's app.
 
-Screenshots, diffs, `report.json` and `list-report.json` (the measured percentages) land in the git-ignored
-`visual-results/`. Run `npx playwright install chromium` once beforehand.
+Screenshots, diffs and each suite's measured percentages (the report file named in its entry
+above) land in the git-ignored `visual-results/`. Run `npx playwright install chromium` once beforehand.
 
 ## Docker
 

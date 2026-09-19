@@ -6,7 +6,7 @@ interface AvatarProps {
   name?: string;
   /** `accent` is the current user, `solid` the assistant, `neutral` everyone else. */
   tone?: "neutral" | "accent" | "solid";
-  size?: 24 | 26 | 28;
+  size?: 22 | 24 | 26 | 28;
 }
 
 const TONES = {
@@ -16,6 +16,7 @@ const TONES = {
 };
 
 const SIZES = {
+  22: "size-[22px] text-[9px]",
   24: "size-6 text-[9.5px] tracking-[.02em]",
   26: "size-[26px] text-[10px] tracking-[.02em]",
   28: "size-7 text-[10.5px]",

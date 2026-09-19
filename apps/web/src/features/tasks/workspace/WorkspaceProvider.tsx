@@ -66,6 +66,9 @@ const EMPTY_DIRECTORY: Directory = { people: [], projects: [], currentUser: null
 /** How often "now" is sampled from the clock, so due labels roll over without a reload. */
 const NOW_REFRESH_MS = 60_000;
 
+/** What a failure that carried no message of its own is reported as: it says nothing a view does not already say. */
+export const LOAD_FAILED_WITHOUT_DETAIL = "Could not load the tasks.";
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const taskService = useTaskService();
   const directoryService = useDirectoryService();
@@ -85,7 +88,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : "Could not load the tasks." });
+        dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : LOAD_FAILED_WITHOUT_DETAIL });
       });
     return () => {
       cancelled = true;
