@@ -9,6 +9,7 @@ here, so it never imports ``app.infrastructure`` itself.
 """
 
 import asyncio
+import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -18,6 +19,8 @@ from datetime import timedelta
 from celery import Celery
 from httpx import AsyncClient
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application.clock import Clock, utc_now
@@ -89,7 +92,7 @@ from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.cache.health import RedisHealthCheck
 from app.infrastructure.cache.one_time_store import RedisOneTimeStore
 from app.infrastructure.config import settings as config
-from app.infrastructure.config.settings import RateLimitSettings, Settings
+from app.infrastructure.config.settings import ConfigurationError, RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
@@ -115,6 +118,8 @@ from app.infrastructure.security.jwt_token_service import JwtTokenService
 from app.infrastructure.storage.registry import build_file_storage
 
 __all__ = ["Container", "RequestScope", "Settings", "build_container", "load_settings"]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,6 +445,30 @@ async def generate_steps_in_worker(container: Container, task_id: uuid.UUID) -> 
     return result
 
 
+def _failure_category(error: BaseException) -> str:
+    """One word from a fixed set, chosen by exception class alone.
+
+    The cause is never read: its message, arguments and traceback can carry a connection
+    string, an API key or a provider response. The class tells an operator which part of
+    the deployment is broken without any of that.
+    """
+    if isinstance(error, ConfigurationError):
+        return "configuration"
+    if isinstance(error, SQLAlchemyError):
+        return "database"
+    if isinstance(error, RedisError):
+        return "cache"
+    return "unexpected"
+
+
+def _job_correlation_id(task_id: str) -> str:
+    """The job's task id, normalised. A message body never reaches a log line raw."""
+    try:
+        return str(uuid.UUID(task_id))
+    except ValueError:
+        return "unparsable"
+
+
 def _run_generation(settings: Settings, task_id: str, celery_app: Celery) -> dict[str, object]:
     async def run() -> GenerationOutcome:
         # The running process already has its Celery application; only the async handles
@@ -452,9 +481,16 @@ def _run_generation(settings: Settings, task_id: str, celery_app: Celery) -> dic
 
     try:
         result = asyncio.run(run())
-    except Exception:
+    except Exception as error:
         # Database/worker failures are as private as provider failures. Celery never
-        # receives an exception containing connection strings or response bodies.
+        # receives an exception containing connection strings or response bodies, and
+        # neither does this line: a broken deployment is diagnosable from the task id and
+        # the category, which is all a swallowed failure is allowed to say.
+        logger.warning(
+            "Step generation job failed: task=%s category=%s",
+            _job_correlation_id(task_id),
+            _failure_category(error),
+        )
         result = GenerationOutcome(error="worker_failed")
     return {"titles": list(result.titles), "error": result.error}
 

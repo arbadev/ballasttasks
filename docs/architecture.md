@@ -440,7 +440,11 @@ job is **not** a successful empty result.
   an expired handle are all `404`. Deleting a task immediately makes its jobs inaccessible;
   the worker also checks deletion before and after generating. A task deleted while a poll
   is in flight is `404` too: the worker's internal `task_deleted` outcome is a missing
-  generation, never a failure code, so no response can carry it.
+  generation, never a failure code, so no response can carry it. That shared authenticated
+  allowance is the **only** bound on enqueue: there is no generation quota, per-task
+  in-flight cap or deduplication, so on a paid provider an authenticated caller inside the
+  allowance can start as many billable generations. The message expiry and the model
+  deadline below bound backlog and job duration, not spend.
 - Each POST is a new independent job, including retries/regeneration. Retain the returned
   task id and job id while changing selection and poll that handle on return. There is no
   server-side 'current selection', latest-job lookup or cancellation. Discarding/removing
@@ -466,7 +470,10 @@ job is **not** a successful empty result.
   unreturned job running; it has no task-write effects and expires normally.
 - `app.worker` is the worker entrypoint; `bootstrap.build_worker` supplies the job callable.
   A process builds its Celery application once: the worker passes its own into
-  `build_container`, so a job composes only the async handles it closes again.
+  `build_container`, so a job composes only the async handles it closes again. A job that
+  fails outside the model boundary still answers `worker_failed`, and logs one warning
+  naming the task id and a fixed category (`configuration`, `database`, `cache` or
+  `unexpected`) — never the exception, its message or a traceback.
   The worker reads the task title, description and existing step titles in a short
   `Container.request_scope()`, **closes it before awaiting the model**, then rechecks
   existence in another short scope. `GenerateStepTitles` depends only on `LanguageModel`.

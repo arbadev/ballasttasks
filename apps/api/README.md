@@ -60,6 +60,10 @@ handles survive the change. Unknown/deleted tasks, wrong-task jobs and expired j
 A Redis/queue outage returns a safe `503`, not a false pending or empty success.
 
 Proposals expire one hour after enqueue. Unfinished jobs time out after five minutes.
+Neither is a spending cap: enqueue is bounded only by the shared authenticated request
+allowance, so a paid provider has no generation-specific cost protection here. A job that
+fails before or outside the model call logs one warning with the task id and a fixed
+category (`configuration`, `database`, `cache`, `unexpected`) and nothing from the cause.
 Generation never creates steps: send the chosen titles to the existing
 `POST /tasks/{id_or_key}/steps/bulk` to accept them (atomic, 100-step total ceiling).
 See [the HTTP/lifetime contract](../../docs/architecture.md#queued-step-generation).
