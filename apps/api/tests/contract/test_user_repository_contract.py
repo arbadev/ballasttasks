@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors import EmailAlreadyRegisteredError
+from app.application.errors import EmailAlreadyRegisteredError, UserNotFound
 from app.application.ports.user_repository import UserRepository
 from app.domain.user import User
 from app.infrastructure.db.engine import create_engine
@@ -131,3 +131,49 @@ async def test_the_repository_stays_usable_after_a_rejected_add(users: UserRepos
     await users.add(another)
 
     assert await users.get_by_id(another.id) == another
+
+
+# --- the profile a user can edit -----------------------------------------------------------
+
+
+async def test_a_role_label_round_trips_and_is_absent_by_default(users: UserRepository) -> None:
+    plain, labelled = make_user(), make_user(role_label="backend")
+    await users.add(plain)
+    await users.add(labelled)
+
+    assert await users.get_by_id(plain.id) == plain
+    assert await users.get_by_email(labelled.email) == labelled
+
+
+async def test_update_stores_the_new_profile_and_nothing_else(users: UserRepository) -> None:
+    user, bystander = make_user(), make_user()
+    await users.add(user)
+    await users.add(bystander)
+
+    changed = user.renamed("Ada King").with_role_label("owner")
+    await users.update(changed)
+
+    assert await users.get_by_id(user.id) == changed
+    assert await users.get_by_email(user.email) == changed
+    assert await users.get_by_id(bystander.id) == bystander
+
+
+async def test_update_can_clear_the_role_label(users: UserRepository) -> None:
+    user = make_user(role_label="backend")
+    await users.add(user)
+
+    await users.update(user.with_role_label(None))
+
+    stored = await users.get_by_id(user.id)
+    assert stored is not None
+    assert stored.role_label is None
+
+
+async def test_update_of_an_unknown_user_raises_user_not_found(users: UserRepository) -> None:
+    ghost = make_user()
+
+    with pytest.raises(UserNotFound) as error:
+        await users.update(ghost)
+
+    assert error.value.user_id == ghost.id
+    assert await users.get_by_id(ghost.id) is None

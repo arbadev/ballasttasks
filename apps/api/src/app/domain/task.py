@@ -11,8 +11,12 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Self
 
+from app.domain.task_key import InvalidTaskKeyError, TaskKey
+
 TITLE_MAX_LENGTH = 200
 DESCRIPTION_MAX_LENGTH = 5000
+IMPORTANCE_MIN = 0
+IMPORTANCE_MAX = 100
 
 
 class InvalidTaskError(ValueError):
@@ -20,9 +24,34 @@ class InvalidTaskError(ValueError):
 
 
 class TaskStatus(StrEnum):
+    """The design's four columns. Everything except ``done`` is open."""
+
     TODO = "todo"
     IN_PROGRESS = "in_progress"
+    TESTING = "testing"
     DONE = "done"
+
+
+class TaskPriority(StrEnum):
+    """``P0`` is the most urgent. ``rank`` is the number the design computes with."""
+
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+
+    @property
+    def rank(self) -> int:
+        return int(self.value[1])
+
+    @classmethod
+    def from_rank(cls, rank: int) -> Self:
+        return cls(f"P{rank}")
+
+
+# What the design's ``create`` gives a new task (``prio: 2, importance: 50``).
+DEFAULT_PRIORITY = TaskPriority.P2
+DEFAULT_IMPORTANCE = 50
 
 
 @dataclass(slots=True)
@@ -37,10 +66,18 @@ class Task:
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    project_id: uuid.UUID
+    # ``<PREFIX>-<NN>`` in canonical form. It never changes, not even when the task moves to
+    # another project: it is what people have already written down.
+    key: str
+    priority: TaskPriority
+    importance: int
 
     def __post_init__(self) -> None:
         self.title = _valid_title(self.title)
         _check_description(self.description)
+        _check_key(self.key)
+        _check_importance(self.importance)
         for moment in (self.created_at, self.updated_at, self.completed_at):
             _check_aware(moment)
         if (self.status is TaskStatus.DONE) != (self.completed_at is not None):
@@ -53,24 +90,38 @@ class Task:
         task_id: uuid.UUID,
         title: str,
         created_by: uuid.UUID,
+        project_id: uuid.UUID,
+        key: TaskKey | str,
         now: datetime,
         description: str | None = None,
+        status: TaskStatus = TaskStatus.TODO,
         due_date: date | None = None,
         assignee_id: uuid.UUID | None = None,
+        priority: TaskPriority = DEFAULT_PRIORITY,
+        importance: int = DEFAULT_IMPORTANCE,
     ) -> Self:
-        """A new task: ``todo``, not completed, created and updated ``now``."""
+        """A new task, created and updated ``now``: ``todo`` unless the caller names the
+        column it was added to, and completed ``now`` when that column is ``done``."""
         return cls(
             id=task_id,
             title=title,
             description=description,
-            status=TaskStatus.TODO,
+            status=status,
             due_date=due_date,
             created_by=created_by,
             assignee_id=assignee_id,
             created_at=now,
             updated_at=now,
-            completed_at=None,
+            completed_at=now if status is TaskStatus.DONE else None,
+            project_id=project_id,
+            key=str(key),
+            priority=priority,
+            importance=importance,
         )
+
+    @property
+    def is_open(self) -> bool:
+        return self.status is not TaskStatus.DONE
 
     def retitle(self, title: str, *, now: datetime) -> None:
         valid_title = _valid_title(title)
@@ -89,6 +140,20 @@ class Task:
     def assign_to(self, assignee_id: uuid.UUID | None, *, now: datetime) -> None:
         self._touch(now)
         self.assignee_id = assignee_id
+
+    def prioritise(self, priority: TaskPriority, *, now: datetime) -> None:
+        self._touch(now)
+        self.priority = priority
+
+    def weigh(self, importance: int, *, now: datetime) -> None:
+        _check_importance(importance)
+        self._touch(now)
+        self.importance = importance
+
+    def move_to_project(self, project_id: uuid.UUID, *, now: datetime) -> None:
+        """The key stays: it names where the task was created, not where it lives now."""
+        self._touch(now)
+        self.project_id = project_id
 
     def move_to(self, status: TaskStatus, *, now: datetime) -> None:
         """Entering ``done`` records ``completed_at``; leaving ``done`` clears it."""
@@ -120,6 +185,23 @@ def _check_description(description: str | None) -> None:
     _check_no_nul("description", description)
     if len(description) > DESCRIPTION_MAX_LENGTH:
         raise InvalidTaskError(f"description must be at most {DESCRIPTION_MAX_LENGTH} characters")
+
+
+def _check_key(key: str) -> None:
+    try:
+        canonical = str(TaskKey.parse(key))
+    except InvalidTaskKeyError as error:
+        raise InvalidTaskError(f"key: {error}") from error
+    if canonical != key:
+        raise InvalidTaskError(f"key must be in canonical form ({canonical})")
+
+
+def _check_importance(importance: int) -> None:
+    # ``bool`` is an ``int`` in Python; ``True`` is not an importance.
+    if type(importance) is not int or not IMPORTANCE_MIN <= importance <= IMPORTANCE_MAX:
+        raise InvalidTaskError(
+            f"importance must be a whole number from {IMPORTANCE_MIN} to {IMPORTANCE_MAX}"
+        )
 
 
 def _check_no_nul(field: str, text: str) -> None:

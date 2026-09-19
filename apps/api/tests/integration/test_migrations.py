@@ -10,7 +10,14 @@ from alembic.migration import MigrationContext
 
 import app.infrastructure.db.models  # noqa: F401  (registers the tables on Base.metadata)
 from app.infrastructure.db.base import Base
-from tests.postgres import INSERT_USER, run_alembic, temporary_database, user_row
+from tests.postgres import (
+    INSERT_USER,
+    TASK_PROJECT_COLUMNS,
+    TASK_PROJECT_VALUES,
+    run_alembic,
+    temporary_database,
+    user_row,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -56,12 +63,16 @@ def test_tasks_table_has_the_columns_and_the_filtering_indexes(
         "created_at",
         "updated_at",
         "completed_at",
+        "project_id",
+        "key",
+        "priority",
+        "importance",
     }
     nullable = {name for name, column in columns.items() if column["nullable"]}
     assert nullable == {"description", "due_date", "assignee_id", "completed_at"}
     assert inspector.get_pk_constraint("tasks")["constrained_columns"] == ["id"]
     indexed = {tuple(index["column_names"]) for index in inspector.get_indexes("tasks")}
-    assert {("status",), ("due_date",)} <= indexed
+    assert {("status",), ("due_date",), ("project_id",), ("updated_at",)} <= indexed
 
 
 def test_the_database_rejects_a_status_outside_the_vocabulary(
@@ -71,8 +82,10 @@ def test_the_database_rejects_a_status_outside_the_vocabulary(
 
     creator = user_row()
     insert = sqlalchemy.text(
-        "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at) "
-        "VALUES (gen_random_uuid(), 't', :status, :created_by, now(), now())"
+        "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at, "
+        f"{TASK_PROJECT_COLUMNS}) "
+        "VALUES (gen_random_uuid(), 't', :status, :created_by, now(), now(), "
+        f"{TASK_PROJECT_VALUES})"
     )
     with empty_database.begin() as connection:
         connection.execute(INSERT_USER, creator)
@@ -99,9 +112,10 @@ def test_the_database_rejects_a_completed_at_that_does_not_follow_the_status(
 
     creator = user_row()
     insert = sqlalchemy.text(
-        "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at, completed_at) "
+        "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at, completed_at, "
+        f"{TASK_PROJECT_COLUMNS}) "
         "VALUES (gen_random_uuid(), 't', :status, :created_by, now(), now(), "
-        "CAST(:completed_at AS timestamptz))"
+        f"CAST(:completed_at AS timestamptz), {TASK_PROJECT_VALUES})"
     )
     by = {"created_by": creator["id"]}
     with empty_database.begin() as connection:

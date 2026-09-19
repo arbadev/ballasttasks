@@ -11,6 +11,7 @@ from app.application.errors import InvalidAssigneeError, StoredTaskInvalid
 from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH, Task
 from tests.api.conftest import USER_ID, AuthFakes, RecordingRequestScopes
 from tests.auth_fakes import a_user
+from tests.builders import a_task
 from tests.fakes import InMemoryTaskRepository
 
 INVALID_ASSIGNEE = {
@@ -32,13 +33,7 @@ async def stored_task_of_a_deactivated_assignee(
     """The ids of a task and of its assignee, who was deactivated after being given it."""
     left_the_team = a_user(is_active=False)
     await auth_fakes.users.add(left_the_team)
-    task = Task.create(
-        task_id=uuid.uuid4(),
-        title="Write the report",
-        created_by=USER_ID,
-        assignee_id=left_the_team.id,
-        now=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
-    )
+    task = a_task(USER_ID, assignee_id=left_the_team.id, now=datetime(2026, 1, 5, 9, 0, tzinfo=UTC))
     await tasks.add(task)
     return str(task.id), str(left_the_team.id)
 
@@ -86,7 +81,7 @@ async def test_create_rejects_created_by_in_the_request_body(
     )
 
     assert response.status_code == 422
-    assert list(await tasks.list()) == []
+    assert tasks.all() == []
 
 
 async def test_create_accepts_the_optional_fields(
@@ -115,7 +110,9 @@ async def test_create_accepts_the_optional_fields(
         pytest.param({"title": "t", "description": "a\x00b"}, id="description with a NUL"),
         pytest.param({"title": "t", "due_date": "next week"}, id="due_date not a date"),
         pytest.param({"title": "t", "assignee_id": "bob"}, id="assignee_id not a uuid"),
-        pytest.param({"title": "t", "status": "done"}, id="status is not set on create"),
+        # The design adds a task straight into a board column, so a status is accepted on
+        # create (ADR 0005); one outside the vocabulary is still refused.
+        pytest.param({"title": "t", "status": "archived"}, id="status outside the vocabulary"),
     ],
 )
 async def test_create_answers_422_with_the_validation_error_body(
@@ -128,7 +125,7 @@ async def test_create_answers_422_with_the_validation_error_body(
     assert isinstance(errors, list)
     assert errors
     assert all({"type", "loc", "msg"} <= set(error) for error in errors)
-    assert list(await tasks.list()) == []
+    assert tasks.all() == []
 
 
 # --- GET /tasks ----------------------------------------------------------------------------
@@ -140,7 +137,7 @@ async def test_list_is_an_envelope_with_an_empty_items_list(
     response = await task_client.get("/tasks")
 
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    assert response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
 
 
 async def test_list_returns_every_task_newest_first(task_client: httpx.AsyncClient) -> None:
@@ -150,7 +147,7 @@ async def test_list_returns_every_task_newest_first(task_client: httpx.AsyncClie
     response = await task_client.get("/tasks")
 
     TaskListResponse.model_validate(response.json())
-    assert response.json() == {"items": [second, first]}
+    assert response.json() == {"items": [second, first], "total": 2, "limit": 50, "offset": 0}
 
 
 # --- GET /tasks/{id} -----------------------------------------------------------------------
@@ -336,7 +333,7 @@ async def test_create_answers_422_on_assignee_id_when_the_assignee_is_not_an_act
     assert response.status_code == 422
     assert response.json() == {"detail": [INVALID_ASSIGNEE]}
     assert request_scopes.events == ["begin", "rollback"]
-    assert (await task_client.get("/tasks")).json() == {"items": []}
+    assert (await task_client.get("/tasks")).json()["items"] == []
 
 
 @pytest.mark.parametrize("assignee", ["unknown", "inactive"])
@@ -486,7 +483,7 @@ async def test_every_task_route_answers_401_without_an_authenticated_user(
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
     assert response.headers["www-authenticate"] == "Bearer"
-    assert list(await request_scopes.tasks.list()) == []
+    assert request_scopes.tasks.all() == []
 
 
 # --- unit of work per request --------------------------------------------------------------

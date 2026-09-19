@@ -5,17 +5,46 @@ and, for ``422``, ``{"detail": [{"type", "loc", "msg"}, ...]}`` (``HTTPValidatio
 whether the request was rejected by a Pydantic model or by a domain rule.
 """
 
+from collections.abc import Awaitable, Callable
+
 from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.application.errors import InvalidAssigneeError, TaskNotFound
+from app.application.errors import (
+    InvalidAssigneeError,
+    InvalidTaskReferenceError,
+    ProjectKeyTakenError,
+    ProjectNotFound,
+    TaskNotFound,
+    UnknownProjectError,
+)
+from app.domain.project import InvalidProjectError
 from app.domain.task import InvalidTaskError
+from app.domain.user import InvalidProfileError
+
+ExceptionHandler = Callable[[Request, Exception], Awaitable[JSONResponse]]
 
 
-async def _task_not_found(_: Request, error: Exception) -> JSONResponse:
+async def _not_found(_: Request, error: Exception) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(error)})
+
+
+async def _conflict(_: Request, error: Exception) -> JSONResponse:
+    return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={"detail": str(error)})
+
+
+def _unprocessable(kind: str, loc: list[str]) -> ExceptionHandler:
+    """A rule the request broke, in the shape of FastAPI's own ``422``."""
+
+    async def handler(_: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={"detail": [{"type": kind, "loc": loc, "msg": str(error)}]},
+        )
+
+    return handler
 
 
 async def _invalid_task(_: Request, error: Exception) -> JSONResponse:
@@ -55,6 +84,16 @@ async def _validation_error_without_input(_: Request, error: Exception) -> JSONR
 
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _validation_error_without_input)
-    app.add_exception_handler(TaskNotFound, _task_not_found)
+    app.add_exception_handler(TaskNotFound, _not_found)
+    app.add_exception_handler(ProjectNotFound, _not_found)
+    app.add_exception_handler(ProjectKeyTakenError, _conflict)
+    app.add_exception_handler(
+        InvalidTaskReferenceError, _unprocessable("invalid_task_reference", ["path", "id_or_key"])
+    )
+    app.add_exception_handler(
+        UnknownProjectError, _unprocessable("unknown_project", ["body", "project_id"])
+    )
+    app.add_exception_handler(InvalidProjectError, _unprocessable("invalid_project", ["body"]))
+    app.add_exception_handler(InvalidProfileError, _unprocessable("invalid_profile", ["body"]))
     app.add_exception_handler(InvalidTaskError, _invalid_task)
     app.add_exception_handler(InvalidAssigneeError, _invalid_assignee)

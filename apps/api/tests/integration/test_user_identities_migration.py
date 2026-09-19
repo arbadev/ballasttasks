@@ -12,19 +12,31 @@ from collections.abc import Iterator
 import pytest
 import sqlalchemy
 
-from tests.postgres import INSERT_USER, run_alembic, temporary_database, user_row
+from tests.postgres import (
+    INSERT_USER,
+    TASK_PROJECT_COLUMNS,
+    TASK_PROJECT_VALUES,
+    run_alembic,
+    temporary_database,
+    user_row,
+)
 
 pytestmark = pytest.mark.integration
 
-PREVIOUS_HEAD = "fa7b13ec7508"
+# The head of main when single sign-on landed: "design task model".
+PREVIOUS_HEAD = "8b2f4c6d1a3e"
 
 USERS = sqlalchemy.text(
-    "SELECT id, email, full_name, hashed_password, is_active, created_at FROM users ORDER BY id"
+    "SELECT id, email, full_name, hashed_password, is_active, created_at, role_label "
+    "FROM users ORDER BY id"
 )
-TASKS = sqlalchemy.text("SELECT id, title, created_by, assignee_id FROM tasks ORDER BY id")
+TASKS = sqlalchemy.text(
+    "SELECT id, title, created_by, assignee_id, project_id, key FROM tasks ORDER BY id"
+)
 INSERT_TASK = sqlalchemy.text(
-    "INSERT INTO tasks (id, title, status, created_by, assignee_id, created_at, updated_at) "
-    "VALUES (:id, :title, 'todo', :created_by, :assignee_id, now(), now())"
+    "INSERT INTO tasks (id, title, status, created_by, assignee_id, created_at, updated_at, "
+    f"{TASK_PROJECT_COLUMNS}) "
+    f"VALUES (:id, :title, 'todo', :created_by, :assignee_id, now(), now(), {TASK_PROJECT_VALUES})"
 )
 INSERT_SSO_USER = sqlalchemy.text(
     "INSERT INTO users (id, email, full_name, hashed_password, is_active, created_at) "

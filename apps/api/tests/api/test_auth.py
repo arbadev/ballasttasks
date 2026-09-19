@@ -36,7 +36,15 @@ async def test_register_returns_201_and_the_user_without_any_secret(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"id", "email", "full_name", "is_active", "created_at"}
+    assert set(body) == {
+        "id",
+        "email",
+        "full_name",
+        "is_active",
+        "created_at",
+        "initials",
+        "role_label",
+    }
     assert uuid.UUID(body["id"])
     assert body["email"] == "ada@example.com"
     assert body["full_name"] == "Ada Lovelace"

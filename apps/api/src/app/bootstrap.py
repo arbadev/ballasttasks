@@ -17,12 +17,15 @@ from httpx import AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.application.clock import Clock, utc_now
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.one_time_store import OneTimeStore
 from app.application.ports.password_hasher import PasswordHasher
+from app.application.ports.people_directory import PeopleDirectory
+from app.application.ports.project_repository import ProjectRepository
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.token_service import TokenService
@@ -30,18 +33,26 @@ from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_identity_repository import UserIdentityRepository
 from app.application.ports.user_repository import UserRepository
 from app.application.sso import SsoConfig
+from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
+from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
+from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_people import ListPeople
+from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
+from app.application.use_cases.summarise_tasks import SummariseTasks
+from app.application.use_cases.update_profile import UpdateProfile
+from app.application.use_cases.update_project import UpdateProject
 from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from app.infrastructure.ai.http import create_http_client
@@ -53,6 +64,7 @@ from app.infrastructure.config import settings as config
 from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
+from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
@@ -88,11 +100,16 @@ class RequestScope:
     # need them next to the users repository.
     password_hasher: PasswordHasher
     token_service: TokenService
+    projects: ProjectRepository
+    # The people list: names for the assignee picker, never an email or a hash.
+    people: PeopleDirectory
     # Single sign-on: the identities table shares the transaction; the enabled providers
     # and the one-time store are shared by every scope, like the hasher and the tokens.
     identities: UserIdentityRepository
     identity_providers: Mapping[str, IdentityProvider]
     one_time_store: OneTimeStore
+    # Every rule that depends on "now" reads this clock; tests pin it.
+    clock: Clock = utc_now
 
     @property
     def register_user(self) -> RegisterUser:
@@ -120,7 +137,7 @@ class RequestScope:
 
     @property
     def create_task(self) -> CreateTask:
-        return CreateTask(self.tasks, self.user_directory)
+        return CreateTask(self.tasks, self.user_directory, self.projects, clock=self.clock)
 
     @property
     def get_task(self) -> GetTask:
@@ -128,15 +145,47 @@ class RequestScope:
 
     @property
     def list_tasks(self) -> ListTasks:
-        return ListTasks(self.tasks)
+        return ListTasks(self.tasks, clock=self.clock)
 
     @property
     def update_task(self) -> UpdateTask:
-        return UpdateTask(self.tasks, self.user_directory)
+        return UpdateTask(self.tasks, self.user_directory, self.projects, clock=self.clock)
 
     @property
     def delete_task(self) -> DeleteTask:
         return DeleteTask(self.tasks)
+
+    @property
+    def summarise_tasks(self) -> SummariseTasks:
+        return SummariseTasks(self.tasks, self.projects, clock=self.clock)
+
+    @property
+    def assess_attention(self) -> AssessAttention:
+        return AssessAttention(clock=self.clock)
+
+    @property
+    def create_project(self) -> CreateProject:
+        return CreateProject(self.projects, clock=self.clock)
+
+    @property
+    def get_project(self) -> GetProject:
+        return GetProject(self.projects)
+
+    @property
+    def list_projects(self) -> ListProjects:
+        return ListProjects(self.projects)
+
+    @property
+    def update_project(self) -> UpdateProject:
+        return UpdateProject(self.projects, clock=self.clock)
+
+    @property
+    def list_people(self) -> ListPeople:
+        return ListPeople(self.people)
+
+    @property
+    def update_profile(self) -> UpdateProfile:
+        return UpdateProfile(self.users)
 
 
 RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
@@ -152,10 +201,13 @@ def _request_scope_factory(
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
         async with transactional_session(session_factory) as session:
+            directory = SqlAlchemyUserDirectory(session)
             yield RequestScope(
                 tasks=SqlAlchemyTaskRepository(session),
                 users=SqlAlchemyUserRepository(session),
-                user_directory=SqlAlchemyUserDirectory(session),
+                user_directory=directory,
+                projects=SqlAlchemyProjectRepository(session),
+                people=directory,
                 password_hasher=password_hasher,
                 token_service=token_service,
                 identities=SqlAlchemyUserIdentityRepository(session),

@@ -1,7 +1,7 @@
 """add user identities
 
 Revision ID: 0ecd0978f6fd
-Revises: fa7b13ec7508
+Revises: 8b2f4c6d1a3e
 Create Date: 2026-09-18 22:12:53.096804
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0ecd0978f6fd"
-down_revision: str | Sequence[str] | None = "fa7b13ec7508"
+down_revision: str | Sequence[str] | None = "8b2f4c6d1a3e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -15,17 +15,25 @@ from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.sso import SsoConfig
+from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
+from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
+from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_people import ListPeople
+from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
+from app.application.use_cases.summarise_tasks import SummariseTasks
+from app.application.use_cases.update_profile import UpdateProfile
+from app.application.use_cases.update_project import UpdateProject
 from app.application.use_cases.update_task import UpdateTask
 
 
@@ -61,6 +69,30 @@ class RequestScope(Protocol):
 
     @property
     def redeem_sso_code(self) -> RedeemSsoCode: ...
+
+    @property
+    def summarise_tasks(self) -> SummariseTasks: ...
+
+    @property
+    def assess_attention(self) -> AssessAttention: ...
+
+    @property
+    def create_project(self) -> CreateProject: ...
+
+    @property
+    def get_project(self) -> GetProject: ...
+
+    @property
+    def list_projects(self) -> ListProjects: ...
+
+    @property
+    def update_project(self) -> UpdateProject: ...
+
+    @property
+    def list_people(self) -> ListPeople: ...
+
+    @property
+    def update_profile(self) -> UpdateProfile: ...
 
 
 class RateLimiting(Protocol):
@@ -209,3 +241,45 @@ AuthenticateUserDep = Annotated[AuthenticateUser, Depends(get_authenticate_user)
 GetCurrentUserDep = Annotated[GetCurrentUser, Depends(get_get_current_user)]
 CompleteSsoSignInDep = Annotated[CompleteSsoSignIn, Depends(get_complete_sso_sign_in)]
 RedeemSsoCodeDep = Annotated[RedeemSsoCode, Depends(get_redeem_sso_code)]
+
+
+def get_summarise_tasks(scope: RequestScopeDep) -> SummariseTasks:
+    return scope.summarise_tasks
+
+
+def get_assess_attention(scope: RequestScopeDep) -> AssessAttention:
+    return scope.assess_attention
+
+
+def get_create_project(scope: RequestScopeDep) -> CreateProject:
+    return scope.create_project
+
+
+def get_get_project(scope: RequestScopeDep) -> GetProject:
+    return scope.get_project
+
+
+def get_list_projects(scope: RequestScopeDep) -> ListProjects:
+    return scope.list_projects
+
+
+def get_update_project(scope: RequestScopeDep) -> UpdateProject:
+    return scope.update_project
+
+
+def get_list_people(scope: RequestScopeDep) -> ListPeople:
+    return scope.list_people
+
+
+def get_update_profile(scope: RequestScopeDep) -> UpdateProfile:
+    return scope.update_profile
+
+
+SummariseTasksDep = Annotated[SummariseTasks, Depends(get_summarise_tasks)]
+AssessAttentionDep = Annotated[AssessAttention, Depends(get_assess_attention)]
+CreateProjectDep = Annotated[CreateProject, Depends(get_create_project)]
+GetProjectDep = Annotated[GetProject, Depends(get_get_project)]
+ListProjectsDep = Annotated[ListProjects, Depends(get_list_projects)]
+UpdateProjectDep = Annotated[UpdateProject, Depends(get_update_project)]
+ListPeopleDep = Annotated[ListPeople, Depends(get_list_people)]
+UpdateProfileDep = Annotated[UpdateProfile, Depends(get_update_profile)]

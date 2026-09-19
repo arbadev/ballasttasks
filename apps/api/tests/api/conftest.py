@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from app.api.security import get_current_user_id
+from app.application.clock import Clock, utc_now
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
@@ -19,7 +20,7 @@ from tests.auth_fakes import (
     InMemoryUserDirectory,
     InMemoryUserRepository,
 )
-from tests.fakes import InMemoryTaskRepository, StubHealthCheck
+from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository, StubHealthCheck
 from tests.sso_fakes import InMemoryOneTimeStore, InMemoryUserIdentityRepository, MutableClock
 
 ClientFactory = Callable[
@@ -92,6 +93,8 @@ class RecordingRequestScopes:
         self.auth = auth
         self.sso = sso
         self.events: list[str] = []
+        # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
+        self.clock: Clock = utc_now
 
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
@@ -101,6 +104,9 @@ class RecordingRequestScopes:
                 tasks=self.tasks,
                 users=self.auth.users,
                 user_directory=InMemoryUserDirectory(self.auth.users),
+                projects=self.tasks.projects,
+                people=InMemoryUserDirectory(self.auth.users),
+                clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
                 identities=self.sso.identities,
@@ -120,7 +126,7 @@ def auth_fakes() -> AuthFakes:
 
 @pytest.fixture
 def tasks(auth_fakes: AuthFakes) -> InMemoryTaskRepository:
-    return InMemoryTaskRepository(auth_fakes.users)
+    return InMemoryTaskRepository(auth_fakes.users, InMemoryProjectRepository())
 
 
 @pytest.fixture

@@ -1,16 +1,40 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.domain.task import TITLE_MAX_LENGTH, TaskStatus
+from app.domain.task import (
+    IMPORTANCE_MAX,
+    IMPORTANCE_MIN,
+    TITLE_MAX_LENGTH,
+    TaskPriority,
+    TaskStatus,
+)
 from app.infrastructure.db.base import Base
 
 # Spelled out (they follow Base.metadata's naming convention) because the repository
 # recognises a refused assignee by this name.
 CREATOR_FOREIGN_KEY = "fk_tasks_created_by_users"
 ASSIGNEE_FOREIGN_KEY = "fk_tasks_assignee_id_users"
+PROJECT_FOREIGN_KEY = "fk_tasks_project_id_projects"
+
+# ``<PREFIX>-<NN>``: up to 5 letters, a hyphen, and more digits than any project will use.
+KEY_MAX_LENGTH = 16
+_RANKS = [priority.rank for priority in TaskPriority]
+_OPEN = f"status <> '{TaskStatus.DONE.value}'"
 
 _STATUS_VALUES = ", ".join(f"'{status.value}'" for status in TaskStatus)
 
@@ -27,6 +51,14 @@ class TaskModel(Base):
 
     Both are indexed, because those rules make every user delete search this table. The
     repository maps a violation of ``ASSIGNEE_FOREIGN_KEY`` to ``InvalidAssigneeError``.
+
+    ``project_id`` is ``RESTRICT`` (projects are not deleted; if that ever comes, it must
+    decide what happens to the tasks). ``key`` is unique on its own, not per project: a task
+    keeps its key when it moves to another project. ``priority`` holds the rank (0 for
+    ``P0``), so the urgency expression computes with it as the design does.
+
+    The partial index serves the default listing and the sidebar counts, which look only at
+    open tasks: it stays small however many done tasks pile up.
     """
 
     __tablename__ = "tasks"
@@ -35,6 +67,17 @@ class TaskModel(Base):
         CheckConstraint(
             f"(status = '{TaskStatus.DONE.value}') = (completed_at IS NOT NULL)",
             name="completed_at_follows_status",
+        ),
+        CheckConstraint(f"priority BETWEEN {min(_RANKS)} AND {max(_RANKS)}", name="priority"),
+        CheckConstraint(
+            f"importance BETWEEN {IMPORTANCE_MIN} AND {IMPORTANCE_MAX}", name="importance"
+        ),
+        UniqueConstraint("key", name="uq_tasks_key"),
+        Index(
+            "ix_tasks_open_project_id_due_date",
+            "project_id",
+            "due_date",
+            postgresql_where=text(_OPEN),
         ),
     )
 
@@ -50,5 +93,11 @@ class TaskModel(Base):
         Uuid, ForeignKey("users.id", name=ASSIGNEE_FOREIGN_KEY, ondelete="SET NULL"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", name=PROJECT_FOREIGN_KEY, ondelete="RESTRICT"), index=True
+    )
+    key: Mapped[str] = mapped_column(String(KEY_MAX_LENGTH))
+    priority: Mapped[int] = mapped_column(SmallInteger)
+    importance: Mapped[int] = mapped_column(SmallInteger)
