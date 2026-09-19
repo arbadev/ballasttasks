@@ -3,9 +3,9 @@
 import uuid
 
 import httpx
-from app.api.security import CurrentUserId, get_current_user_id
 from fastapi import FastAPI
 
+from app.api.security import CurrentUserId, get_current_user_id
 from tests.api.conftest import AuthFakes
 
 ADA = {"email": "ada@example.com", "full_name": "Ada Lovelace", "password": "correct horse"}

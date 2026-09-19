@@ -3,11 +3,11 @@ import uuid
 from datetime import timedelta
 
 import pytest
+
 from app.application.errors import AuthenticationError, InvalidTokenError, UserNotActiveError
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.user import User
-
 from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
 
 

@@ -11,13 +11,13 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import pytest
-from app.infrastructure.db.user_repository import SqlAlchemyUserRepository
 
 from app.application.errors import EmailAlreadyRegisteredError
 from app.application.ports.user_repository import UserRepository
 from app.domain.user import User
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.user_repository import SqlAlchemyUserRepository
 from tests.auth_fakes import InMemoryUserRepository
 
 

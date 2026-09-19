@@ -1,11 +1,11 @@
 import dataclasses
 
 import pytest
+
 from app.application.errors import InvalidCredentialsError
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.user import User
-
 from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
 
 

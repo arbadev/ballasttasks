@@ -2,10 +2,10 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+
 from app.application.errors import EmailAlreadyRegisteredError
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.user import InvalidEmailError
-
 from tests.auth_fakes import FakePasswordHasher, InMemoryUserRepository
 
 NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)

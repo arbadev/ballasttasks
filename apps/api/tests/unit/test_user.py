@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+
 from app.domain.user import InvalidEmailError, User, normalise_email
 
 
