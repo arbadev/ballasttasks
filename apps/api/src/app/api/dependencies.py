@@ -12,6 +12,7 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from app.application.ports.language_model import LanguageModel
+from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_task import CreateTask
@@ -51,6 +52,28 @@ class RequestScope(Protocol):
     def get_current_user(self) -> GetCurrentUser: ...
 
 
+class RateLimiting(Protocol):
+    """The limiter and the rules it is applied with (``api/rate_limit.py``)."""
+
+    @property
+    def limiter(self) -> RateLimiter: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    @property
+    def trust_proxy(self) -> bool: ...
+
+    @property
+    def auth(self) -> RateLimitPolicy: ...
+
+    @property
+    def authenticated(self) -> RateLimitPolicy: ...
+
+    @property
+    def anonymous(self) -> RateLimitPolicy: ...
+
+
 class AppContainer(Protocol):
     @property
     def request_scope(self) -> Callable[[], AbstractAsyncContextManager[RequestScope]]: ...
@@ -60,6 +83,9 @@ class AppContainer(Protocol):
 
     @property
     def language_model(self) -> LanguageModel: ...
+
+    @property
+    def rate_limiting(self) -> RateLimiting: ...
 
 
 def get_container(request: Request) -> AppContainer:
@@ -77,8 +103,13 @@ def get_language_model(container: ContainerDep) -> LanguageModel:
     return container.language_model
 
 
+def get_rate_limiting(container: ContainerDep) -> RateLimiting:
+    return container.rate_limiting
+
+
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
 LanguageModelDep = Annotated[LanguageModel, Depends(get_language_model)]
+RateLimitingDep = Annotated[RateLimiting, Depends(get_rate_limiting)]
 
 
 async def get_request_scope(container: ContainerDep) -> AsyncIterator[RequestScope]:

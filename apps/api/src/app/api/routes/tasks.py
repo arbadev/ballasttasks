@@ -12,6 +12,7 @@ from app.api.dependencies import (
     ListTasksDep,
     UpdateTaskDep,
 )
+from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
 from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.tasks import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
 from app.api.security import CurrentUserId, get_current_user_id
@@ -23,9 +24,11 @@ NOT_FOUND: dict[int | str, dict[str, Any]] = {
 router = APIRouter(
     prefix="/tasks",
     tags=["tasks"],
-    dependencies=[Depends(get_current_user_id)],
+    # The limiter first: a caller over the limit gets 429 whatever else is wrong.
+    dependencies=[Depends(limit_requests), Depends(get_current_user_id)],
     responses={
-        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse, "description": "Not authenticated"}
+        status.HTTP_401_UNAUTHORIZED: {"model": ErrorResponse, "description": "Not authenticated"},
+        **TOO_MANY_REQUESTS,
     },
 )
 
