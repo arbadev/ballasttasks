@@ -43,7 +43,14 @@ Steps, comments and activity
 - FR-16. Every task representation carries `steps_total`, `steps_done` and `comments_count`; reading one task also returns its ordered steps. Listing computes counts without a query per task.
 - FR-17. Task creation, status moves (including completion/reopening), assignment/clearing, due-date changes, priority changes, step addition/completion and bulk acceptance append automatic activity in the same transaction. No-op changes log nothing. Wording follows the design where it logs the event; the required design-styled extensions are listed in [ADR 0007](decisions/0007-steps-and-activity.md).
 - FR-18. A signed-in user posts an immutable comment of 1–2000 trimmed characters, rejecting NUL. A task's timeline combines comments and logs, newest first, paginated with `items`, `total`, `limit` (default 50, max 200) and `offset`; every entry identifies its actor by id, full name and initials, never email. Deleting a task deletes its timeline.
-- FR-19. Existing tasks retain all their data and receive only a creation entry attributed to the original creator at creation time; earlier unrecorded changes are not invented. Attachments, AI step generation, comment editing/deletion, mentions, notifications and real-time updates are outside this piece.
+- FR-19. Existing tasks retain all their data and receive only a creation entry attributed to the original creator at creation time; earlier unrecorded changes are not invented. AI step generation, comment editing/deletion, mentions, notifications and real-time updates are outside this piece.
+
+Attachments
+
+- FR-20. A signed-in user attaches an absolute http(s) link to a task, with an optional name defaulting to the host. URLs over 2000 characters, credentials, relative references and other schemes are rejected.
+- FR-21. A signed-in user uploads a PDF, PNG, JPEG, GIF or WebP file. Leading bytes determine type, not the filename or supplied MIME type. Empty, unsupported and oversized files are refused without leaving a stored file. The size limit is checked while streaming, defaults to 10 MiB, and is configurable.
+- FR-22. Every task representation reports its attachment count; task detail includes its attachments. A signed-in user downloads stored files with their detected content type and sanitised display name, removes attachments, or deletes a task and all its attachments/files. Attaching and removing record caller-attributed `Attached <name>` / `Removed <name>` activity through the existing recorder in the same transaction; refusals record nothing.
+- FR-23. File storage is replaceable through a small port and provider registry. Local-disk storage ships now with a persistent named API volume; cloud providers, virus scanning, previews and per-user permissions are out of scope. Storage failure windows and security limits are explicit in [ADR 0008](decisions/0008-file-storage.md).
 
 ## Non-functional requirements
 

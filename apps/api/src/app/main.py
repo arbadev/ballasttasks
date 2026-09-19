@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.access_log import install_access_log_redaction
 from app.api.errors import register_error_handlers
 from app.api.rate_limit import RATE_LIMIT_HEADERS, RateLimitHeadersMiddleware
-from app.api.routes import activity, auth, health, projects, sso, steps, tasks, users
+from app.api.routes import activity, attachments, auth, health, projects, sso, steps, tasks, users
 from app.bootstrap import Container, Settings, build_container, load_settings
 
 
@@ -49,6 +49,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     app.include_router(auth.router)
     app.include_router(sso.router)
     app.include_router(tasks.router)
+    app.include_router(attachments.router)
     app.include_router(steps.router)
     app.include_router(activity.router)
     app.include_router(projects.router)

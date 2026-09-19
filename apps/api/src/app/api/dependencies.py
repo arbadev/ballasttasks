@@ -18,6 +18,8 @@ from app.application.sso import SsoConfig
 from app.application.use_cases.add_step import AddStep
 from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_file import AttachFile
+from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
@@ -29,13 +31,16 @@ from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
 from app.application.use_cases.list_activity import ListActivity
+from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.post_comment import PostComment
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.summarise_tasks import SummariseTasks
@@ -102,6 +107,18 @@ class RequestScope(Protocol):
 
     @property
     def update_profile(self) -> UpdateProfile: ...
+
+    @property
+    def attach_link(self) -> AttachLink: ...
+
+    @property
+    def list_attachments(self) -> ListAttachments: ...
+
+    @property
+    def remove_attachment(self) -> RemoveAttachment: ...
+
+    @property
+    def open_attachment_content(self) -> OpenAttachmentContent: ...
 
     @property
     def tally_tasks(self) -> TallyTasks: ...
@@ -174,6 +191,11 @@ class AppContainer(Protocol):
 
     @property
     def rate_limiting(self) -> RateLimiting: ...
+
+    # Not on a request scope: it opens the short units of work an upload needs itself, so
+    # the body streams with no database connection held.
+    @property
+    def attach_file(self) -> AttachFile: ...
 
 
 def get_container(request: Request) -> AppContainer:
@@ -319,6 +341,33 @@ ListProjectsDep = Annotated[ListProjects, Depends(get_list_projects)]
 UpdateProjectDep = Annotated[UpdateProject, Depends(get_update_project)]
 ListPeopleDep = Annotated[ListPeople, Depends(get_list_people)]
 UpdateProfileDep = Annotated[UpdateProfile, Depends(get_update_profile)]
+
+
+def get_attach_link(scope: RequestScopeDep) -> AttachLink:
+    return scope.attach_link
+
+
+def get_list_attachments(scope: RequestScopeDep) -> ListAttachments:
+    return scope.list_attachments
+
+
+def get_remove_attachment(scope: RequestScopeDep) -> RemoveAttachment:
+    return scope.remove_attachment
+
+
+def get_attach_file(container: ContainerDep) -> AttachFile:
+    return container.attach_file
+
+
+def get_open_attachment_content(scope: RequestScopeDep) -> OpenAttachmentContent:
+    return scope.open_attachment_content
+
+
+AttachFileDep = Annotated[AttachFile, Depends(get_attach_file)]
+OpenAttachmentContentDep = Annotated[OpenAttachmentContent, Depends(get_open_attachment_content)]
+AttachLinkDep = Annotated[AttachLink, Depends(get_attach_link)]
+ListAttachmentsDep = Annotated[ListAttachments, Depends(get_list_attachments)]
+RemoveAttachmentDep = Annotated[RemoveAttachment, Depends(get_remove_attachment)]
 
 
 def get_tally_tasks(scope: RequestScopeDep) -> TallyTasks:

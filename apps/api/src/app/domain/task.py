@@ -165,8 +165,7 @@ class Task:
         self.status = status
 
     def touch(self, now: datetime) -> None:
-        """Something that belongs to the task changed (a step, a comment): as in the design,
-        the task counts as updated."""
+        """A step, comment or attachment changed: the task counts as updated."""
         self._touch(now)
 
     def _touch(self, now: datetime) -> None:

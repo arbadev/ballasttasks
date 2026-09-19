@@ -18,8 +18,11 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application.clock import Clock, utc_now
+from app.application.file_changes import FileChanges, files_following_the_transaction
 from app.application.ports.activity_feed import ActivityFeed
 from app.application.ports.activity_recorder import ActivityRecorder
+from app.application.ports.attachment_repository import AttachmentRepository
+from app.application.ports.file_storage import FileStorage
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.job_queue import JobQueue
@@ -40,6 +43,8 @@ from app.application.sso import SsoConfig
 from app.application.use_cases.add_step import AddStep
 from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_file import AttachFile
+from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
@@ -51,13 +56,16 @@ from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
 from app.application.use_cases.list_activity import ListActivity
+from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.open_attachment_content import OpenAttachmentContent
 from app.application.use_cases.post_comment import PostComment
 from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
@@ -78,6 +86,7 @@ from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
+from app.infrastructure.db.repositories.attachment import SqlAlchemyAttachmentRepository
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.step import SqlAlchemyStepRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
@@ -95,6 +104,7 @@ from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLim
 from app.infrastructure.rate_limit.redis_rate_limiter import RedisRateLimiter
 from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.security.jwt_token_service import JwtTokenService
+from app.infrastructure.storage.registry import build_file_storage
 
 __all__ = ["Container", "RequestScope", "Settings", "build_container", "load_settings"]
 
@@ -119,6 +129,11 @@ class RequestScope:
     projects: ProjectRepository
     # The people list: names for the assignee picker, never an email or a hash.
     people: PeopleDirectory
+    # The links and files of tasks; the rows go with their task.
+    attachments: AttachmentRepository
+    file_storage: FileStorage
+    file_changes: FileChanges
+    max_file_bytes: int
     steps: StepRepository
     # The one way a use case writes to a task's timeline; bound to this scope's session, so
     # an entry commits or rolls back with the change it describes.
@@ -179,7 +194,7 @@ class RequestScope:
 
     @property
     def delete_task(self) -> DeleteTask:
-        return DeleteTask(self.tasks)
+        return DeleteTask(self.tasks, self.attachments, self.file_changes)
 
     @property
     def summarise_tasks(self) -> SummariseTasks:
@@ -212,6 +227,24 @@ class RequestScope:
     @property
     def update_profile(self) -> UpdateProfile:
         return UpdateProfile(self.users)
+
+    @property
+    def attach_link(self) -> AttachLink:
+        return AttachLink(self.tasks, self.attachments, self.activity, clock=self.clock)
+
+    @property
+    def list_attachments(self) -> ListAttachments:
+        return ListAttachments(self.attachments)
+
+    @property
+    def remove_attachment(self) -> RemoveAttachment:
+        return RemoveAttachment(
+            self.tasks, self.attachments, self.file_changes, self.activity, clock=self.clock
+        )
+
+    @property
+    def open_attachment_content(self) -> OpenAttachmentContent:
+        return OpenAttachmentContent(self.attachments, self.file_storage)
 
     @property
     def tally_tasks(self) -> TallyTasks:
@@ -261,10 +294,15 @@ def _request_scope_factory(
     token_service: TokenService,
     identity_providers: Mapping[str, IdentityProvider],
     one_time_store: OneTimeStore,
+    file_storage: FileStorage,
+    max_file_bytes: int,
 ) -> RequestScopeFactory:
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
-        async with transactional_session(session_factory) as session:
+        async with (
+            files_following_the_transaction(file_storage) as files,
+            transactional_session(session_factory) as session,
+        ):
             directory = SqlAlchemyUserDirectory(session)
             activity = SqlAlchemyActivityLog(session)
             yield RequestScope(
@@ -273,6 +311,10 @@ def _request_scope_factory(
                 user_directory=directory,
                 projects=SqlAlchemyProjectRepository(session),
                 people=directory,
+                attachments=SqlAlchemyAttachmentRepository(session),
+                file_storage=file_storage,
+                file_changes=files,
+                max_file_bytes=max_file_bytes,
                 steps=SqlAlchemyStepRepository(session),
                 activity=activity,
                 activity_feed=activity,
@@ -329,6 +371,7 @@ class Container:
     redis: Redis
     rate_limiting: RateLimiting
     ai_http_client: AsyncClient
+    file_storage: FileStorage
     # Single sign-on. Empty mapping = disabled: the routes answer 404 and list nothing.
     identity_providers: Mapping[str, IdentityProvider]
     one_time_store: OneTimeStore
@@ -337,6 +380,13 @@ class Container:
     @property
     def start_sso_sign_in(self) -> StartSsoSignIn:
         return StartSsoSignIn(self.identity_providers, self.one_time_store)
+
+    @property
+    def attach_file(self) -> AttachFile:
+        """The one use case that spans more than one unit of work: it opens a scope to
+        check the task, streams the body to the storage with none open, and opens a second
+        one to write the row (ADR 0008)."""
+        return AttachFile(self.request_scope)
 
     @property
     def check_readiness(self) -> CheckReadiness:
@@ -363,6 +413,7 @@ def load_settings() -> Settings:
 def build_container(settings: Settings) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
+    file_storage = build_file_storage(settings.storage)
     identity_providers = build_identity_providers(settings)
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
@@ -396,10 +447,13 @@ def build_container(settings: Settings) -> Container:
             ),
             identity_providers,
             one_time_store,
+            file_storage,
+            settings.storage.max_bytes,
         ),
         redis=redis,
         rate_limiting=_rate_limiting(settings.rate_limit, redis),
         ai_http_client=ai_http_client,
+        file_storage=file_storage,
         identity_providers=identity_providers,
         one_time_store=one_time_store,
         sso=SsoConfig(

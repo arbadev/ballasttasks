@@ -33,7 +33,7 @@ Source code dependencies point inward only. An inner layer never imports an oute
 flowchart TB
     subgraph outer [Outer: frameworks and drivers]
         presentation[api, the presentation layer<br/>FastAPI routes, Pydantic response models]
-        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, AI providers]
+        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, AI providers, file storage]
     end
     application[application<br/>use cases and ports]
     domain[domain<br/>entities and rules, no framework imports]
@@ -120,6 +120,25 @@ class ProjectRepository(Protocol):
     async def allocate_task_key(self, project_id: UUID) -> TaskKey: ...  # no duplicates, no gaps; raises UnknownProjectError
 
 
+class AttachmentRepository(Protocol):
+    """The attachments of a task: added or deleted, never changed. The bytes are FileStorage's."""
+
+    async def add(self, attachment: Attachment) -> None: ...        # raises TaskNotFound
+    async def get(self, attachment_id: UUID) -> Attachment | None: ...
+    async def list_for_task(self, task_id: UUID) -> Sequence[Attachment]: ...             # oldest first
+    async def count_by_task(self, task_ids: Collection[UUID]) -> Mapping[UUID, int]: ...  # one statement
+    async def delete(self, attachment_id: UUID) -> None: ...        # raises AttachmentNotFound
+
+
+class FileStorage(Protocol):
+    """The bytes behind a file attachment, under a server-generated key. No paths, no URLs."""
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile: ...
+    # exclusive (StorageKeyTakenError), streams, removes what a failed or cancelled write left
+    async def open(self, key: str) -> AsyncIterator[bytes]: ...  # StoredFileNotFound before the stream
+    async def delete(self, key: str) -> None: ...                # idempotent
+
+
 class RateLimiter(Protocol):
     """Counts hits per key; atomic, so concurrent hits never exceed the policy's limit."""
 
@@ -162,7 +181,7 @@ class StepRepository(Protocol):
 
 
 class TaskTallies(Protocol):
-    """steps_total, steps_done and comments_count of many tasks: one statement, never one per task."""
+    """Step progress, comments_count and attachments_count: one statement for many tasks."""
 
     async def for_tasks(self, task_ids: Sequence[UUID]) -> Mapping[UUID, TaskTally]: ...
 
@@ -196,7 +215,7 @@ class OneTimeStore(Protocol):
 
 ```python
 await self._activity.record(
-    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attached(name), now=now)
+    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attachment_added(name), now=now)
 )
 ```
 
@@ -211,6 +230,8 @@ Adapters in this setup:
 | Port | Adapters | Notes |
 | --- | --- | --- |
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
+| `AttachmentRepository` | SQLAlchemy/PostgreSQL, in-memory fake | `tests/contract/test_attachment_repository_contract.py`; metadata belongs to one task, counts are batched, task deletion cascades rows |
+| `FileStorage` | Local disk (`local`), in-memory fake | Streaming `save`, `open`, idempotent `delete` only; `tests/contract/test_file_storage_contract.py`. Selected through `STORAGE__PROVIDER` and `infrastructure/storage/registry.py`; [ADR 0008](decisions/0008-file-storage.md) |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. Filters, sorts, paging and counts run in SQL (`infrastructure/db/repositories/task_queries.py`); the fake answers the same cases with the domain's rules, and both are held to literal expectations and to the design's urgency function. An unknown project is refused like an unknown assignee (`UnknownProjectError`). `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
@@ -235,8 +256,8 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 ### Backend: `apps/api/src/app/bootstrap.py`
 
 - Loads settings once, builds the adapters, and hands them to the use cases and the FastAPI app.
-- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it.
-- An unknown `AI__PROVIDER` fails at startup with an explicit error, not at first use.
+- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it, and `STORAGE__PROVIDER` picks the `FileStorage` factory in `infrastructure/storage/registry.py`.
+- An unknown `AI__PROVIDER` or `STORAGE__PROVIDER` fails at startup with an explicit error, not at first use.
 - Tests build the app through the same function with fakes passed in, so no test patches a module global.
 
 ### Unit of work: one transaction per request
@@ -245,7 +266,9 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 
 - The HTTP layer enters the scope once per request through `get_request_scope` in `api/dependencies.py`. It is declared with `Depends(..., scope="function")`, so the transaction ends before the response is sent: a commit that fails becomes an error response.
 - `RequestScope.clock` is the one clock every date-dependent use case receives; API tests replace it to pin "today".
-- A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session. Tasks and users share the scope, so resolving the caller (`GetCurrentUser`) and the task work of one request run in the same transaction.
+- A new repository is one more field on `RequestScope` and one more argument where the scope is built. Use cases keep receiving ports, never a session.
+- Resolving the caller (`GetCurrentUser`, through `api/security.py`) is a read of the request's own unit of work, like every other. The exception is the file upload: a route that waits for the client must hold no database connection while it does, and a dependency on the request's scope would hold one for the whole route, so that route is guarded by `get_streaming_user_id` and `limit_streaming_requests`, which read the caller in a unit of work that ends before the route runs. Nothing else changes: the 401s, the seam and the limiter policies are the same ([ADR 0008](decisions/0008-file-storage.md)).
+- One use case spans more than one unit of work, and is therefore built on `Container` instead of `RequestScope`: `AttachFile` checks the task in one, streams the uploaded bytes to the `FileStorage` with none open, and writes the row in a second ([ADR 0008](decisions/0008-file-storage.md)).
 - Outside HTTP (a Celery job, a script) the same `container.request_scope()` is the unit of work.
 - Tables arrive only through Alembic revisions. ORM models live in `infrastructure/db/models/`; importing that package registers them on `Base.metadata`, which has a naming convention so every constraint has a stable name.
 
@@ -312,14 +335,14 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 | `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user, project does not exist) |
 | `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset"}` | `401`, `422` (a parameter it does not understand) |
 | `GET /tasks/summary` | `200` `TaskSummaryResponse`: `counts`, `projects`, `signals` | `401`, `422` |
-| `GET /tasks/{id_or_key}` | `200` `TaskDetailResponse` (includes ordered `steps`) | `401`, `404`, `422` (neither an id nor a key) |
+| `GET /tasks/{id_or_key}` | `200` `TaskDetailResponse` (`TaskResponse` plus `steps` and `attachments`) | `401`, `404`, `422` (neither an id nor a key) |
 | `PATCH /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user, the project changes to one that does not exist) |
 | `DELETE /tasks/{id_or_key}` | `204`, no body | `401`, `404`, `422` |
 
-- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`, plus `steps_total`, `steps_done` and `comments_count`.
+- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50), `attention`, `steps_total`, `steps_done`, `comments_count` and `attachments_count` (see [task attachments](#task-attachments)).
 - **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
 - **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
-- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a nonempty list request issues four statements whatever it returns (the caller, the page, the total, and one set-based tally of steps/comments); an empty page skips the tally statement.
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues four statements for a nonempty page (the caller, page, total and batched steps/comment/attachment tallies); empty pages need no count lookup.
 - **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
 - `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
@@ -330,6 +353,47 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
 - Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`, so `testing` is open work like `todo` and `in_progress`.
+
+### Task attachments
+
+Every task representation includes `attachments_count`. `GET /tasks/{id_or_key}` returns
+`TaskDetailResponse`, which also includes `attachments` in creation order. Counts use one
+batched query, never one query per task. `AttachmentResponse` exposes id, task_id, kind
+(`link`, `pdf`, `image`), name, created_by, created_at, url, content_type and size_bytes;
+file storage keys remain internal. Attaching/removing touches the task's `updated_at` and
+records `Attached <name>` / `Removed <name>` through the existing `ActivityRecorder`, in
+the same transaction and attributed to the caller. Refused operations create no log entry.
+Attachment counts share the `TaskTallies` query with steps/comments, preserving the
+four-statement list budget; the contract suite checks that none of these counts multiply.
+
+| Route | Success | Errors (standard bodies) |
+| --- | --- | --- |
+| `POST /tasks/{id_or_key}/attachments/links` | 201 `AttachmentResponse` | 401, 404, 422, 429 |
+| `POST /tasks/{id_or_key}/attachments/files` | 201 `AttachmentResponse` | 401, 404, 413, 415, 422, 429 |
+| `GET /tasks/{id_or_key}/attachments/{attachment_id}/content` | 200 streamed file | 401, 404 (also links/missing bytes), 422, 429 |
+| `DELETE /tasks/{id_or_key}/attachments/{attachment_id}` | 204 | 401, 404, 422, 429 |
+
+Links accept only absolute http(s) URLs, at most 2000 characters, without credentials;
+optional name defaults to the host. URLs are never fetched. File upload accepts exactly
+one multipart `file` part. Parsing and size enforcement are incremental, including before
+any framework spooling; the default limit is 10 MiB (`STORAGE__MAX_BYTES`). Signatures
+allow PDF/PNG/JPEG/GIF/WebP, not client-provided MIME types. Names are sanitised display
+metadata, not keys. Downloads carry an encoded attachment Content-Disposition and nosniff.
+
+`FileStorage` is a small application Protocol, whose registry-selected adapter is built
+only in `bootstrap.py`. An upload runs as two short units of work with the body streamed
+between them, so a slow sender holds neither a task row nor a database connection.
+`FileChanges` follows each transaction: compensate new writes on rollback and defer
+removals until after commit. Removing a task also removes all of
+its stored files. No static mount. The API's named `attachments-data` volume persists the
+local root from `STORAGE__LOCAL_DIRECTORY`. Local-disk guarantees, failure windows and the
+cloud-adapter checklist are in [ADR 0008](decisions/0008-file-storage.md).
+
+Revision `c4a9e7d21b65` adds one table after steps and activity. Existing rows are untouched:
+counts start at zero, no backfill. Downgrade drops only attachment metadata; operators
+must remove orphaned files. `tests/integration/test_attachments_migration.py` proves
+upgrade with populated rows and downgrade. Transaction cleanup, including failed commit,
+and real TCP HTTP are covered by `tests/integration/test_file_attachments.py`.
 
 ### Steps and activity
 
@@ -346,7 +410,7 @@ All routes below accept a task UUID or key, use the same `CurrentUserId` seam an
 | `POST /tasks/{id_or_key}/comments` | `201`, immutable activity entry; body `{text}` |
 | `GET /tasks/{id_or_key}/activity` | `200`, `{items, total, limit, offset}`, newest first; default limit 50, max 200 |
 
-A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)): an add that would cross the ceiling is a `422` and adds nothing, not even part of a batch, and `step_ids` is bounded by the same number. Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain the three tallies.
+A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)): an add that would cross the ceiling is a `422` and adds nothing, not even part of a batch, and `step_ids` is bounded by the same number. Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain step progress, comment and attachment tallies.
 
 | Table | Stored columns and invariants |
 | --- | --- |
@@ -406,7 +470,7 @@ flowchart LR
     usecase --> users[UserRepository port]
 ```
 
-- **The seam**: `apps/api/src/app/api/security.py` exposes `get_current_user_id` and `CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]`. A feature route asks for `CurrentUserId` and gets a UUID. It never sees a JWT, a `User` or the users table, and its API tests supply a caller with `app.dependency_overrides[get_current_user_id]`.
+- **The seam**: `apps/api/src/app/api/security.py` exposes `get_current_user_id` and `CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]`. A feature route asks for `CurrentUserId` and gets a UUID. It never sees a JWT, a `User` or the users table, and its API tests supply a caller with `app.dependency_overrides[get_current_user_id]` (`sign_in` in `tests/api/conftest.py`, which also pins `get_streaming_user_id`, the same seam for the upload route).
 - **Endpoints**: `POST /auth/register` (`201` `UserResponse`, `409` duplicate email), `POST /auth/login` (OAuth2 password form, so Swagger's Authorize button works; `200` `TokenResponse`), `GET /auth/me` (`200` `UserResponse`), `PATCH /auth/me` (`200` `UserResponse`; see [People](#people)). The health endpoints stay public.
 - **Errors**: non-validation errors use `ErrorResponse` (`{"detail": "..."}`). Every `401` carries `WWW-Authenticate: Bearer`. Login failures (unknown email, wrong password, inactive user) are one identical `401`, and an unknown email still pays for one hash, so neither body nor timing enumerates accounts. A login password over the 128-character registration maximum is that same `401` before any hashing, for known and unknown emails alike. A bad token and a deactivated or deleted user are likewise one `401`; the user is re-read on every request, so deactivation is immediate.
 - **Nothing secret leaves**: `UserResponse` has no hash field; `422` bodies omit pydantic's `input` (for a missing field it is the whole request body, password included); the engine sets `hide_parameters`, so SQL echo under `APP__DEBUG` never prints the bound hash; `AUTH__JWT_SECRET` is a `SecretStr`, and every settings model sets `hide_input_in_errors`, so a startup error names the rejected variable but never echoes its value (a too-short key, a database or Redis URL with a password).
@@ -437,9 +501,9 @@ A second way in, next to password login; the reasons, the flow diagram and the t
 
 Decision, algorithm and limits of the protection: [ADR 0004](decisions/0004-rate-limiting.md).
 
-- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (the routes that take a credential: `POST /auth/login`, `POST /auth/register`, and the [single sign-on](#single-sign-on) callback and exchange; the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
+- **Opt-in per router or route**, through one of three dependencies in `api/rate_limit.py`: `limit_auth_attempts` (the routes that take a credential: `POST /auth/login`, `POST /auth/register`, and the [single sign-on](#single-sign-on) callback and exchange; the strict `auth` policy, keyed by client IP), `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP) and `limit_streaming_requests` (the same two policies for the [file upload](#task-attachments), which names its caller apart from the request's unit of work so the body streams with no database connection held; [ADR 0008](decisions/0008-file-storage.md)). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
 - **Contract**: over the limit is `429` `ErrorResponse` with `Retry-After`; every response of a limited route (errors too) carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds from now). The limiter runs first, so `429` wins over `401` and `422`.
-- **Who is calling**: `get_optional_user_id` in `api/security.py` (same seam, same per-request resolution as `CurrentUserId`, but `None` instead of a `401`). Client IP is the connection's peer; `X-Forwarded-For` (last entry) only with `RATE_LIMIT__TRUST_PROXY=true`.
+- **Who is calling**: `get_optional_user_id` in `api/security.py` (same seam, same per-request resolution as `CurrentUserId`, but `None` instead of a `401`; `get_optional_streaming_user_id` for the streaming variant). Client IP is the connection's peer; `X-Forwarded-For` (last entry) only with `RATE_LIMIT__TRUST_PROXY=true`.
 - **Wiring**: `bootstrap.py` builds `Container.rate_limiting` (the limiter plus the three policies and flags from the `rate_limit` settings group); the API reads it through the `RateLimiting` Protocol in `api/dependencies.py`. API tests replace the limiter with the in-memory adapter on a clock they move.
 - **Redis down**: the API keeps serving and counts per process; one warning per outage (`FailOpenRateLimiter`).
 
@@ -460,7 +524,7 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 1. Write nothing in existing modules yet. Create the adapter's test module and add the new adapter to the port's contract suite parameters. Run the suite and confirm it fails.
 2. Implement the adapter in its own module under `infrastructure`. It imports the port's types, never the other way round.
 3. Run the port's contract suite until the new adapter passes every case the existing adapters pass.
-4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
+4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`; a file storage backend: `STORAGE__PROVIDER` -> factory in `infrastructure/storage/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
 5. If it needs configuration, add a typed field to the matching group in `settings.py` and a documented line in `.env.example`.
 6. Run `make lint` and `make test`, then commit.
 

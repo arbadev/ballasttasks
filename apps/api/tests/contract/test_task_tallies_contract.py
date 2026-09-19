@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from app.application.ports.task_tallies import TaskTally
 from app.domain.activity import ActivityEntry
 from app.domain.step import Step
+from tests.builders import a_file, a_link
 from tests.contract.conftest import TaskSideStore
 
 NOW = datetime(2026, 1, 5, 9, 0, 0, 123456, tzinfo=UTC)
@@ -22,6 +23,35 @@ async def add_steps(task_side: TaskSideStore, task_id: uuid.UUID, *, done: int, 
             step_id=uuid.uuid4(), task_id=task_id, title="a step", position=position, now=NOW
         )
         await task_side.steps.add(replace(step, done=position < done))
+
+
+async def test_attachments_join_the_same_tally_without_multiplying_other_counts(
+    task_side: TaskSideStore,
+) -> None:
+    user = await task_side.a_stored_user()
+    busy, only_files, empty = [await task_side.a_stored_task(user) for _ in range(3)]
+    await add_steps(task_side, busy.id, done=1, todo=2)
+    for n in range(2):
+        await task_side.recorder.record(
+            ActivityEntry.comment(
+                entry_id=uuid.uuid4(), task_id=busy.id, actor_id=user.id, text=f"c{n}", now=NOW
+            )
+        )
+    links = [a_link(busy.id, user.id) for _ in range(4)]
+    for link in links:
+        await task_side.attachments.add(link)
+    await task_side.attachments.add(a_file(only_files.id, user.id))
+    tallies = await task_side.tallies.for_tasks([busy.id, only_files.id, empty.id])
+    assert (
+        tallies[busy.id].steps_total,
+        tallies[busy.id].steps_done,
+        tallies[busy.id].comments_count,
+        tallies[busy.id].attachments_count,
+    ) == (3, 1, 2, 4)
+    assert tallies[only_files.id].attachments_count == 1
+    assert tallies[empty.id].attachments_count == 0
+    await task_side.attachments.delete(links[0].id)
+    assert (await task_side.tallies.for_tasks([busy.id]))[busy.id].attachments_count == 3
 
 
 async def test_no_ids_is_no_tallies(task_side: TaskSideStore) -> None:

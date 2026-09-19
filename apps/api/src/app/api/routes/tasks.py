@@ -14,6 +14,7 @@ from app.api.dependencies import (
     CreateTaskDep,
     DeleteTaskDep,
     GetTaskDep,
+    ListAttachmentsDep,
     ListStepsDep,
     ListTasksDep,
     SummariseTasksDep,
@@ -101,7 +102,7 @@ async def create_task(
         importance=body.importance,
         created_by=user_id,
     )
-    # A task that has just been created has no steps and no comments: nothing to count.
+    # A new task has no steps, comments or attachments: nothing to count.
     return TaskResponse.of(task, attention.execute(task), TaskTally())
 
 
@@ -124,7 +125,6 @@ async def list_tasks(
 ) -> TaskListResponse:
     query = params.to_query(user_id)
     page = await list_tasks.execute(query)
-    # One statement for the whole page, never one per task.
     tallies = await tally_tasks.execute([task.id for task in page.items])
     items = [
         TaskResponse.of(task, attention.execute(task), tallies[task.id]) for task in page.items
@@ -155,7 +155,7 @@ async def summarise_tasks(
 
 @router.get(
     "/{id_or_key}",
-    summary="Get one task by its id or its key, with its steps",
+    summary="Get one task by its id or its key, with its steps and attachments",
     response_model=TaskDetailResponse,
     responses={**NOT_FOUND},
 )
@@ -163,13 +163,16 @@ async def get_task(
     reference: TaskReference,
     get_task: GetTaskDep,
     attention: AssessAttentionDep,
+    attachments: ListAttachmentsDep,
     tally_tasks: TallyTasksDep,
     list_steps: ListStepsDep,
 ) -> TaskDetailResponse:
     task = await get_task.execute(reference)
     tallies = await tally_tasks.execute([task.id])
     steps = await list_steps.execute(task.id)
-    return TaskDetailResponse.with_steps(task, attention.execute(task), tallies[task.id], steps)
+    return TaskDetailResponse.with_details(
+        task, attention.execute(task), tallies[task.id], steps, await attachments.execute(task.id)
+    )
 
 
 @router.patch(
