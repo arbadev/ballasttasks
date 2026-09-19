@@ -14,6 +14,10 @@ export default defineConfig({
   testDir: "./visual",
   testMatch: /.*\.visual\.ts/,
   outputDir: "./visual-results/.playwright",
+  // Baselines for the flows the design has no reference for (projects.visual.ts). One set for
+  // every platform: they were recorded on macOS, so allow for font rasterisation elsewhere.
+  snapshotPathTemplate: "{testDir}/__screenshots__/{testFileName}/{arg}{ext}",
+  expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.01 } },
   reporter: [["list"]],
   fullyParallel: false,
   workers: 1,

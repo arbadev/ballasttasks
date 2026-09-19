@@ -20,6 +20,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `inMemory*` files implement them over one shared store seeded from the design. |
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
+| `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
 
@@ -65,6 +66,7 @@ All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 | --- | --- |
 | `selectTask(id)` | List rows and board cards, to open the detail panel. |
 | `clearSelection()` | Detail: close button, backdrop, Escape. |
+| `addProject(project)` | Project creation, after `DirectoryService.createProject` resolves: lists the project in the sidebar and selects it over all tasks. |
 | `selectScope`, `toggleProject`, `setStatusFilter`, `setDueFilter`, `setPriorityFilter`, `setSort`, `setSearch`, `toggleSignal`, `clearSignal`, `setView`, `reload` | The shell. Available to the views, rarely needed. |
 
 **Task commands** (`useTaskCommands()`): each calls `TaskService` and then puts the saved task
@@ -108,7 +110,7 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 and runs three suites from `visual/`:
+`npm run test:visual` starts the app on port 47812 and runs four suites from `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
@@ -122,6 +124,14 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   ```sh
   BT_DESIGN_DIR=/path/to/design-v2 npm run test:visual
   ```
+- `projects.visual.ts` covers project creation, which the design has no reference for. At
+  1440x900, 1024x768 and 375x812 it walks every state (closed, open, validation error, pending,
+  created, empty project) and compares the regions the feature owns with the baselines committed
+  in `visual/__screenshots__/`; a region fails above 1% differing pixels. It also drives the flow
+  from the keyboard, checks the focus trap, reduced motion and the console, and audits computed
+  styles so every colour, font, radius and shadow in the dialog and the empty state is a design
+  token. After a deliberate visual change, re-record the baselines and the full-page screenshots
+  next to them with `npx playwright test projects --update-snapshots`.
 - `tokens.visual.ts` checks the design tokens where they take effect, as computed styles. Without
   the design: the `rounded-bt*` utilities follow `--r` / `--r-sm` on all four corners, and the
   search placeholder is set in `--fg-3`. With `BT_DESIGN_DIR`: the skin's custom properties on
