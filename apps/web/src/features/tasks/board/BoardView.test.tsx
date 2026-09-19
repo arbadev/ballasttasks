@@ -1020,7 +1020,8 @@ describe("add a task", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to Testing" }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // The workspace update drops the failure through an effect, one commit after the card moves.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 
     // Moving away again must not bring the alert back.
     fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to To Do" }));
