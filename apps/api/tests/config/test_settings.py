@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.infrastructure.config.settings import ConfigurationError, Settings, load_settings
-from tests.conftest import DOWN_DATABASE_URL, DOWN_REDIS_URL
+from tests.conftest import DOWN_DATABASE_URL, DOWN_REDIS_URL, TEST_JWT_SECRET
 
 PROVIDERS = ("fake",)
 
@@ -12,7 +12,7 @@ def test_missing_required_variables_fail_fast(clean_env: pytest.MonkeyPatch) -> 
         load_settings(valid_ai_providers=PROVIDERS)
 
     missing = {".".join(str(part) for part in e["loc"]) for e in error.value.errors()}
-    assert missing == {"database", "redis"}
+    assert missing == {"database", "redis", "auth"}
 
 
 def test_missing_redis_url_names_the_variable(clean_env: pytest.MonkeyPatch) -> None:
@@ -32,6 +32,9 @@ def test_defaults_are_applied(minimal_env: pytest.MonkeyPatch) -> None:
     assert settings.ai.provider == "fake"
     assert settings.ai.model == "fake-1"
     assert settings.cors.allowed_origins == ["http://localhost:3000"]
+    assert settings.auth.jwt_secret.get_secret_value() == TEST_JWT_SECRET
+    assert settings.auth.jwt_algorithm == "HS256"
+    assert settings.auth.access_token_expire_minutes == 30
 
 
 def test_nested_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None:
@@ -91,3 +94,82 @@ def test_settings_are_immutable(minimal_env: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError):
         settings.ai = settings.ai.model_copy(update={"provider": "x"})  # type: ignore[misc]
+
+
+def test_missing_jwt_secret_fails_fast_and_names_the_group(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.delenv("AUTH__JWT_SECRET")
+
+    with pytest.raises(ValidationError, match="auth"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+@pytest.mark.parametrize("secret", ["", "short", "x" * 31])
+def test_a_jwt_secret_shorter_than_32_bytes_is_rejected(
+    minimal_env: pytest.MonkeyPatch, secret: str
+) -> None:
+    minimal_env.setenv("AUTH__JWT_SECRET", secret)
+
+    with pytest.raises(ValidationError, match="AUTH__JWT_SECRET"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+@pytest.mark.parametrize(
+    ("algorithm", "length", "accepted"),
+    [
+        ("HS256", 32, True),
+        ("HS384", 47, False),
+        ("HS384", 48, True),
+        ("HS512", 63, False),
+        ("HS512", 64, True),
+    ],
+)
+def test_the_jwt_secret_must_be_as_long_as_the_algorithm_digest(
+    minimal_env: pytest.MonkeyPatch, algorithm: str, length: int, accepted: bool
+) -> None:
+    """RFC 7518 section 3.2: an HMAC key shorter than the hash output weakens the signature."""
+    minimal_env.setenv("AUTH__JWT_ALGORITHM", algorithm)
+    minimal_env.setenv("AUTH__JWT_SECRET", "k" * length)
+
+    if accepted:
+        assert load_settings(valid_ai_providers=PROVIDERS).auth.jwt_algorithm == algorithm
+    else:
+        with pytest.raises(ValidationError, match="AUTH__JWT_SECRET"):
+            load_settings(valid_ai_providers=PROVIDERS)
+
+
+@pytest.mark.parametrize("algorithm", ["none", "RS256", "hs256", ""])
+def test_only_hmac_jwt_algorithms_are_accepted(
+    minimal_env: pytest.MonkeyPatch, algorithm: str
+) -> None:
+    minimal_env.setenv("AUTH__JWT_ALGORITHM", algorithm)
+
+    with pytest.raises(ValidationError):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+@pytest.mark.parametrize("minutes", ["0", "-5", "soon"])
+def test_access_token_lifetime_must_be_a_positive_number_of_minutes(
+    minimal_env: pytest.MonkeyPatch, minutes: str
+) -> None:
+    minimal_env.setenv("AUTH__ACCESS_TOKEN_EXPIRE_MINUTES", minutes)
+
+    with pytest.raises(ValidationError):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_auth_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None:
+    minimal_env.setenv("AUTH__ACCESS_TOKEN_EXPIRE_MINUTES", "5")
+
+    assert load_settings(valid_ai_providers=PROVIDERS).auth.access_token_expire_minutes == 5
+
+
+def test_the_jwt_secret_never_appears_in_a_repr_or_a_dump(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    settings = load_settings(valid_ai_providers=PROVIDERS)
+
+    assert TEST_JWT_SECRET not in repr(settings)
+    assert TEST_JWT_SECRET not in str(settings.model_dump())
+    assert TEST_JWT_SECRET not in settings.model_dump_json()
