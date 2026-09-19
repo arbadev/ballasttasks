@@ -8,9 +8,9 @@ from typing import Any
 
 import httpx
 import pytest
-from app.api.schemas.attachments import AttachmentResponse
 from fastapi import FastAPI
 
+from app.api.schemas.attachments import AttachmentResponse
 from app.api.schemas.tasks import TaskDetailResponse
 from app.api.security import get_current_user_id
 from app.bootstrap import build_container, load_settings
@@ -24,17 +24,17 @@ NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 LINK = {"url": "https://github.com/arbadev/ballasttasks", "name": "The repository"}
 
 
-async def create_task(client: httpx.AsyncClient, **body: object) -> dict[str, str]:
+async def create_task(client: httpx.AsyncClient, **body: object) -> dict[str, Any]:
     response = await client.post("/tasks", json={"title": "Write the report"} | body)
     assert response.status_code == 201, response.text
-    created: dict[str, str] = response.json()
+    created: dict[str, Any] = response.json()
     return created
 
 
-async def attach_link(client: httpx.AsyncClient, task_ref: str, **body: object) -> dict[str, str]:
+async def attach_link(client: httpx.AsyncClient, task_ref: str, **body: object) -> dict[str, Any]:
     response = await client.post(f"/tasks/{task_ref}/attachments/links", json=LINK | body)
     assert response.status_code == 201, response.text
-    attached: dict[str, str] = response.json()
+    attached: dict[str, Any] = response.json()
     return attached
 
 
@@ -122,7 +122,8 @@ async def test_a_url_that_is_not_plain_http_is_422_in_the_standard_body_and_stor
 
     assert response.status_code == 422
     (detail,) = response.json()["detail"]
-    assert set(detail) == {"type", "loc", "msg"}
+    assert {"type", "loc", "msg"} <= set(detail)
+    assert "input" not in detail
     assert detail["loc"][0] == "body"
     assert "secret" not in response.text
     assert attachments.all() == []
@@ -148,7 +149,8 @@ async def test_a_body_that_is_not_a_link_is_422(
     response = await task_client.post(f"/tasks/{task['id']}/attachments/links", json=body)
 
     assert response.status_code == 422
-    assert all(set(item) == {"type", "loc", "msg"} for item in response.json()["detail"])
+    details = response.json()["detail"]
+    assert all({"type", "loc", "msg"} <= set(item) and "input" not in item for item in details)
 
 
 async def test_attaching_to_a_task_that_does_not_exist_is_404(

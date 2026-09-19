@@ -27,6 +27,10 @@ from tests.postgres import run_alembic, temporary_database
 
 pytestmark = pytest.mark.integration
 
+# ``GET /tasks/{id_or_key}`` is the detail: the task as every other route shows it, plus what
+# is attached to it.
+NOTHING_ATTACHED: dict[str, object] = {"attachments": []}
+
 PASSWORD = "correct horse battery"
 INBOX = "00000000-0000-4000-8000-000000000001"
 
@@ -127,7 +131,7 @@ async def test_the_workspace_end_to_end(client: httpx.AsyncClient) -> None:
     }
 
     # By key, in any case; a key stays when the task moves to another project.
-    assert (await client.get("/tasks/bt-2", headers=grace)).json() == at_risk
+    assert (await client.get("/tasks/bt-2", headers=grace)).json() == at_risk | NOTHING_ATTACHED
     moved = await client.patch("/tasks/BT-02", json={"project_id": INBOX}, headers=grace)
     assert (moved.json()["project_id"], moved.json()["key"]) == (INBOX, "BT-02")
     assert (await client.get("/tasks/BT-99", headers=ada)).status_code == 404

@@ -33,6 +33,22 @@ class StoredTaskInvalid(RuntimeError):  # noqa: N818 - named for what happened
         self.task_id = task_id
 
 
+class AttachmentNotFound(LookupError):  # noqa: N818 - named for what happened, as the API reports it
+    """No attachment has that id, or it belongs to another task than the one named."""
+
+    def __init__(self, attachment_id: uuid.UUID) -> None:
+        super().__init__(f"Attachment {attachment_id} not found")
+        self.attachment_id = attachment_id
+
+
+class StoredAttachmentInvalid(RuntimeError):  # noqa: N818 - named for what happened
+    """A stored attachment breaks a domain rule: a server fault, never the caller's request."""
+
+    def __init__(self, attachment_id: uuid.UUID) -> None:
+        super().__init__(f"Stored attachment {attachment_id} is invalid")
+        self.attachment_id = attachment_id
+
+
 class InvalidAssigneeError(Exception):
     """The assignee is not a user who can be given a task: unknown, or no longer active.
 

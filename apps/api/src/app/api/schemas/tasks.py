@@ -5,6 +5,7 @@ Lengths are repeated here only so they show up in OpenAPI; the rules themselves 
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Annotated, Literal, Self
 
@@ -18,6 +19,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from app.api.schemas.attachments import AttachmentResponse
 from app.api.schemas.projects import ProjectResponse
 from app.application.task_query import (
     DEFAULT_LIMIT,
@@ -34,6 +36,7 @@ from app.application.task_query import (
 )
 from app.application.use_cases.summarise_tasks import TaskSummary
 from app.application.use_cases.update_task import TaskChanges
+from app.domain.attachment import Attachment
 from app.domain.attention import Attention, AttentionReason
 from app.domain.task import (
     DEFAULT_IMPORTANCE,
@@ -189,13 +192,36 @@ class TaskResponse(BaseModel):
     priority: TaskPriority
     importance: int
     attention: AttentionResponse
+    attachments_count: int = Field(
+        ge=0, description="How many links and files are attached; the detail lists them."
+    )
 
     @classmethod
-    def of(cls, task: Task, attention: Attention) -> Self:
+    def of(cls, task: Task, attention: Attention, *, attachments_count: int) -> Self:
+        return cls.model_validate(cls._fields_of(task, attention, attachments_count))
+
+    @classmethod
+    def _fields_of(
+        cls, task: Task, attention: Attention, attachments_count: int
+    ) -> dict[str, object]:
+        computed = {"attention": attention, "attachments_count": attachments_count}
+        return {
+            name: getattr(task, name) for name in TaskResponse.model_fields if name not in computed
+        } | computed
+
+
+class TaskDetailResponse(TaskResponse):
+    """One task in full: what the list says about it, plus what is attached to it."""
+
+    attachments: list[AttachmentResponse] = Field(description="Oldest first.")
+
+    @classmethod
+    def with_attachments(
+        cls, task: Task, attention: Attention, attachments: Sequence[Attachment]
+    ) -> Self:
         return cls.model_validate(
-            {name: getattr(task, name) for name in cls.model_fields if name != "attention"}
-            | {"attention": attention},
-            from_attributes=True,
+            cls._fields_of(task, attention, len(attachments))
+            | {"attachments": [AttachmentResponse.of(attachment) for attachment in attachments]}
         )
 
 

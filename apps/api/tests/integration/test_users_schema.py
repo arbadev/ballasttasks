@@ -72,4 +72,5 @@ def test_there_is_one_head_and_users_follow_tasks() -> None:
         "create users",
         "wire tasks to users",
         "design task model",
+        "create attachments",
     ]

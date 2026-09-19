@@ -112,9 +112,10 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         "422": invalid,
         "429": error,
     }
-    for method in ("get", "patch"):
+    # The detail adds the attachments to what every other route says about a task.
+    for method, model in (("get", "TaskDetailResponse"), ("patch", "TaskResponse")):
         assert documented("/tasks/{id_or_key}", method) == {
-            "200": "TaskResponse",
+            "200": model,
             "401": error,
             "404": error,
             "422": invalid,

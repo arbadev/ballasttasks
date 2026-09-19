@@ -18,6 +18,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application.clock import Clock, utc_now
+from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
@@ -30,6 +31,7 @@ from app.application.ports.token_service import TokenService
 from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_repository import UserRepository
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_project import CreateProject
@@ -38,10 +40,12 @@ from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
@@ -55,6 +59,7 @@ from app.infrastructure.config import settings as config
 from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
+from app.infrastructure.db.repositories.attachment import SqlAlchemyAttachmentRepository
 from app.infrastructure.db.repositories.project import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
@@ -92,6 +97,8 @@ class RequestScope:
     projects: ProjectRepository
     # The people list: names for the assignee picker, never an email or a hash.
     people: PeopleDirectory
+    # The links and files of tasks; the rows go with their task.
+    attachments: AttachmentRepository
     # Every rule that depends on "now" reads this clock; tests pin it.
     clock: Clock = utc_now
 
@@ -159,6 +166,18 @@ class RequestScope:
     def update_profile(self) -> UpdateProfile:
         return UpdateProfile(self.users)
 
+    @property
+    def attach_link(self) -> AttachLink:
+        return AttachLink(self.tasks, self.attachments, clock=self.clock)
+
+    @property
+    def list_attachments(self) -> ListAttachments:
+        return ListAttachments(self.attachments)
+
+    @property
+    def remove_attachment(self) -> RemoveAttachment:
+        return RemoveAttachment(self.tasks, self.attachments, clock=self.clock)
+
 
 RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
 
@@ -178,6 +197,7 @@ def _request_scope_factory(
                 user_directory=directory,
                 projects=SqlAlchemyProjectRepository(session),
                 people=directory,
+                attachments=SqlAlchemyAttachmentRepository(session),
                 password_hasher=password_hasher,
                 token_service=token_service,
             )

@@ -144,7 +144,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get one task by its id or its key */
+        /** Get one task by its id or its key, with its attachments */
         get: operations["get_task_tasks__id_or_key__get"];
         put?: never;
         post?: never;
@@ -154,6 +154,46 @@ export interface paths {
         head?: never;
         /** Change a task: edit it, assign it, move it, or complete it with status=done */
         patch: operations["update_task_tasks__id_or_key__patch"];
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a link to a task
+         * @description Only absolute `http` and `https` URLs. Without a `name` the link is named after its host. Attaching touches the task's `updated_at`.
+         */
+        post: operations["attach_link_tasks__id_or_key__attachments_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id_or_key}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an attachment from a task
+         * @description A link is forgotten; a file is also deleted from the storage.
+         */
+        delete: operations["remove_attachment_tasks__id_or_key__attachments__attachment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/projects": {
@@ -222,6 +262,60 @@ export interface components {
             provider: string;
             /** Model */
             model: string;
+        };
+        /**
+         * AttachmentKind
+         * @description The design's three kinds. ``link`` has a URL; ``pdf`` and ``image`` are stored files.
+         * @enum {string}
+         */
+        AttachmentKind: "link" | "pdf" | "image";
+        /**
+         * AttachmentResponse
+         * @description Where a file is stored is never part of the contract; its bytes come from
+         *     ``GET /tasks/{id_or_key}/attachments/{attachment_id}/content``.
+         */
+        AttachmentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Task Id
+             * Format: uuid
+             */
+            task_id: string;
+            kind: components["schemas"]["AttachmentKind"];
+            /**
+             * Name
+             * @description Display name: the link's name, or the file's sanitised name.
+             */
+            name: string;
+            /**
+             * Url
+             * @description The link's address; `null` for a file.
+             */
+            url: string | null;
+            /**
+             * Content Type
+             * @description What the file's leading bytes say it is; `null` for a link.
+             */
+            content_type: string | null;
+            /**
+             * Size Bytes
+             * @description Size of the stored file; `null` for a link.
+             */
+            size_bytes: number | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * AttentionReason
@@ -331,6 +425,24 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /**
+         * LinkCreate
+         * @description ``created_by`` is the authenticated user; the kind is ``link``: neither is read.
+         */
+        LinkCreate: {
+            /**
+             * Url
+             * @description An absolute `http` or `https` URL with a host. Anything else is a `422`: another scheme (`javascript:`, `data:`, `file:`), a relative reference, a user name or password in the URL, whitespace or control characters.
+             * @example https://github.com/arbadev/ballasttasks
+             */
+            url: string;
+            /**
+             * Name
+             * @description What people see. Absent, `null` or blank: the URL's host.
+             * @example The repository
+             */
+            name?: string | null;
         };
         /** PeopleResponse */
         PeopleResponse: {
@@ -532,6 +644,68 @@ export interface components {
             importance: number;
         };
         /**
+         * TaskDetailResponse
+         * @description One task in full: what the list says about it, plus what is attached to it.
+         */
+        TaskDetailResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Key
+             * @description `<PROJECT KEY>-<NN>`, given at creation and never changed.
+             * @example BT-04
+             */
+            key: string;
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Title */
+            title: string;
+            /** Description */
+            description: string | null;
+            status: components["schemas"]["TaskStatus"];
+            /** Due Date */
+            due_date: string | null;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /** Assignee Id */
+            assignee_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            priority: components["schemas"]["TaskPriority"];
+            /** Importance */
+            importance: number;
+            attention: components["schemas"]["AttentionResponse"];
+            /**
+             * Attachments Count
+             * @description How many links and files are attached; the detail lists them.
+             */
+            attachments_count: number;
+            /**
+             * Attachments
+             * @description Oldest first.
+             */
+            attachments: components["schemas"]["AttachmentResponse"][];
+        };
+        /**
          * TaskListResponse
          * @description An envelope: ``total`` is how many tasks match the filters, whatever the page.
          */
@@ -599,6 +773,11 @@ export interface components {
             /** Importance */
             importance: number;
             attention: components["schemas"]["AttentionResponse"];
+            /**
+             * Attachments Count
+             * @description How many links and files are attached; the detail lists them.
+             */
+            attachments_count: number;
         };
         /**
          * TaskScope
@@ -1235,7 +1414,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TaskResponse"];
+                    "application/json": components["schemas"]["TaskDetailResponse"];
                 };
             };
             /** @description Not authenticated */
@@ -1382,6 +1561,141 @@ export interface operations {
                 };
             };
             /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    attach_link_tasks__id_or_key__attachments_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Rate limit exceeded; retry after `Retry-After` seconds */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    /** @description Requests allowed per window */
+                    "X-RateLimit-Limit"?: number;
+                    /** @description Requests left in the current window */
+                    "X-RateLimit-Remaining"?: number;
+                    /** @description Seconds until the current window ends */
+                    "X-RateLimit-Reset"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_attachment_tasks__id_or_key__attachments__attachment_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attachment_id: string;
+                id_or_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No task has that id or key, or the task has no such attachment */
             404: {
                 headers: {
                     [name: string]: unknown;

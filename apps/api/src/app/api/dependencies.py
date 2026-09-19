@@ -14,6 +14,7 @@ from fastapi import Depends, Request
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.use_cases.assess_attention import AssessAttention
+from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_project import CreateProject
@@ -22,10 +23,12 @@ from app.application.use_cases.delete_task import DeleteTask
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_project import GetProject
 from app.application.use_cases.get_task import GetTask
+from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.register_user import RegisterUser
+from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
@@ -82,6 +85,15 @@ class RequestScope(Protocol):
 
     @property
     def update_profile(self) -> UpdateProfile: ...
+
+    @property
+    def attach_link(self) -> AttachLink: ...
+
+    @property
+    def list_attachments(self) -> ListAttachments: ...
+
+    @property
+    def remove_attachment(self) -> RemoveAttachment: ...
 
 
 class RateLimiting(Protocol):
@@ -238,3 +250,20 @@ ListProjectsDep = Annotated[ListProjects, Depends(get_list_projects)]
 UpdateProjectDep = Annotated[UpdateProject, Depends(get_update_project)]
 ListPeopleDep = Annotated[ListPeople, Depends(get_list_people)]
 UpdateProfileDep = Annotated[UpdateProfile, Depends(get_update_profile)]
+
+
+def get_attach_link(scope: RequestScopeDep) -> AttachLink:
+    return scope.attach_link
+
+
+def get_list_attachments(scope: RequestScopeDep) -> ListAttachments:
+    return scope.list_attachments
+
+
+def get_remove_attachment(scope: RequestScopeDep) -> RemoveAttachment:
+    return scope.remove_attachment
+
+
+AttachLinkDep = Annotated[AttachLink, Depends(get_attach_link)]
+ListAttachmentsDep = Annotated[ListAttachments, Depends(get_list_attachments)]
+RemoveAttachmentDep = Annotated[RemoveAttachment, Depends(get_remove_attachment)]

@@ -14,6 +14,7 @@ from app.api.dependencies import (
     CreateTaskDep,
     DeleteTaskDep,
     GetTaskDep,
+    ListAttachmentsDep,
     ListTasksDep,
     SummariseTasksDep,
     UpdateTaskDep,
@@ -22,6 +23,7 @@ from app.api.rate_limit import TOO_MANY_REQUESTS, limit_requests
 from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.tasks import (
     TaskCreate,
+    TaskDetailResponse,
     TaskFilterParams,
     TaskListParams,
     TaskListResponse,
@@ -97,7 +99,8 @@ async def create_task(
         importance=body.importance,
         created_by=user_id,
     )
-    return TaskResponse.of(task, attention.execute(task))
+    # Nothing can be attached to a task before it exists.
+    return TaskResponse.of(task, attention.execute(task), attachments_count=0)
 
 
 @router.get(
@@ -115,10 +118,16 @@ async def list_tasks(
     user_id: CurrentUserId,
     list_tasks: ListTasksDep,
     attention: AssessAttentionDep,
+    attachments: ListAttachmentsDep,
 ) -> TaskListResponse:
     query = params.to_query(user_id)
     page = await list_tasks.execute(query)
-    items = [TaskResponse.of(task, attention.execute(task)) for task in page.items]
+    # One statement for the whole page, not one per task.
+    counts = await attachments.count([task.id for task in page.items])
+    items = [
+        TaskResponse.of(task, attention.execute(task), attachments_count=counts[task.id])
+        for task in page.items
+    ]
     return TaskListResponse.of(page, query, items)
 
 
@@ -145,15 +154,20 @@ async def summarise_tasks(
 
 @router.get(
     "/{id_or_key}",
-    summary="Get one task by its id or its key",
-    response_model=TaskResponse,
+    summary="Get one task by its id or its key, with its attachments",
+    response_model=TaskDetailResponse,
     responses={**NOT_FOUND},
 )
 async def get_task(
-    reference: TaskReference, get_task: GetTaskDep, attention: AssessAttentionDep
-) -> TaskResponse:
+    reference: TaskReference,
+    get_task: GetTaskDep,
+    attention: AssessAttentionDep,
+    attachments: ListAttachmentsDep,
+) -> TaskDetailResponse:
     task = await get_task.execute(reference)
-    return TaskResponse.of(task, attention.execute(task))
+    return TaskDetailResponse.with_attachments(
+        task, attention.execute(task), await attachments.execute(task.id)
+    )
 
 
 @router.patch(
@@ -163,10 +177,15 @@ async def get_task(
     responses={**NOT_FOUND},
 )
 async def update_task(
-    task_id: TaskId, body: TaskUpdate, update_task: UpdateTaskDep, attention: AssessAttentionDep
+    task_id: TaskId,
+    body: TaskUpdate,
+    update_task: UpdateTaskDep,
+    attention: AssessAttentionDep,
+    attachments: ListAttachmentsDep,
 ) -> TaskResponse:
     task = await update_task.execute(task_id, body.to_changes())
-    return TaskResponse.of(task, attention.execute(task))
+    counts = await attachments.count([task.id])
+    return TaskResponse.of(task, attention.execute(task), attachments_count=counts[task.id])
 
 
 @router.delete(

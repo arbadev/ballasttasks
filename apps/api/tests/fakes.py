@@ -2,11 +2,12 @@
 
 import asyncio
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
 
 from app.application.errors import (
+    AttachmentNotFound,
     InvalidAssigneeError,
     ProjectKeyTakenError,
     ProjectNotFound,
@@ -25,6 +26,7 @@ from app.application.task_query import (
     TaskSignal,
     TaskSort,
 )
+from app.domain.attachment import Attachment
 from app.domain.attention import WEEK_DAYS, Attention, assess
 from app.domain.project import (
     DEFAULT_PROJECT_ID,
@@ -202,6 +204,54 @@ class InMemoryTaskRepository:
         if task_id not in self._tasks:
             raise TaskNotFound(task_id)
         del self._tasks[task_id]
+
+
+class InMemoryAttachmentRepository:
+    """AttachmentRepository fake; passes the same contract suite as the PostgreSQL adapter.
+
+    It reads the tasks fake the way the ``attachments`` table references ``tasks``: an
+    attachment of a task that is not stored is refused, and one whose task has been deleted
+    is gone (``ON DELETE CASCADE``). Attachments are frozen, so none is copied.
+    """
+
+    def __init__(self, tasks: InMemoryTaskRepository) -> None:
+        self._tasks = tasks
+        self._attachments: dict[uuid.UUID, Attachment] = {}
+
+    async def _stored(self) -> list[Attachment]:
+        """Oldest first, without the attachments of tasks that no longer exist."""
+        for attachment in list(self._attachments.values()):
+            if await self._tasks.get(attachment.task_id) is None:
+                del self._attachments[attachment.id]
+        return sorted(self._attachments.values(), key=lambda a: (a.created_at, a.id))
+
+    def all(self) -> list[Attachment]:
+        """Not part of the port: every stored attachment, oldest first, for a test to look at."""
+        tasks = {task.id for task in self._tasks.all()}
+        kept = [a for a in self._attachments.values() if a.task_id in tasks]
+        return sorted(kept, key=lambda a: (a.created_at, a.id))
+
+    async def add(self, attachment: Attachment) -> None:
+        if await self._tasks.get(attachment.task_id) is None:
+            raise TaskNotFound(attachment.task_id)
+        self._attachments[attachment.id] = attachment
+
+    async def get(self, attachment_id: uuid.UUID) -> Attachment | None:
+        return next((a for a in await self._stored() if a.id == attachment_id), None)
+
+    async def list_for_task(self, task_id: uuid.UUID) -> Sequence[Attachment]:
+        return [a for a in await self._stored() if a.task_id == task_id]
+
+    async def count_by_task(self, task_ids: Collection[uuid.UUID]) -> Mapping[uuid.UUID, int]:
+        stored = await self._stored()
+        return {
+            task_id: sum(1 for a in stored if a.task_id == task_id) for task_id in set(task_ids)
+        }
+
+    async def delete(self, attachment_id: uuid.UUID) -> None:
+        if await self.get(attachment_id) is None:
+            raise AttachmentNotFound(attachment_id)
+        del self._attachments[attachment_id]
 
 
 def _has_signal(attention: Attention, signal: TaskSignal) -> bool:
