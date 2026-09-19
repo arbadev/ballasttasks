@@ -27,13 +27,24 @@ export function DetailFooter({ task }: { task: Task }) {
       setDeleteFailed(true);
     });
 
+  const closePrompt = () => {
+    setConfirming(false);
+    setDeleteFailed(false);
+  };
+
   useEffect(() => {
     if (confirming) confirmRef.current?.focus();
   }, [confirming]);
 
   return (
     <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3 max-md:px-4">
-      <Button icon={Check} onClick={() => void track(commands.toggleDone(task.id)).catch(() => {})}>
+      <Button
+        icon={Check}
+        onClick={() => {
+          setDeleteFailed(false);
+          void track(commands.toggleDone(task.id)).catch(() => {});
+        }}
+      >
         {task.status === "done" ? "Reopen" : "Mark complete"}
       </Button>
       {confirming ? (
@@ -45,12 +56,12 @@ export function DetailFooter({ task }: { task: Task }) {
             onKeyDown={(e) => {
               if (e.key !== "Escape") return;
               e.preventDefault();
-              setConfirming(false);
+              closePrompt();
             }}
           >
             Delete task
           </PanelButton>
-          <PanelButton variant="quiet" className="h-[34px]" onClick={() => setConfirming(false)}>
+          <PanelButton variant="quiet" className="h-[34px]" onClick={closePrompt}>
             Keep
           </PanelButton>
         </span>

@@ -4,28 +4,33 @@ export type LinkResult = { ok: true; attachment: Attachment } | { ok: false; err
 
 const INVALID: LinkResult = { ok: false, error: "Enter a web address, like https://example.com" };
 
+/** Longer than any address a browser will follow, so a stray paste never reaches the store. */
+const MAX_LENGTH = 2000;
+
+function parse(text: string): URL | null {
+  try {
+    return new URL(text);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Turns what the user typed into a link attachment: named after the title, or after the
  * address itself, with the host as the secondary line. Only http and https are links here;
- * a bare "example.com/page" is read as https.
+ * a bare "example.com/page" is read as https. What makes "mailto:someone@example.com" a
+ * non-link is the credentials it parses into, not its scheme.
  */
 export function linkAttachment(input: string, title: string): LinkResult {
   const text = input.trim();
-  if (!text || /\s/.test(text)) return INVALID;
+  if (!text || text.length > MAX_LENGTH || /\s/.test(text)) return INVALID;
 
-  // A colon straight before digits is a port ("localhost:8000"), not a scheme.
-  const scheme = /^([a-z][a-z0-9+.-]*):(?!\d)/i.exec(text)?.[1].toLowerCase();
-  if (scheme && scheme !== "http" && scheme !== "https") return INVALID;
-
-  let url: URL;
-  try {
-    url = new URL(scheme ? text : `https://${text}`);
-  } catch {
-    return INVALID;
+  let url = parse(text);
+  if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
+    url = text.includes("://") ? null : parse(`https://${text}`);
   }
+  if (!url || url.username || url.password) return INVALID;
   if (!url.hostname.includes(".") && url.hostname !== "localhost") return INVALID;
-  // "mailto:a@example.com" parses as credentials on a host; a link here carries none.
-  if (url.username || url.password) return INVALID;
 
   const host = url.host.replace(/^www\./, "");
   const path = url.pathname.replace(/\/+$/, "");

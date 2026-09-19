@@ -114,6 +114,31 @@ describe("real attachment flow over the in-memory service", () => {
     expect(store.require("t4").attachments).toHaveLength(1);
   });
 
+  it("stores nothing for an address that is not a web link, then keeps the one that is", async () => {
+    const { store, section } = await setup();
+    fireEvent.click(section.getByRole("button", { name: "Add link" }));
+    const field = section.getByRole("textbox", { name: "Link URL" });
+    const form = section.getByRole("form", { name: "Add a link" });
+
+    for (const bad of ["mailto:someone@example.com", "javascript:alert(1)", "data:text/html,<b>x", "file:///etc/passwd", "tel:+1234", "ftp://example.com", "https://u:p@example.com"]) {
+      fireEvent.change(field, { target: { value: bad } });
+      fireEvent.submit(form);
+      await settle();
+      expect(section.getByRole("alert"), bad).toHaveTextContent("Enter a web address, like https://example.com");
+      expect(store.require("t4").attachments, bad).toEqual([]);
+      expect(section.queryAllByRole("link"), bad).toHaveLength(0);
+    }
+
+    fireEvent.change(field, { target: { value: "example.com/a?b=1#c" } });
+    fireEvent.submit(form);
+    await settle();
+    const link = section.getByRole("link", { name: /example\.com\/a/ });
+    expect(link).toHaveAttribute("href", "https://example.com/a?b=1#c");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(store.require("t4").attachments).toEqual([{ kind: "link", name: "example.com/a", meta: "example.com", url: "https://example.com/a?b=1#c" }]);
+  });
+
   it("keeps full link URLs including query and hash, and opens distinct links safely", async () => {
     const { store, section } = await setup();
     for (const query of ["first", "second"]) {

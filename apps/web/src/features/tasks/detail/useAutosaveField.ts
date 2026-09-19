@@ -50,7 +50,11 @@ export function useAutosaveField<T>({ saved, save, delay = 0 }: Options<T>): Aut
 
     const settleDraft = () => setDraft((d) => (d && Object.is(d.value, edit.value) ? null : d));
     const stored = inFlight.current ? inFlight.current.value : latest.current.saved;
-    if (Object.is(edit.value, stored)) return settleDraft();
+    if (Object.is(edit.value, stored)) {
+      // The save already carrying this value settles the draft when it lands; until then it shows.
+      if (!inFlight.current) settleDraft();
+      return;
+    }
 
     const id = ++started.current;
     inFlight.current = { id, value: edit.value };

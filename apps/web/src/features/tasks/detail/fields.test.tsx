@@ -174,6 +174,30 @@ describe("title and description autosave", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("keeps showing an edit that the save in flight is already carrying", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t4");
+    const requests = deferUpdates(taskService);
+
+    fireEvent.change(title(), { target: { value: "JWT auth" } });
+    fireEvent.blur(title());
+    await settle();
+    expect(requests).toHaveLength(1);
+
+    // Typed and undone again while that save is still open: nothing new to send, nothing to revert.
+    fireEvent.change(title(), { target: { value: "JWT auth!" } });
+    fireEvent.change(title(), { target: { value: "JWT auth" } });
+    fireEvent.blur(title());
+    await settle();
+    expect(requests).toHaveLength(1);
+    expect(title()).toHaveValue("JWT auth");
+
+    requests[0].settle(true);
+    await settle();
+    expect(title()).toHaveValue("JWT auth");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("drops the failure of a save that a later, successful one has overtaken", async () => {
     const { taskService } = await renderDetail();
     openTask("t4");

@@ -174,6 +174,11 @@ describe("footer", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Could not delete the task. Try again.");
     expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument();
   });
 
   it("shows when the task was last saved, and when it was created and updated", async () => {
