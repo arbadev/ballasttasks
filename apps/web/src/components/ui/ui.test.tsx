@@ -90,9 +90,12 @@ describe("SegmentedControl", () => {
   it("slides the thumb to the selected option", () => {
     const { rerender } = render(<SegmentedControl label="View" name="view" value="list" options={options} onChange={() => {}} />);
     const thumb = () => screen.getByRole("radiogroup").querySelector("[data-thumb]") as HTMLElement;
-    expect(thumb().style.transform).toBe("translateX(0%)");
+    // Positioned with `left`, as the design does: layout snaps it to the pixel grid, where a
+    // transform would leave a blurred edge whenever half the control is a fractional width.
+    expect(thumb().style.getPropertyValue("--segment")).toBe("0");
+    expect(thumb().style.transform).toBe("");
     rerender(<SegmentedControl label="View" name="view" value="board" options={options} onChange={() => {}} />);
-    expect(thumb().style.transform).toBe("translateX(100%)");
+    expect(thumb().style.getPropertyValue("--segment")).toBe("1");
   });
 });
 

@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn";
 
 interface SegmentedControlProps<T extends string> {
@@ -24,8 +25,10 @@ export function SegmentedControl<T extends string>({ label, name, value, options
       <span
         aria-hidden="true"
         data-thumb
-        className="absolute top-[3px] bottom-[3px] left-[3px] rounded-[calc(var(--r)-3px)] bg-card-2 shadow-1 transition-transform duration-[280ms] ease-bt"
-        style={{ width: `calc(${100 / options.length}% - ${6 / options.length}px)`, transform: `translateX(${index * 100}%)` }}
+        // Positioned with `left`, as the design does, not a transform: layout snaps to the pixel
+        // grid, while a transform leaves a blurred edge when a segment is a fractional width.
+        className="absolute top-[3px] bottom-[3px] left-[calc(3px+var(--segment)*(100%-6px)/var(--segments))] w-[calc((100%-6px)/var(--segments))] rounded-[calc(var(--r)-3px)] bg-card-2 shadow-1 transition-[left] duration-[280ms] ease-bt"
+        style={{ "--segment": index, "--segments": options.length } as CSSProperties}
       />
       {options.map(({ value: v, label: text, icon: Icon }) => (
         <label
