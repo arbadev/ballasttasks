@@ -2,9 +2,12 @@
 
 import asyncio
 import uuid
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
+
+from app.application.ports.file_storage import StoredFile
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
 
 from app.application.errors import (
     AttachmentNotFound,
@@ -252,6 +255,19 @@ class InMemoryAttachmentRepository:
         if await self.get(attachment_id) is None:
             raise AttachmentNotFound(attachment_id)
         del self._attachments[attachment_id]
+
+
+class RecordingFileStorage(InMemoryFileStorage):
+    """The in-memory adapter, remembering every key a save was ever started under: a test
+    that says "nothing was written" means not even for a moment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.keys_ever_written: list[str] = []
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile:
+        self.keys_ever_written.append(key)
+        return await super().save(key, chunks)
 
 
 def _has_signal(attention: Attention, signal: TaskSignal) -> bool:

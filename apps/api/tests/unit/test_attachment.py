@@ -4,6 +4,8 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from app.domain.file_type import FileType, sniff
+
 from app.domain.attachment import (
     NAME_MAX_LENGTH,
     URL_MAX_LENGTH,
@@ -155,6 +157,114 @@ def test_a_file_has_a_storage_key_a_content_type_and_a_size_and_no_url() -> None
     ],
 )
 def test_a_stored_attachment_whose_fields_do_not_go_together_is_refused(
+    overrides: dict[str, object],
+) -> None:
+    with pytest.raises(InvalidAttachmentError):
+        stored(**overrides)
+
+
+# --- files ------------------------------------------------------------------------------------
+
+PDF_TYPE = sniff(b"%PDF-1.7\n....")
+PNG_TYPE = sniff(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+assert PDF_TYPE is not None
+assert PNG_TYPE is not None
+
+
+def a_stored_file(file_name: str | None, file_type: FileType = PDF_TYPE) -> Attachment:
+    return Attachment.file(
+        attachment_id=uuid.uuid4(),
+        task_id=TASK_ID,
+        file_name=file_name,
+        file_type=file_type,
+        storage_key="0123456789abcdef0123456789abcdef",
+        size_bytes=2048,
+        created_by=USER_ID,
+        now=NOW,
+    )
+
+
+def test_a_file_takes_its_kind_and_content_type_from_what_the_bytes_said() -> None:
+    pdf, image = a_stored_file("report.pdf"), a_stored_file("shot.png", PNG_TYPE)
+
+    assert (pdf.kind, pdf.content_type, pdf.name) == (
+        AttachmentKind.PDF,
+        "application/pdf",
+        "report.pdf",
+    )
+    assert (image.kind, image.content_type, image.name) == (
+        AttachmentKind.IMAGE,
+        "image/png",
+        "shot.png",
+    )
+    assert (pdf.storage_key, pdf.size_bytes, pdf.url) == (
+        "0123456789abcdef0123456789abcdef",
+        2048,
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("file_name", "name"),
+    [
+        ("report.pdf", "report.pdf"),
+        ("REPORT.PDF", "REPORT.PDF"),
+        ("  spaced   out  .pdf ", "spaced out .pdf"),
+        ("../../etc/passwd", "passwd.pdf"),
+        ("..\\..\\windows\\system32\\evil.pdf", "evil.pdf"),
+        ("C:\\Users\\ada\\report.pdf", "report.pdf"),
+        ("/etc/cron.d/job.pdf", "job.pdf"),
+        ("..", "file.pdf"),
+        (".", "file.pdf"),
+        ("", "file.pdf"),
+        ("   ", "file.pdf"),
+        (None, "file.pdf"),
+        (".htaccess", "htaccess.pdf"),
+        ("...hidden.pdf", "hidden.pdf"),
+        ("trailing.pdf...", "trailing.pdf"),
+        ("nul\x00byte.pdf", "nulbyte.pdf"),
+        ("line\r\nbreak.pdf", "linebreak.pdf"),
+        ("tab\there.pdf", "tabhere.pdf"),
+        ("invoice\u202efdp.exe", "invoicefdp.exe.pdf"),
+        ("evil.exe", "evil.exe.pdf"),
+        ("page.html", "page.html.pdf"),
+        ("no-extension", "no-extension.pdf"),
+        ('quo"te;.pdf', 'quo"te;.pdf'),
+        ("r\u00e9sum\u00e9 \u2013 final.pdf", "r\u00e9sum\u00e9 \u2013 final.pdf"),
+    ],
+)
+def test_a_file_name_is_display_metadata_sanitised_and_honest_about_the_type(
+    file_name: str | None, name: str
+) -> None:
+    assert a_stored_file(file_name).name == name
+
+
+def test_a_name_that_claims_another_type_gets_the_extension_of_what_the_file_is() -> None:
+    assert a_stored_file("report.pdf", PNG_TYPE).name == "report.pdf.png"
+    assert a_stored_file("photo.JPEG", sniff(b"\xff\xd8\xff\xe0")).name == "photo.JPEG"  # type: ignore[arg-type]
+
+
+def test_a_long_file_name_is_cut_to_the_limit_and_keeps_its_extension() -> None:
+    name = a_stored_file("x" * 400 + ".pdf").name
+
+    assert len(name) == NAME_MAX_LENGTH
+    assert name.endswith("x.pdf")
+    assert a_stored_file("y" * 400).name == "y" * (NAME_MAX_LENGTH - 4) + ".pdf"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"content_type": "text/html"},
+        {"content_type": "image/svg+xml"},
+        {"kind": AttachmentKind.IMAGE},
+        {"kind": AttachmentKind.PDF, "content_type": "image/png"},
+        {"storage_key": "../outside"},
+        {"storage_key": "/etc/passwd"},
+        {"storage_key": ""},
+    ],
+)
+def test_a_stored_file_of_a_type_or_under_a_key_the_server_would_never_write_is_refused(
     overrides: dict[str, object],
 ) -> None:
     with pytest.raises(InvalidAttachmentError):

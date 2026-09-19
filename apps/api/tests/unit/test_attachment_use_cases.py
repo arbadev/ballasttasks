@@ -4,12 +4,14 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from app.application.file_changes import FileChanges
+from app.infrastructure.storage.in_memory import InMemoryFileStorage
+
+from app.application.errors import AttachmentNotFound, TaskNotFound
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.domain.attachment import AttachmentKind, InvalidAttachmentError
-
-from app.application.errors import AttachmentNotFound, TaskNotFound
 from app.domain.task import Task
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import a_file, a_link, a_task
@@ -23,6 +25,10 @@ NOW = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 LATER = NOW + timedelta(days=1)
 CREATOR = uuid.uuid4()
 CALLER = uuid.uuid4()
+
+
+def no_files() -> FileChanges:
+    return FileChanges(InMemoryFileStorage())
 
 
 @pytest.fixture
@@ -112,7 +118,9 @@ async def test_remove_attachment_removes_it_and_touches_the_task(
     await attachments.add(link)
     await attachments.add(kept)
 
-    await RemoveAttachment(tasks, attachments, clock=lambda: LATER).execute(task.id, link.id)
+    await RemoveAttachment(tasks, attachments, no_files(), clock=lambda: LATER).execute(
+        task.id, link.id
+    )
 
     assert attachments.all() == [kept]
     touched = await tasks.get(task.id)
@@ -126,7 +134,7 @@ async def test_remove_attachment_of_an_unknown_id_raises(
     unknown = uuid.uuid4()
 
     with pytest.raises(AttachmentNotFound) as raised:
-        await RemoveAttachment(tasks, attachments).execute(task.id, unknown)
+        await RemoveAttachment(tasks, attachments, no_files()).execute(task.id, unknown)
 
     assert raised.value.attachment_id == unknown
 
@@ -140,7 +148,9 @@ async def test_an_attachment_is_only_removed_through_the_task_it_belongs_to(
     await attachments.add(link)
 
     with pytest.raises(AttachmentNotFound):
-        await RemoveAttachment(tasks, attachments, clock=lambda: LATER).execute(task.id, link.id)
+        await RemoveAttachment(tasks, attachments, no_files(), clock=lambda: LATER).execute(
+            task.id, link.id
+        )
 
     assert attachments.all() == [link]
     assert await tasks.get(task.id) == task

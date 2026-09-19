@@ -45,6 +45,8 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "PT", "RUF", "ASYNC",
 [tool.ruff.lint.per-file-ignores]
 # S608: test SQL is assembled from constants in tests/postgres.py, never from input.
 "tests/**" = ["S101", "S105", "S106", "S608"]
+# ASYNC240: these tests look at the disk the adapter wrote to; blocking there is the point.
+"tests/unit/test_local_disk_file_storage.py" = ["ASYNC240"]
 
 [tool.mypy]
 strict = true
