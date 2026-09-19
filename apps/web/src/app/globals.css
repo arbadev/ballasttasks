@@ -1,26 +1,205 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens: the single home of the Ballast Tasks skin. Values are the design's
+ * `:root` skin block, value for value; only the font families differ, because next/font
+ * self-hosts them and exposes each one as a variable (see layout.tsx).
+ * Components never use raw hex: they use the Tailwind names mapped in `@theme` below.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --scheme: dark;
+  --bg: #15171a;
+  --panel: #191c20;
+  --card: #1f2328;
+  --card-2: #272c33;
+  --fg: #f2f3f4;
+  --fg-2: #a7adb5;
+  --fg-3: #858c95;
+  --line: rgba(255, 255, 255, .07);
+  --line-2: rgba(255, 255, 255, .13);
+  --acc: #c6f432;
+  --acc-fg: #111418;
+  --acc-soft: rgba(198, 244, 50, .12);
+  --acc-glow: 0 0 0 1px rgba(198, 244, 50, .25), 0 10px 30px -10px rgba(198, 244, 50, .45);
+  --danger: #ff5d5d;
+  --danger-soft: rgba(255, 93, 93, .14);
+  --warn: #ffb224;
+  --warn-soft: rgba(255, 178, 36, .14);
+  --ok: #4cd37e;
+  --ok-soft: rgba(76, 211, 126, .14);
+  --info: #7fb2ff;
+  --info-soft: rgba(127, 178, 255, .14);
+  --backdrop: rgba(8, 9, 11, .6);
+  --r: 4px;
+  --r-sm: 3px;
+  --r-av: 4px;
+  --sh-1: 0 1px 2px rgba(0, 0, 0, .4);
+  --sh-2: 0 24px 80px -20px rgba(0, 0, 0, .85), 0 0 0 1px rgba(255, 255, 255, .06);
+  --sh-3: 0 12px 32px -14px rgba(0, 0, 0, .9);
+  --font: var(--font-dm-sans), system-ui, sans-serif;
+  --font-h: var(--font-space-grotesk), system-ui, sans-serif;
+  --mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+  --hw: 600;
+  --hls: -0.01em;
+  --hsize: 22px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-acc: var(--acc);
+  --color-acc-fg: var(--acc-fg);
+  --color-acc-soft: var(--acc-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-backdrop: var(--backdrop);
+
+  --radius-bt: var(--r);
+  --radius-bt-sm: var(--r-sm);
+  --radius-bt-av: var(--r-av);
+
+  --shadow-1: var(--sh-1);
+  --shadow-2: var(--sh-2);
+  --shadow-3: var(--sh-3);
+  --shadow-glow: var(--acc-glow);
+
+  --font-sans: var(--font);
+  --font-heading: var(--font-h);
+  --font-mono: var(--mono);
+
+  --ease-bt: var(--ease);
+
+  --animate-bt-in: bt-in .4s var(--ease) both;
+  --animate-bt-fade: bt-fade .25s var(--ease);
+  --animate-bt-panel: bt-panel .38s var(--ease) both;
+  --animate-bt-modal: bt-modal .38s var(--ease) both;
+  --animate-bt-pop: bt-pop .28s var(--ease);
+  --animate-bt-shimmer: bt-shimmer 1.3s linear infinite;
+  --animate-bt-pulse: bt-pulse 1.4s ease-in-out infinite;
+  --animate-bt-blink: bt-blink 1.6s ease-in-out infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html,
+  body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    color-scheme: var(--scheme);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  a {
+    color: var(--acc);
+  }
+
+  a:hover {
+    color: var(--fg);
+  }
+
+  button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--acc) 35%, transparent);
+  }
+
+  select option {
+    background: var(--card);
+    color: var(--fg);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+    border-radius: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes bt-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bt-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bt-panel {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bt-modal {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes bt-pop {
+  0% { transform: scale(.4); opacity: 0; }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes bt-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes bt-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .5; transform: scale(.88); }
+}
+
+@keyframes bt-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
 }

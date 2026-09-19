@@ -1,9 +1,5 @@
-import { StatusCard } from "@/features/health/StatusCard";
+import { TasksApp } from "@/features/tasks/shell/TasksApp";
 
 export default function Home() {
-  return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <StatusCard />
-    </main>
-  );
+  return <TasksApp />;
 }

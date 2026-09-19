@@ -147,9 +147,9 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 
 ### Frontend: `apps/web/src/app/providers.tsx`
 
-- Builds the concrete services (which use `client.ts`) and provides them through React context.
+- Builds the concrete services (the HTTP-backed ones use `client.ts`; the task services are in-memory for now) and provides them through React context.
 - Components and hooks read the service interface from context. They never import `client.ts` or call `fetch`.
-- `config.ts` is the only module that reads `process.env` (`NEXT_PUBLIC_API_URL`).
+- `config.ts` is the only application module that reads `process.env` (`NEXT_PUBLIC_API_URL`). Test tooling (`playwright.config.ts`, `apps/web/visual/`) reads its own variables.
 - Tests render components with a fake service passed to the provider; no network mocking is needed.
 
 ## HTTP contract flow
