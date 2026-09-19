@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
 import { NOW, due, makeTask } from "@/test/tasks";
@@ -60,7 +60,7 @@ class ControlledTaskService extends FakeTaskService {
 describe("columns", () => {
   it("shows the four statuses in workflow order with live counts", async () => {
     await renderBoard();
-    const names = screen.getAllByRole("region").filter((r) => within(r).queryByRole("heading", { level: 2 })).map((r) => within(r).getByRole("heading", { level: 2 }).textContent);
+    const names = within(screen.getByRole("region", { name: "Board" })).getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(names).toEqual(["To Do", "In Progress", "Testing", "Done"]);
     expect(within(column("To Do")).getByTestId("column-count")).toHaveTextContent("8");
     expect(within(column("In Progress")).getByTestId("column-count")).toHaveTextContent("3");
@@ -295,6 +295,29 @@ describe("moving without a drag", () => {
     await waitFor(() => expect(titlesIn("Done")).toContain(COMPOSE));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("board-live")).toHaveTextContent(`Moved "${COMPOSE}" to Done.`);
+  });
+
+  it("keeps the move buttons on show while keyboard focus stays inside the card, and hides them when it leaves", async () => {
+    // jsdom does not track input modality, so every focus here counts as the keyboard's.
+    const matches = Element.prototype.matches;
+    const spy = vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+      return selector === ":focus-visible" ? this === document.activeElement : matches.call(this, selector);
+    });
+    onTestFinished(() => spy.mockRestore());
+
+    await renderBoard();
+    const controls = () => card(COMPOSE).querySelector("[data-move-controls]");
+    expect(controls()).toBeNull();
+
+    act(() => openButton(COMPOSE).focus());
+    expect(controls()).not.toBeNull();
+
+    // Focus travelling from one of the card's buttons to another must not hide the row.
+    act(() => within(card(COMPOSE)).getByRole("button", { name: `Move "${COMPOSE}" to Done` }).focus());
+    expect(controls()).not.toBeNull();
+
+    act(() => openButton(PRD).focus());
+    expect(controls()).toBeNull();
   });
 
   it("has no backward button in the first column and no forward button in the last", async () => {

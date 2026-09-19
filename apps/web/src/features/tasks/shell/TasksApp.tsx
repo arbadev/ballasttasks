@@ -45,12 +45,12 @@ function Shell() {
         <Header navigationId={navigationId} navigationOpen={navigationOpen} onOpenNavigation={() => setNavigationOpen(true)} />
         <FilterToolbar />
         <AttentionStrip />
-        {state.load.status === "loading" && (
+        {state.view === "list" && state.load.status === "loading" && (
           <p role="status" className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">
             Loading tasks…
           </p>
         )}
-        {state.load.status === "error" && (
+        {state.view === "list" && state.load.status === "error" && (
           <div role="alert" className="flex flex-col items-start gap-3 px-6 py-14 text-[13px] text-fg-2 max-md:px-4">
             <p className="m-0">
               Could not load the tasks. <span className="text-fg-3">{state.load.message}</span>
@@ -60,7 +60,7 @@ function Shell() {
             </Button>
           </div>
         )}
-        {state.load.status === "ready" && (state.view === "list" ? <ListView /> : <BoardView />)}
+        {state.view === "list" ? state.load.status === "ready" && <ListView /> : <BoardView />}
       </main>
       <TaskDetail />
     </div>
