@@ -44,7 +44,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 ## Repo map
 
 - `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `api`, `bootstrap.py`, `main.py`).
-- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
+- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/features/projects/` project creation, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
 - `docs/`: `PRD.md`, `architecture.md`, `ai-usage.md`, `decisions/` (ADRs).
 - Root: `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, `.env.example`.
 

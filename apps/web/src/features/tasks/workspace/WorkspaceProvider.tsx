@@ -23,6 +23,8 @@ export interface WorkspaceActions {
   clearSelection(): void;
   /** Fetches the tasks again, after a load error. */
   reload(): void;
+  /** Puts a project the directory just created into the sidebar and shows it, over all tasks. */
+  addProject(project: Project): void;
 }
 
 export interface Directory {
@@ -112,6 +114,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       reload: () => {
         dispatch({ type: "loadStarted" });
         setAttempt((n) => n + 1);
+      },
+      addProject: (project) => {
+        setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
+        // A scope or signal left on would hide the project's first, unassigned tasks.
+        dispatch({ type: "scopeSelected", scope: "all" });
+        dispatch({ type: "signalCleared" });
+        dispatch({ type: "projectToggled", project: project.id });
       },
     }),
     [],

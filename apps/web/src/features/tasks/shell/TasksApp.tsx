@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
 import { BoardView } from "../board/BoardView";
 import { TaskDetail } from "../detail/TaskDetail";
 import { ListView } from "../list/ListView";
@@ -25,6 +26,7 @@ function Shell() {
   const navigationId = useId();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
+  const emptyProject = useEmptyProject();
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -60,7 +62,7 @@ function Shell() {
             </Button>
           </div>
         )}
-        {state.load.status === "ready" && (state.view === "list" ? <ListView /> : <BoardView />)}
+        {state.load.status === "ready" && (emptyProject ? <EmptyProject project={emptyProject} /> : state.view === "list" ? <ListView /> : <BoardView />)}
       </main>
       <TaskDetail />
     </div>
