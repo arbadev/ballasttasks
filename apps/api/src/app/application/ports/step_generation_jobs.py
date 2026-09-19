@@ -21,7 +21,7 @@ class StepGenerationJobs(Protocol):
         ...
 
     def get(self, task_id: UUID, job_id: UUID) -> Generation | None:
-        """None for unknown, expired or another task's handle; never empty success.
+        """None for unknown, expired, deleted or another task's handle; never empty success.
 
         Retained jobs have only pending/running/success/failure states. A job that
         cannot complete within the bounded deadline is a failure, even after worker loss.

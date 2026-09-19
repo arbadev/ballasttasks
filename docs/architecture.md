@@ -366,20 +366,26 @@ Every step writer locks its task before reading positions. Activity is recorded 
 `StepGenerationResponse` is `{id, task_id, state, titles, error}`. `state` is exactly
 `pending`, `running`, `success` or `failure`. Success has 1–20 trimmed, nonempty titles,
 1–200 characters each, with no NUL, and `error: null`; every other state has `titles: []`.
-Failure exposes only a fixed code: `invalid_output`, `provider_unavailable`, `timeout`,
-`task_deleted` or `worker_failed`. It never exposes the provider response, exception,
-traceback, hostname or credentials. Failures are normal poll responses (`200`); a missing
+Failure exposes only a fixed code: `invalid_output`, `provider_unavailable`, `timeout`
+or `worker_failed`. It never exposes the provider response, exception, traceback, hostname
+or credentials. Failures are normal poll responses (`200`); a missing
 job is **not** a successful empty result.
 
 - These routes use the normal shared-workspace authentication and rate limits. The task
   must still exist on **every** request. Another task's job handle, an unknown handle and
   an expired handle are all `404`. Deleting a task immediately makes its jobs inaccessible;
-  the worker also checks deletion before and after generating.
+  the worker also checks deletion before and after generating. A task deleted while a poll
+  is in flight is `404` too: the worker's internal `task_deleted` outcome is a missing
+  generation, never a failure code, so no response can carry it.
 - Each POST is a new independent job, including retries/regeneration. Retain the returned
   task id and job id while changing selection and poll that handle on return. There is no
   server-side 'current selection', latest-job lookup or cancellation. Discarding/removing
-  proposals is client state. A client should stop polling on a terminal state and normally
-  poll no faster than once per second (the general authenticated rate budget applies).
+  proposals is client state. A client stops polling on a terminal state and otherwise
+  backs off: 2s, 4s, 8s, then every 10s until the deadline, and at the 10s bound for a
+  generation whose task is not the selected one. That keeps two concurrent generations
+  well inside the shipped authenticated budget (120 requests per 60s), which this feature
+  does not change and has no policy of its own. On `429` a client waits the `Retry-After`
+  seconds before its next poll instead of retrying immediately.
 - A reservation in the **existing Redis result backend**, expiring one hour after enqueue,
   stores only the task id and enqueue timestamp. Native Celery results hold running state
   and the safe outcome. The reservation distinguishes Celery's ambiguous `PENDING`

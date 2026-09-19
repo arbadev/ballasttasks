@@ -839,7 +839,7 @@ export interface components {
              */
             titles: string[];
             /** Error */
-            error: ("invalid_output" | "provider_unavailable" | "timeout" | "task_deleted" | "worker_failed") | null;
+            error: ("invalid_output" | "provider_unavailable" | "timeout" | "worker_failed") | null;
         };
         /** StepListResponse */
         StepListResponse: {

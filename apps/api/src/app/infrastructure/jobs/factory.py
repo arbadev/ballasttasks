@@ -32,11 +32,14 @@ def create_celery_app(
         result_backend_always_retry=False,
         **overrides,
     )
+    # shared=False: a task belongs to the app built here, never to one built later in the
+    # same process, so a second app cannot inherit this app's job callables.
     for name, job in JOBS.items():
-        app.task(name=name)(job)
+        app.task(name=name, shared=False)(job)
     if generate_steps is not None:
         app.task(
             name=JOB_NAME,
+            shared=False,
             track_started=True,
             time_limit=GENERATION_MODEL_MAX_SECONDS + 10,
         )(generate_steps)

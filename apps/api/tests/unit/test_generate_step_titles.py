@@ -7,7 +7,12 @@ from app.application.ports.language_model import (
     LanguageModelTimeoutError,
     LanguageModelUnavailableError,
 )
-from app.application.use_cases.generate_step_titles import GenerateStepTitles
+from app.application.step_generation import MAX_COMPLETION_CHARACTERS
+from app.application.use_cases.generate_step_titles import (
+    GenerateStepTitles,
+    parse_titles,
+    valid_titles,
+)
 
 
 @dataclass
@@ -91,13 +96,45 @@ async def test_errors_are_fixed_public_codes(error: Exception, code: str) -> Non
     assert "secret" not in repr(result)
 
 
-async def test_accepts_the_bulk_title_and_count_boundaries() -> None:
-    titles = ["x" * 200] * 20
-    result = await GenerateStepTitles(Model(json.dumps(titles)), timeout_seconds=1).execute(
+@pytest.mark.parametrize("character", ["x", "\u00e9", "\u4f60", "\U0001f600"])
+async def test_accepts_the_bulk_title_and_count_boundaries(character: str) -> None:
+    """The title and batch limits count characters, so they hold for any script."""
+    titles = [character * 200] * 20
+    response = json.dumps(titles, ensure_ascii=False)
+    result = await GenerateStepTitles(Model(response), timeout_seconds=1).execute(
         title="Task", description=None, existing_titles=[]
     )
     assert result.titles == tuple(titles)
     assert result.error is None
+
+
+async def test_the_size_bound_still_rejects_an_oversized_completion() -> None:
+    """Widening the accepted scripts must not relax the guard on raw model output."""
+    oversized = json.dumps(["\U0001f600" * 200] * 20)
+    assert len(oversized) > MAX_COMPLETION_CHARACTERS
+
+    assert parse_titles(json.dumps(["\U0001f600" * 200] * 20, ensure_ascii=False))
+    with pytest.raises(ValueError, match="too large"):
+        parse_titles(oversized)
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ([], "bounded nonempty"),
+        ("not a list", "bounded nonempty"),
+        (["x"] * 21, "bounded nonempty"),
+        (["ok", 1], "expected titles"),
+        ([" "], "must not be blank"),
+        (["\x00"], "NUL"),
+        (["x" * 201], "at most 200"),
+    ],
+)
+async def test_decoded_batches_are_validated_without_re_encoding(
+    values: object, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        valid_titles(values)
 
 
 async def test_total_deadline_even_if_provider_does_not_enforce_it() -> None:

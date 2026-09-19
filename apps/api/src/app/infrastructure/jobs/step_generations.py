@@ -17,10 +17,11 @@ from app.application.ports.step_generation_jobs import GenerationJobsUnavailable
 from app.application.step_generation import (
     GENERATION_DEADLINE_SECONDS,
     GENERATION_RETENTION_SECONDS,
+    TASK_DELETED,
     Generation,
     GenerationError,
 )
-from app.application.use_cases.generate_step_titles import parse_titles
+from app.application.use_cases.generate_step_titles import valid_titles
 
 JOB_NAME = "generate_step_titles"
 ERRORS: frozenset[GenerationError] = frozenset(get_args(GenerationError))
@@ -81,6 +82,9 @@ class CeleryStepGenerationJobs:
                 if not isinstance(result, dict):
                     return Generation(job_id, task_id, "failure", error="worker_failed")
                 error = result.get("error")
+                if error == TASK_DELETED:
+                    # The task went with its generation: the same 404 a later poll gets.
+                    return None
                 if error is not None:
                     return Generation(
                         job_id,
@@ -89,8 +93,7 @@ class CeleryStepGenerationJobs:
                         error=error if error in ERRORS else "worker_failed",
                     )
                 # Recheck the boundary: an old or malformed worker must not serve bad titles.
-                titles = parse_titles(json.dumps(result["titles"]))
-                return Generation(job_id, task_id, "success", titles)
+                return Generation(job_id, task_id, "success", valid_titles(result["titles"]))
             if state in {"FAILURE", "REVOKED"}:
                 return Generation(job_id, task_id, "failure", error="worker_failed")
             if state == "STARTED":

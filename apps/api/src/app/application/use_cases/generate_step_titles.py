@@ -16,16 +16,24 @@ from app.domain.step import STEP_TITLE_MAX_LENGTH, InvalidStepError, valid_step_
 PROMPT_PREFIX = "Draft task steps."
 
 
-def parse_titles(text: str) -> tuple[str, ...]:
-    """Never execute or repair free-form output. Reject the whole batch if any item is bad."""
-    if len(text) > MAX_COMPLETION_CHARACTERS:
-        raise ValueError("completion too large")
-    values = json.loads(text)
+def valid_titles(values: object) -> tuple[str, ...]:
+    """The proposal batch rule, on values that are already decoded.
+
+    Counts characters, never bytes or escapes, so the limits mean the same thing wherever
+    a batch is read back. Reject the whole batch if any item is bad.
+    """
     if not isinstance(values, list) or not 1 <= len(values) <= MAX_STEPS_AT_ONCE:
         raise ValueError("expected a bounded nonempty array")
     if any(not isinstance(value, str) for value in values):
         raise ValueError("expected titles")
     return tuple(valid_step_title(value) for value in values)
+
+
+def parse_titles(text: str) -> tuple[str, ...]:
+    """Never execute or repair free-form output. The size bound is on raw model output."""
+    if len(text) > MAX_COMPLETION_CHARACTERS:
+        raise ValueError("completion too large")
+    return valid_titles(json.loads(text))
 
 
 class GenerateStepTitles:

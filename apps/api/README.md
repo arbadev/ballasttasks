@@ -47,10 +47,15 @@ providers through `bootstrap.py`. No additional service or environment variable 
 
 Authenticated `POST /tasks/{id_or_key}/step-generations` (no body) returns `202` with
 `{id, task_id, state: "pending", titles: [], error: null}` without calling the model in
-HTTP. Poll `GET /tasks/{id_or_key}/step-generations/{id}` (normally once per second).
+HTTP. Poll `GET /tasks/{id_or_key}/step-generations/{id}` with a bounded backoff: 2s, 4s,
+8s, then every 10s, stopping on a terminal state and staying at the 10s bound while the
+task is not the selected one. Two concurrent generations then fit inside the shipped
+authenticated budget (120 per 60s); on `429`, wait `Retry-After` before polling again.
 A success has `state: "success"` and 1–20 `titles`; a failure has `state: "failure"` and a
-safe error code. Retry/regenerate by POSTing again. Keep each handle with its task when
-changing selection. Unknown/deleted tasks, wrong-task jobs and expired jobs return `404`.
+safe error code (`invalid_output`, `provider_unavailable`, `timeout` or `worker_failed`).
+Retry/regenerate by POSTing again. Keep each handle with its task when changing selection;
+handles survive the change. Unknown/deleted tasks, wrong-task jobs and expired jobs return
+`404`, including a task deleted while its generation was running.
 A Redis/queue outage returns a safe `503`, not a false pending or empty success.
 
 Proposals expire one hour after enqueue. Unfinished jobs time out after five minutes.
