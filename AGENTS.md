@@ -15,6 +15,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **PostgreSQL only**, including tests. No SQLite.
 - **Versions**: latest stable, verified from the official source at install time. Let `uv add` / `npm install` resolve; never type versions from memory.
 - **TDD order**: write the test, see it fail, implement, run all checks, commit (`chore(scope): ...`, conventional commits). Never weaken or delete a test to get green.
+- **No AI attribution**: commits, PR titles and PR descriptions never carry an AI or agent attribution (no `Co-Authored-By: Claude ...` trailer, no "Generated with ..." line).
 - Do not add dependencies, services or top-level folders without asking. Do not touch `.claude/skills/`. Nothing may reference anything outside the repo root.
 - If the same error repeats twice, or something is unclear: stop and report instead of guessing.
 
