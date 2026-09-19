@@ -13,6 +13,9 @@ def create_engine(
     return create_async_engine(
         url,
         echo=echo,
+        # Echoed statements and driver errors must not carry bound values: the INSERT into
+        # users binds the password hash.
+        hide_parameters=True,
         pool_pre_ping=True,
         connect_args={"connect_timeout": connect_timeout_seconds},
     )

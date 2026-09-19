@@ -114,3 +114,43 @@ async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) 
         "404": error,
         "422": invalid,
     }
+
+
+async def test_openapi_documents_the_auth_contract(client: httpx.AsyncClient) -> None:
+    schema = (await client.get("/openapi.json")).json()
+    components = schema["components"]["schemas"]
+
+    assert {"RegisterRequest", "UserResponse", "TokenResponse", "ErrorResponse"} <= set(components)
+    assert set(components["UserResponse"]["properties"]) == {
+        "id",
+        "email",
+        "full_name",
+        "is_active",
+        "created_at",
+    }
+    assert components["TokenResponse"]["properties"]["token_type"]["const"] == "bearer"
+    assert components["RegisterRequest"]["properties"]["password"]["writeOnly"] is True
+
+    error = {"$ref": "#/components/schemas/ErrorResponse"}
+    register = schema["paths"]["/auth/register"]["post"]["responses"]
+    login = schema["paths"]["/auth/login"]["post"]["responses"]
+    me = schema["paths"]["/auth/me"]["get"]["responses"]
+    assert set(register) == {"201", "409", "422"}
+    assert set(login) == {"200", "401", "422"}
+    assert set(me) == {"200", "401"}
+    assert register["409"]["content"]["application/json"]["schema"] == error
+    assert login["401"]["content"]["application/json"]["schema"] == error
+    assert me["401"]["content"]["application/json"]["schema"] == error
+
+
+async def test_openapi_wires_swagger_authorize_to_the_login_form(
+    client: httpx.AsyncClient,
+) -> None:
+    schema = (await client.get("/openapi.json")).json()
+
+    flow = schema["components"]["securitySchemes"]["OAuth2PasswordBearer"]["flows"]["password"]
+    assert flow["tokenUrl"] == "auth/login"
+    assert schema["paths"]["/auth/me"]["get"]["security"] == [{"OAuth2PasswordBearer": []}]
+    assert "security" not in schema["paths"]["/health"]["get"]
+    assert "security" not in schema["paths"]["/health/ready"]["get"]
+    assert "security" not in schema["paths"]["/auth/register"]["post"]

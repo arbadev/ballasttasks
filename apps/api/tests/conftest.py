@@ -9,7 +9,10 @@ from tests.postgres import run_alembic, temporary_database
 DOWN_DATABASE_URL = "postgresql+psycopg://user:pass@127.0.0.1:1/down"
 DOWN_REDIS_URL = "redis://127.0.0.1:1/0"
 
-SETTINGS_ENV_PREFIXES = ("APP__", "DATABASE__", "REDIS__", "AI__", "CORS__")
+# Test-only signing key: 64 bytes, so it is long enough for every supported HMAC algorithm.
+TEST_JWT_SECRET = "test-only-jwt-secret-" + "t" * 44
+
+SETTINGS_ENV_PREFIXES = ("APP__", "DATABASE__", "REDIS__", "AI__", "CORS__", "AUTH__")
 
 
 @pytest.fixture
@@ -26,6 +29,7 @@ def minimal_env(clean_env: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     """Only the required variables, pointing at services that are down."""
     clean_env.setenv("DATABASE__URL", DOWN_DATABASE_URL)
     clean_env.setenv("REDIS__URL", DOWN_REDIS_URL)
+    clean_env.setenv("AUTH__JWT_SECRET", TEST_JWT_SECRET)
     return clean_env
 
 

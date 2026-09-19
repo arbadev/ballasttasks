@@ -11,6 +11,7 @@ here, so it never imports ``app.infrastructure`` itself.
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -18,12 +19,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.application.ports.health_check import HealthCheck
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
+from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.task_repository import TaskRepository
+from app.application.ports.token_service import TokenService
+from app.application.ports.user_repository import UserRepository
+from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
+from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_task import GetTask
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
 from app.infrastructure.ai.registry import AI_PROVIDERS, build_language_model
@@ -34,10 +41,13 @@ from app.infrastructure.config.settings import Settings
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
+from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.jobs.factory import create_celery_app
 from app.infrastructure.jobs.queue import CeleryJobQueue
+from app.infrastructure.security.argon2_password_hasher import Argon2PasswordHasher
+from app.infrastructure.security.jwt_token_service import JwtTokenService
 
 __all__ = ["Container", "RequestScope", "Settings", "build_container", "load_settings"]
 
@@ -52,6 +62,23 @@ class RequestScope:
     """
 
     tasks: TaskRepository
+    users: UserRepository
+    # Stateless and shared by every scope; they travel with it because the auth use cases
+    # need them next to the users repository.
+    password_hasher: PasswordHasher
+    token_service: TokenService
+
+    @property
+    def register_user(self) -> RegisterUser:
+        return RegisterUser(self.users, self.password_hasher)
+
+    @property
+    def authenticate_user(self) -> AuthenticateUser:
+        return AuthenticateUser(self.users, self.password_hasher, self.token_service)
+
+    @property
+    def get_current_user(self) -> GetCurrentUser:
+        return GetCurrentUser(self.users, self.token_service)
 
     @property
     def create_task(self) -> CreateTask:
@@ -79,11 +106,18 @@ RequestScopeFactory = Callable[[], AbstractAsyncContextManager[RequestScope]]
 
 def _request_scope_factory(
     session_factory: async_sessionmaker[AsyncSession],
+    password_hasher: PasswordHasher,
+    token_service: TokenService,
 ) -> RequestScopeFactory:
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
         async with transactional_session(session_factory) as session:
-            yield RequestScope(tasks=SqlAlchemyTaskRepository(session))
+            yield RequestScope(
+                tasks=SqlAlchemyTaskRepository(session),
+                users=SqlAlchemyUserRepository(session),
+                password_hasher=password_hasher,
+                token_service=token_service,
+            )
 
     return request_scope
 
@@ -138,6 +172,14 @@ def build_container(settings: Settings) -> Container:
         job_queue=CeleryJobQueue(celery_app),
         engine=engine,
         session_factory=session_factory,
-        request_scope=_request_scope_factory(session_factory),
+        request_scope=_request_scope_factory(
+            session_factory,
+            Argon2PasswordHasher(),
+            JwtTokenService(
+                settings.auth.jwt_secret.get_secret_value(),
+                algorithm=settings.auth.jwt_algorithm,
+                expires_in=timedelta(minutes=settings.auth.access_token_expire_minutes),
+            ),
+        ),
         redis=redis,
     )

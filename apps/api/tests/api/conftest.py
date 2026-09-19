@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import httpx
 import pytest
@@ -11,6 +11,7 @@ from app.api.security import get_current_user_id
 from app.application.ports.health_check import HealthCheck
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.main import create_app
+from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
 from tests.fakes import InMemoryTaskRepository, StubHealthCheck
 
 ClientFactory = Callable[
@@ -54,19 +55,32 @@ async def client(client_with: ClientFactory) -> AsyncIterator[httpx.AsyncClient]
 USER_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 
 
-class RecordingRequestScopes:
-    """Stands in for ``Container.request_scope``: same in-memory repository for every
-    request, and a record of how each scope ended."""
+@dataclass(frozen=True, slots=True)
+class AuthFakes:
+    users: InMemoryUserRepository
+    hasher: FakePasswordHasher
+    tokens: FakeTokenService
 
-    def __init__(self, tasks: InMemoryTaskRepository) -> None:
+
+class RecordingRequestScopes:
+    """Stands in for ``Container.request_scope``: the same in-memory repositories for
+    every request, and a record of how each scope ended."""
+
+    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes) -> None:
         self.tasks = tasks
+        self.auth = auth
         self.events: list[str] = []
 
     @asynccontextmanager
     async def __call__(self) -> AsyncIterator[RequestScope]:
         self.events.append("begin")
         try:
-            yield RequestScope(tasks=self.tasks)
+            yield RequestScope(
+                tasks=self.tasks,
+                users=self.auth.users,
+                password_hasher=self.auth.hasher,
+                token_service=self.auth.tokens,
+            )
         except BaseException:
             self.events.append("rollback")
             raise
@@ -79,8 +93,13 @@ def tasks() -> InMemoryTaskRepository:
 
 
 @pytest.fixture
-def request_scopes(tasks: InMemoryTaskRepository) -> RecordingRequestScopes:
-    return RecordingRequestScopes(tasks)
+def auth_fakes() -> AuthFakes:
+    return AuthFakes(InMemoryUserRepository(), FakePasswordHasher(), FakeTokenService())
+
+
+@pytest.fixture
+def request_scopes(tasks: InMemoryTaskRepository, auth_fakes: AuthFakes) -> RecordingRequestScopes:
+    return RecordingRequestScopes(tasks, auth_fakes)
 
 
 @pytest.fixture
@@ -111,3 +130,15 @@ async def task_client(
     tasks_app.dependency_overrides[get_current_user_id] = lambda: USER_ID
     yield anonymous_client
     tasks_app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth_app(tasks_app: FastAPI) -> FastAPI:
+    """The same app of fakes, named for the auth tests: users, hasher and tokens are the
+    ``auth_fakes``; nobody is signed in through an override."""
+    return tasks_app
+
+
+@pytest.fixture
+def auth_client(anonymous_client: httpx.AsyncClient) -> httpx.AsyncClient:
+    return anonymous_client

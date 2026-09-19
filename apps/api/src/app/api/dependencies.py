@@ -12,11 +12,14 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from app.application.ports.language_model import LanguageModel
+from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
+from app.application.use_cases.get_current_user import GetCurrentUser
 from app.application.use_cases.get_task import GetTask
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.update_task import UpdateTask
 
 
@@ -37,6 +40,15 @@ class RequestScope(Protocol):
 
     @property
     def delete_task(self) -> DeleteTask: ...
+
+    @property
+    def register_user(self) -> RegisterUser: ...
+
+    @property
+    def authenticate_user(self) -> AuthenticateUser: ...
+
+    @property
+    def get_current_user(self) -> GetCurrentUser: ...
 
 
 class AppContainer(Protocol):
@@ -101,8 +113,23 @@ def get_delete_task(scope: RequestScopeDep) -> DeleteTask:
     return scope.delete_task
 
 
+def get_register_user(scope: RequestScopeDep) -> RegisterUser:
+    return scope.register_user
+
+
+def get_authenticate_user(scope: RequestScopeDep) -> AuthenticateUser:
+    return scope.authenticate_user
+
+
+def get_get_current_user(scope: RequestScopeDep) -> GetCurrentUser:
+    return scope.get_current_user
+
+
 CreateTaskDep = Annotated[CreateTask, Depends(get_create_task)]
 GetTaskDep = Annotated[GetTask, Depends(get_get_task)]
 ListTasksDep = Annotated[ListTasks, Depends(get_list_tasks)]
 UpdateTaskDep = Annotated[UpdateTask, Depends(get_update_task)]
 DeleteTaskDep = Annotated[DeleteTask, Depends(get_delete_task)]
+RegisterUserDep = Annotated[RegisterUser, Depends(get_register_user)]
+AuthenticateUserDep = Annotated[AuthenticateUser, Depends(get_authenticate_user)]
+GetCurrentUserDep = Annotated[GetCurrentUser, Depends(get_get_current_user)]

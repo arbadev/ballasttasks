@@ -14,8 +14,9 @@ class TaskModel(Base):
     """Persistence shape of a task. The rules live in ``app.domain.task``, not here; the
     CHECK constraints only stop a row no task could be rebuilt from.
 
-    ``created_by`` and ``assignee_id`` are plain UUIDs: the foreign keys to users arrive
-    with the users table.
+    ``created_by`` and ``assignee_id`` are plain UUIDs for now: the foreign keys from
+    ``tasks.created_by`` and ``tasks.assignee_id`` to ``users.id``, and the check that an
+    assignee exists, arrive in the follow-up change that wires tasks to users.
     """
 
     __tablename__ = "tasks"

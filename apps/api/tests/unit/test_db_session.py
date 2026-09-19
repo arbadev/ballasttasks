@@ -20,3 +20,18 @@ def test_importing_the_models_package_registers_the_tasks_table() -> None:
     import app.infrastructure.db.models  # noqa: F401
 
     assert "tasks" in Base.metadata.tables
+
+
+def test_importing_the_models_package_registers_the_users_table() -> None:
+    import app.infrastructure.db.models  # noqa: F401
+
+    assert "users" in Base.metadata.tables
+
+
+async def test_sql_echo_never_logs_bound_parameters() -> None:
+    """APP__DEBUG turns SQL echo on; the INSERT into users binds the password hash."""
+    engine = create_engine(DOWN_DATABASE_URL, echo=True)
+
+    assert engine.sync_engine.hide_parameters is True
+
+    await engine.dispose()

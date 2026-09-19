@@ -28,6 +28,7 @@ test-integration: ## Run the API integration tests against the running compose s
 		--network "$$(docker inspect --format '{{range $$k, $$v := .NetworkSettings.Networks}}{{$$k}}{{end}}' "$$(docker compose ps -q api)")" \
 		-e DATABASE__URL="$$(docker compose exec -T api printenv DATABASE__URL)" \
 		-e REDIS__URL="$$(docker compose exec -T api printenv REDIS__URL)" \
+		-e AUTH__JWT_SECRET="$$(docker compose exec -T api printenv AUTH__JWT_SECRET)" \
 		-e UV_PROJECT_ENVIRONMENT=/tmp/venv -e UV_LINK_MODE=copy \
 		-v "$(CURDIR)/$(API_DIR):/work:ro" -w /work \
 		$(UV_IMAGE) uv run --frozen pytest -m integration -p no:cacheprovider

@@ -12,13 +12,15 @@ any adapter.
 """
 
 from collections.abc import Collection
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DATABASE_SCHEME = "postgresql+psycopg://"
 REDIS_SCHEMES = ("redis://", "rediss://")
+# RFC 7518 section 3.2: an HMAC key must be at least as long as the hash output.
+JWT_MIN_SECRET_BYTES = {"HS256": 32, "HS384": 48, "HS512": 64}
 
 
 class ConfigurationError(ValueError):
@@ -26,7 +28,8 @@ class ConfigurationError(ValueError):
 
 
 class _Group(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # A rejected value may be a secret (a signing key, a URL with a password): never echo it.
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
 
 
 class AppSettings(_Group):
@@ -66,13 +69,31 @@ class CorsSettings(_Group):
     allowed_origins: list[str] = ["http://localhost:3000"]
 
 
+class AuthSettings(_Group):
+    jwt_secret: SecretStr
+    jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    access_token_expire_minutes: int = Field(default=30, gt=0)
+
+    @model_validator(mode="after")
+    def _require_a_long_enough_secret(self) -> Self:
+        required = JWT_MIN_SECRET_BYTES[self.jwt_algorithm]
+        if len(self.jwt_secret.get_secret_value().encode()) < required:
+            raise ValueError(
+                f"AUTH__JWT_SECRET must be at least {required} bytes for {self.jwt_algorithm}"
+            )
+        return self
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_nested_delimiter="__", frozen=True, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__", frozen=True, extra="ignore", hide_input_in_errors=True
+    )
 
     app: AppSettings = AppSettings()
     database: DatabaseSettings
     redis: RedisSettings
     ai: AiSettings = AiSettings()
+    auth: AuthSettings
     cors: CorsSettings = CorsSettings()
 
 
