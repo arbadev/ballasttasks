@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+
+from app.application.errors import IdentityCodeRejectedError
 from app.application.ports.identity_provider import IdentityProvider, VerifiedIdentity
 from app.infrastructure.identity.fake import FakeIdentityProvider
 from app.infrastructure.identity.google import GoogleIdentityProvider
-
-from app.application.errors import IdentityCodeRejectedError
 from tests.google_fakes import CLIENT_ID, CLIENT_SECRET, DISCOVERY_URL, FakeGoogle
 
 REDIRECT_URI = "http://api.test/auth/sso/provider/callback"

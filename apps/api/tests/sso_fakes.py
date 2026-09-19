@@ -9,9 +9,8 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from app.application.ports.identity_provider import VerifiedIdentity
-
 from app.application.errors import IdentityAlreadyLinkedError
+from app.application.ports.identity_provider import VerifiedIdentity
 
 
 def an_identity(**overrides: object) -> VerifiedIdentity:

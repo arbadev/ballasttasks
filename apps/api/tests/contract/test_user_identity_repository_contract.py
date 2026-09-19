@@ -11,14 +11,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
-from app.application.ports.user_identity_repository import UserIdentityRepository
-from app.infrastructure.db.repositories.user_identity import SqlAlchemyUserIdentityRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import IdentityAlreadyLinkedError
+from app.application.ports.user_identity_repository import UserIdentityRepository
 from app.application.ports.user_repository import UserRepository
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
+from app.infrastructure.db.repositories.user_identity import SqlAlchemyUserIdentityRepository
 from tests.auth_fakes import InMemoryUserRepository, a_user
 from tests.sso_fakes import InMemoryUserIdentityRepository
 

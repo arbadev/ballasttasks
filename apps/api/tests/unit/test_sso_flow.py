@@ -10,13 +10,6 @@ from datetime import timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from app.application.ports.identity_provider import IdentityProvider
-from app.application.sso import EXCHANGE_CODE_TTL, STATE_TTL
-from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
-from app.application.use_cases.redeem_sso_code import RedeemSsoCode
-from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
-from app.application.use_cases.start_sso_sign_in import SsoSignInStart, StartSsoSignIn
-from app.infrastructure.identity.fake import FakeIdentityProvider
 
 from app.application.errors import (
     EmailNotVerifiedError,
@@ -27,6 +20,13 @@ from app.application.errors import (
     UnknownIdentityProviderError,
     UserNotActiveError,
 )
+from app.application.ports.identity_provider import IdentityProvider
+from app.application.sso import EXCHANGE_CODE_TTL, STATE_TTL
+from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
+from app.application.use_cases.redeem_sso_code import RedeemSsoCode
+from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
+from app.application.use_cases.start_sso_sign_in import SsoSignInStart, StartSsoSignIn
+from app.infrastructure.identity.fake import FakeIdentityProvider
 from tests.auth_fakes import FakeTokenService, InMemoryUserRepository, a_user
 from tests.sso_fakes import (
     InMemoryOneTimeStore,

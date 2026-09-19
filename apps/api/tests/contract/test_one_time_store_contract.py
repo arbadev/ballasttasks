@@ -11,10 +11,10 @@ from collections.abc import AsyncIterator
 from datetime import timedelta
 
 import pytest
-from app.application.ports.one_time_store import OneTimeStore
-from app.infrastructure.cache.one_time_store import RedisOneTimeStore
 
+from app.application.ports.one_time_store import OneTimeStore
 from app.infrastructure.cache.client import create_redis_client
+from app.infrastructure.cache.one_time_store import RedisOneTimeStore
 from app.infrastructure.config.settings import Settings
 from tests.sso_fakes import InMemoryOneTimeStore
 

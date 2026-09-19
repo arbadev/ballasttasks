@@ -3,7 +3,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 
 from app.application.errors import (
     EmailAlreadyRegisteredError,
@@ -12,6 +11,7 @@ from app.application.errors import (
     SsoSignInRefusedError,
     UserNotActiveError,
 )
+from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.domain.user import User
 from tests.auth_fakes import InMemoryUserRepository, a_user
 from tests.sso_fakes import InMemoryUserIdentityRepository, an_identity

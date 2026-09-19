@@ -10,11 +10,11 @@ adapter maps to ``IdentityCodeRejectedError``.
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from app.infrastructure.identity.google import GoogleIdentityProvider
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.application.errors import IdentityCodeRejectedError
 from app.infrastructure.config.settings import SsoSettings
+from app.infrastructure.identity.google import GoogleIdentityProvider
 
 pytestmark = pytest.mark.live
 

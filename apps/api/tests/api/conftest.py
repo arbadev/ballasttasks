@@ -5,13 +5,13 @@ from dataclasses import dataclass, field, replace
 
 import httpx
 import pytest
-from app.application.ports.identity_provider import IdentityProvider
-from app.infrastructure.identity.fake import FakeIdentityProvider
 from fastapi import FastAPI
 
 from app.api.security import get_current_user_id
 from app.application.ports.health_check import HealthCheck
+from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
+from app.infrastructure.identity.fake import FakeIdentityProvider
 from app.main import create_app
 from tests.auth_fakes import (
     FakePasswordHasher,
