@@ -624,7 +624,7 @@ describe("concurrent board attempts", () => {
     expect(titlesIn("In Progress")).toContain(PRD);
   });
 
-  it("does not revive a late move failure after a newer add succeeds", async () => {
+  it("still reports a refused move that was in flight while an unrelated add succeeded", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     let release = () => {};
     service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
@@ -635,11 +635,30 @@ describe("concurrent board attempts", () => {
     fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
     await screen.findByRole("dialog", { name: "Untitled task" });
     await act(async () => release());
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
     expect(titlesIn("To Do")).toContain(PRD);
   });
 
-  it("does not overwrite the newest move error when an older task's refusal arrives later", async () => {
+  it("still reports a refused move after a newer move on another card has succeeded", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "In Progress").drop();
+    drag(JWT, "Testing").drop();
+    await waitFor(() => expect(titlesIn("Testing")).toContain(JWT));
+    await act(async () => release());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
+    expect(titlesIn("To Do")).toContain(PRD);
+    // The successful card keeps its own announcement; the refusal takes back only its own.
+    expect(screen.getByTestId("board-live")).toHaveTextContent(`Moved "${JWT}" to Testing.`);
+  });
+
+  it("keeps the newest move error and reports the older task's refusal when it arrives later", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     let release = () => {};
     service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
@@ -650,8 +669,31 @@ describe("concurrent board attempts", () => {
     drag(JWT, "In Progress").drop();
     expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
     await act(async () => release());
+
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+      expect.stringContaining(`Could not move "${PRD}". It is back in To Do.`),
+      expect.stringContaining(`Could not move "${JWT}". It is back in To Do.`),
+    ]);
+  });
+
+  it("dismisses and retries each refusal on its own card", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.refuses = "progress";
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "In Progress").drop();
+    drag(JWT, "In Progress").drop();
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+
+    const [prdAlert] = screen.getAllByRole("alert");
+    fireEvent.click(within(prdAlert).getByRole("button", { name: "Dismiss" }));
     expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
-    expect(screen.getByRole("alert")).not.toHaveTextContent(PRD);
+
+    service.refuses = null;
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(titlesIn("In Progress")).toContain(JWT));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("keeps a keyboard task's settlement when another task answers in the same batch", async () => {

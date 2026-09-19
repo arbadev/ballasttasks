@@ -119,8 +119,12 @@ A refused move is therefore carried on the user's newest target and not on the o
 refused, because the intermediate hops were never sent, which is why the alert states only that
 the card did not move and which column it is back in. A retry consequently records a single
 status change rather than one per hop; that follows from coalescing and is intended.
-Failure feedback belongs only to the latest board attempt. Settlement tickets are kept per task,
-so answers batched with another task cannot erase the signal that restores keyboard focus.
+Feedback is kept against the card it belongs to, never against one latest attempt: a refused move
+always raises its own alert, whatever any other card did, and only that card's next attempt or a
+dismissal takes it away, so two refused cards show two alerts. Settlement tickets are kept per
+task as well, so answers batched with another task cannot erase the signal that restores keyboard
+focus. "Add a task" is the board's own attempt rather than a card's: starting it clears the move
+alerts already on screen, and it never silences a move whose answer is still to come.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.

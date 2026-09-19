@@ -11,7 +11,7 @@ import { BoardSkeleton } from "./BoardSkeleton";
 import { cardView } from "./cardView";
 import { BOARD_GRID } from "./layout";
 import { TaskCard } from "./TaskCard";
-import { useBoardMoves } from "./useBoardMoves";
+import { useBoardMoves, type MoveFailure } from "./useBoardMoves";
 
 const DRAG_TYPE = "text/plain";
 
@@ -57,10 +57,8 @@ function Board() {
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
   /** The column whose "Add a task" was refused. */
   const [addFailedIn, setAddFailedIn] = useState<TaskStatus | null>(null);
-  const [activeMove, setActiveMove] = useState<number | null>(null);
-  /** Only the latest user attempt can report a failure, regardless of response order. */
+  /** Only the latest "Add a task" can report a failure, regardless of response order. */
   const attempt = useRef(0);
-  const failure = moves.failure?.move === activeMove ? moves.failure : null;
   const grid = useRef<HTMLDivElement>(null);
   /**
    * The card moved without a drag. It is remounted in its new column, and again if the move is
@@ -98,8 +96,8 @@ function Board() {
 
   const addTask = (status: TaskStatus) => {
     const ticket = ++attempt.current;
-    setActiveMove(null);
-    moves.dismissFailure();
+    // Only the failures already on screen make way; a move still in flight keeps its answer.
+    for (const shown of moves.failures) moves.dismissFailure(shown.taskId);
     setAddFailedIn(null);
     commands.create({ title: "Untitled task", status }, { open: true }).catch(() => {
       if (ticket === attempt.current) setAddFailedIn(status);
@@ -111,7 +109,6 @@ function Board() {
     const move = moves.move(taskId, to);
     if (move !== null) {
       ++attempt.current;
-      setActiveMove(move);
       setAddFailedIn(null);
     }
     return move;
@@ -124,9 +121,7 @@ function Board() {
   };
 
   /** Retry is a button press: its alert goes away, so focus goes to the card it moves. */
-  const retryMove = () => {
-    if (failure) moveWithoutDrag(failure.taskId, failure.from, failure.to);
-  };
+  const retryMove = (failure: MoveFailure) => moveWithoutDrag(failure.taskId, failure.from, failure.to);
 
   return (
     <>
@@ -134,13 +129,14 @@ function Board() {
         {moves.announcement}
       </p>
 
-      {failure && (
+      {moves.failures.map((failure) => (
         <BoardAlert
+          key={failure.taskId}
           message={`Could not move "${failure.title}". It is back in ${statusName(failure.from)}.`}
-          onRetry={retryMove}
-          onDismiss={moves.dismissFailure}
+          onRetry={() => retryMove(failure)}
+          onDismiss={() => moves.dismissFailure(failure.taskId)}
         />
-      )}
+      ))}
       {addFailedIn && (
         <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => setAddFailedIn(null)} />
       )}
