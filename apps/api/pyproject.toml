@@ -8,9 +8,10 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "celery[redis]>=5.6.3",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
-    "pyjwt>=2.14.0",
+    "pyjwt[crypto]>=2.14.0",
     "python-multipart>=0.0.32",
     "redis>=6.4.0",
     "sqlalchemy[asyncio]>=2.0.54",
@@ -26,7 +27,6 @@ module-name = "app"
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "import-linter>=2.15",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
