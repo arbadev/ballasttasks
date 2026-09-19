@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { statusName } from "../model/statuses";
 import type { Task, TaskStatus } from "../model/types";
-import { useTaskCommands } from "../workspace/WorkspaceProvider";
+import { useTaskCommands, useWorkspace } from "../workspace/WorkspaceProvider";
 
 export interface MoveFailure {
   taskId: string;
   title: string;
-  /** Where the card went back to. */
+  /** Where the card is now that the move is undone. */
   from: TaskStatus;
   /** Where it was meant to go; Retry tries this again. */
   to: TaskStatus;
@@ -31,8 +31,10 @@ export interface BoardMoves {
  */
 export function useBoardMoves(tasks: Task[]): BoardMoves {
   const commands = useTaskCommands();
+  /** Every task, not only the filtered ones the board shows: a failed move outlives a filter change. */
+  const all = useWorkspace().state.tasks;
   const [inFlight, setInFlight] = useState<Record<string, TaskStatus>>({});
-  const [failure, setFailure] = useState<MoveFailure | null>(null);
+  const [failed, setFailed] = useState<Omit<MoveFailure, "from"> | null>(null);
   const [announcement, setAnnouncement] = useState("");
   /** The newest move per task, so an older answer never clears a newer move. */
   const latest = useRef(new Map<string, number>());
@@ -42,12 +44,12 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
 
   const move = useCallback(
     (taskId: string, to: TaskStatus) => {
-      const task = tasks.find((t) => t.id === taskId);
+      const task = all.find((t) => t.id === taskId);
       if (!task || (inFlight[taskId] ?? task.status) === to) return;
 
       const ticket = ++sequence.current;
       latest.current.set(taskId, ticket);
-      setFailure(null);
+      setFailed(null);
       setInFlight((current) => ({ ...current, [taskId]: to }));
       setAnnouncement(`Moved "${task.title}" to ${statusName(to)}.`);
 
@@ -60,17 +62,22 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
       commands.move(taskId, to).then(settle, () => {
         if (!settle()) return;
         setAnnouncement("");
-        setFailure({ taskId, title: task.title, from: task.status, to });
+        setFailed({ taskId, title: task.title, to });
       });
     },
-    [tasks, inFlight, commands],
+    [all, inFlight, commands],
   );
+
+  const failure = useMemo(() => {
+    const from = failed && all.find((t) => t.id === failed.taskId)?.status;
+    return failed && from ? { ...failed, from } : null;
+  }, [failed, all]);
 
   const retry = useCallback(() => {
     if (failure) move(failure.taskId, failure.to);
   }, [failure, move]);
 
-  const dismissFailure = useCallback(() => setFailure(null), []);
+  const dismissFailure = useCallback(() => setFailed(null), []);
 
   return { tasks: shown, move, failure, retry, dismissFailure, announcement };
 }

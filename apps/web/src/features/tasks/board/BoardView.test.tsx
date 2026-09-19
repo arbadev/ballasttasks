@@ -45,10 +45,12 @@ function drag(title: string, to: string) {
 /** A service whose next move can be made to fail, or held until the test releases it. */
 class ControlledTaskService extends FakeTaskService {
   failNextMove = false;
+  /** Every move to this status fails, whatever order the moves are answered in. */
+  refuses: TaskStatus | null = null;
   hold: Promise<void> | null = null;
   override async move(id: string, status: TaskStatus) {
     if (this.hold) await this.hold;
-    if (this.failNextMove) {
+    if (this.failNextMove || this.refuses === status) {
       this.failNextMove = false;
       this.calls.push(["move", id, status]);
       throw new Error("The server said no.");
@@ -244,6 +246,27 @@ describe("drag and drop", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("moves the task on Retry even when the filters have since hidden its card", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+
+    drag(PRD, "Testing").drop();
+    const alert = await screen.findByRole("alert");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "docker" } });
+    expect(screen.queryByRole("article", { name: PRD })).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(moveCalls(service)).toEqual([
+      ["move", "t5", "testing"],
+      ["move", "t5", "testing"],
+    ]);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "" } });
+    await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+  });
+
   it("lets the error be dismissed", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     service.failNextMove = true;
@@ -325,6 +348,24 @@ describe("moving without a drag", () => {
     expect(within(card(PRD)).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([PRD, `Move "${PRD}" to In Progress`]);
     const done = "ADR 0002: ports and adapters";
     expect(within(card(done)).getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([done, `Move "${done}" to Testing`]);
+  });
+
+  it("names the column the card is really back in when the second of two chained moves fails", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.refuses = "testing";
+    let release = () => {};
+    service.hold = new Promise<void>((resolve) => (release = resolve));
+    await renderBoard({ taskService: service });
+
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    expect(titlesIn("In Progress")).toContain(PRD);
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    expect(titlesIn("Testing")).toContain(PRD);
+
+    await act(async () => release());
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(titlesIn("In Progress")).toContain(PRD));
+    expect(alert).toHaveTextContent(`Could not move "${PRD}" to Testing. It is back in In Progress.`);
   });
 
   it("leaves a failed move to the alert, with nothing in the polite region", async () => {
