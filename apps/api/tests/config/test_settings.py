@@ -175,7 +175,6 @@ def test_the_jwt_secret_never_appears_in_a_repr_or_a_dump(
     assert TEST_JWT_SECRET not in settings.model_dump_json()
 
 
-
 def _startup_error() -> ValidationError:
     with pytest.raises(ValidationError) as error:
         load_settings(valid_ai_providers=PROVIDERS)
