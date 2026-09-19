@@ -6,25 +6,45 @@ Registering a new adapter = one new entry in ``ADAPTERS`` and one branch in ``re
 """
 
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.application.errors import TaskNotFound
 from app.application.ports.task_repository import TaskRepository
-
 from app.domain.task import Task, TaskStatus
+from app.infrastructure.db.engine import create_engine
 from tests.fakes import InMemoryTaskRepository
 
-ADAPTERS = ["in-memory"]
+ADAPTERS = [
+    pytest.param("in-memory"),
+    pytest.param("sqlalchemy-postgresql", marks=pytest.mark.integration),
+]
 
 # PostgreSQL keeps microseconds, so this value survives a round trip unchanged.
 CREATED = datetime(2026, 1, 5, 9, 0, 0, 123456, tzinfo=UTC)
 
 
 @pytest.fixture(params=ADAPTERS)
-def repository(request: pytest.FixtureRequest) -> TaskRepository:
-    assert request.param == "in-memory"
-    return InMemoryTaskRepository()
+async def repository(request: pytest.FixtureRequest) -> AsyncIterator[TaskRepository]:
+    if request.param == "in-memory":
+        yield InMemoryTaskRepository()
+        return
+
+    # Real PostgreSQL, migrated by Alembic; every test runs in a transaction that is
+    # rolled back, so the cases stay independent of each other.
+    engine = create_engine(request.getfixturevalue("migrated_database_url"))
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        async with AsyncSession(
+            bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False
+        ) as session:
+            yield SqlAlchemyTaskRepository(session)
+        await transaction.rollback()
+    await engine.dispose()
 
 
 def a_task(*, title: str = "Write the report", created_at: datetime = CREATED) -> Task:
