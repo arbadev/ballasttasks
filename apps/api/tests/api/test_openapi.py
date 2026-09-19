@@ -51,3 +51,65 @@ async def test_swagger_ui_loads(client: httpx.AsyncClient) -> None:
 
     assert response.status_code == 200
     assert "swagger-ui" in response.text
+
+
+async def test_openapi_documents_the_task_components(client: httpx.AsyncClient) -> None:
+    schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
+
+    assert {
+        "TaskCreate",
+        "TaskUpdate",
+        "TaskResponse",
+        "TaskListResponse",
+        "TaskStatus",
+        "ErrorResponse",
+    } <= set(schemas)
+    assert schemas["TaskStatus"]["enum"] == ["todo", "in_progress", "done"]
+    assert schemas["TaskListResponse"]["required"] == ["items"]
+    assert schemas["TaskCreate"]["required"] == ["title"]
+    assert "created_by" not in schemas["TaskCreate"]["properties"]
+    assert set(schemas["TaskResponse"]["required"]) == set(schemas["TaskResponse"]["properties"])
+
+
+async def test_openapi_says_title_and_status_cannot_be_null_in_a_patch(
+    client: httpx.AsyncClient,
+) -> None:
+    properties = (await client.get("/openapi.json")).json()["components"]["schemas"]["TaskUpdate"][
+        "properties"
+    ]
+
+    assert properties["title"]["type"] == "string"
+    assert properties["status"] == {"$ref": "#/components/schemas/TaskStatus"}
+    assert {"type": "null"} in properties["assignee_id"]["anyOf"]
+
+
+async def test_openapi_documents_every_task_response(client: httpx.AsyncClient) -> None:
+    paths = (await client.get("/openapi.json")).json()["paths"]
+
+    def documented(path: str, method: str) -> dict[str, str | None]:
+        return {
+            code: response.get("content", {})
+            .get("application/json", {})
+            .get("schema", {})
+            .get("$ref", "")
+            .rpartition("/")[2]
+            or None
+            for code, response in paths[path][method]["responses"].items()
+        }
+
+    error, invalid = "ErrorResponse", "HTTPValidationError"
+    assert documented("/tasks", "post") == {"201": "TaskResponse", "401": error, "422": invalid}
+    assert documented("/tasks", "get") == {"200": "TaskListResponse", "401": error}
+    for method in ("get", "patch"):
+        assert documented("/tasks/{task_id}", method) == {
+            "200": "TaskResponse",
+            "401": error,
+            "404": error,
+            "422": invalid,
+        }
+    assert documented("/tasks/{task_id}", "delete") == {
+        "204": None,
+        "401": error,
+        "404": error,
+        "422": invalid,
+    }
