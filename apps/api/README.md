@@ -26,7 +26,7 @@ uv run pytest --cov                       # default suite: needs NO PostgreSQL/R
 uv run pytest -m integration              # needs DATABASE__URL, REDIS__URL (live services) and AUTH__JWT_SECRET
 uv run pytest -m live                     # opt-in: calls real third parties (AI provider, Google sign-in), skipped without their credentials
 uv run ruff check . && uv run ruff format --check .
-uv run mypy src tests
+uv run mypy .                             # the whole project, migrations included (what `make lint` runs)
 uv run lint-imports
 
 uv run alembic upgrade head               # migrations are an explicit step, never run by the app

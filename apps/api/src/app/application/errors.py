@@ -33,6 +33,14 @@ class StoredTaskInvalid(RuntimeError):  # noqa: N818 - named for what happened
         self.task_id = task_id
 
 
+class StepNotFound(LookupError):  # noqa: N818 - named for what happened, as the API reports it
+    """The task has no step with that id (a step of another task is not found either)."""
+
+    def __init__(self, step_id: uuid.UUID) -> None:
+        super().__init__(f"Step {step_id} not found")
+        self.step_id = step_id
+
+
 class InvalidAssigneeError(Exception):
     """The assignee is not a user who can be given a task: unknown, or no longer active.
 

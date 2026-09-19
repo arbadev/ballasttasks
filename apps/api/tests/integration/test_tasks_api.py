@@ -105,7 +105,7 @@ async def test_a_task_lives_through_create_list_get_assign_complete_and_delete(
     assert task in listed.json()["items"]
     fetched = await client.get(f"/tasks/{task['id']}", headers=ada.headers)
     assert fetched.status_code == 200
-    assert fetched.json() == task
+    assert fetched.json() == task | {"steps": []}
 
     assigned = await client.patch(
         f"/tasks/{task['id']}", json={"assignee_id": grace.id}, headers=ada.headers
@@ -122,7 +122,9 @@ async def test_a_task_lives_through_create_list_get_assign_complete_and_delete(
     assert done.json()["completed_at"] is not None
     assert done.json()["assignee_id"] == grace.id
     assert done.json()["created_by"] == ada.id
-    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == done.json()
+    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == done.json() | {
+        "steps": []
+    }
 
     deleted = await client.delete(f"/tasks/{task['id']}", headers=ada.headers)
     assert deleted.status_code == 204
@@ -194,7 +196,9 @@ async def test_every_task_route_answers_401_without_a_valid_token_and_touches_no
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"] == "Bearer"
     assert set(response.json()) == {"detail"}
-    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task
+    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task | {
+        "steps": []
+    }
 
 
 async def test_a_deactivated_user_is_locked_out_of_the_task_routes_at_once(
@@ -252,7 +256,9 @@ async def test_patch_answers_422_when_the_assignee_is_not_an_active_user(
 
     assert response.status_code == 422
     assert response.json() == INVALID_ASSIGNEE
-    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task
+    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task | {
+        "steps": []
+    }
 
 
 async def test_a_task_outlives_the_deactivation_of_its_assignee(
@@ -309,7 +315,9 @@ async def test_patch_may_name_the_deactivated_assignee_the_task_already_has(
     assert saved.json()["assignee_id"] == grace.id
     assert changed.status_code == 422
     assert changed.json() == INVALID_ASSIGNEE
-    assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == saved.json()
+    assert (
+        await client.get(f"/tasks/{task['id']}", headers=ada.headers)
+    ).json() == saved.json() | {"steps": []}
 
 
 async def test_the_foreign_key_answers_the_same_422_when_the_check_is_outrun(
@@ -322,6 +330,10 @@ async def test_the_foreign_key_answers_the_same_422_when_the_check_is_outrun(
     class EverybodyIsActive:
         async def is_active_user(self, user_id: uuid.UUID) -> bool:
             return True
+
+        async def full_name_of(self, user_id: uuid.UUID) -> str | None:
+            # Never reached: the foreign key refuses the write before anything is logged.
+            return None
 
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
@@ -343,4 +355,6 @@ async def test_the_foreign_key_answers_the_same_422_when_the_check_is_outrun(
 
         assert (created.status_code, created.json()) == (422, INVALID_ASSIGNEE)
         assert (patched.status_code, patched.json()) == (422, INVALID_ASSIGNEE)
-        assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task
+        assert (await client.get(f"/tasks/{task['id']}", headers=ada.headers)).json() == task | {
+            "steps": []
+        }
