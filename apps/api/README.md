@@ -25,6 +25,7 @@ Swapping or adding an adapter = a new adapter file, one registration line
 uv sync                                   # install (locked)
 uv run pytest --cov                       # default suite: needs NO PostgreSQL/Redis, coverage >= 80%
 uv run pytest -m integration              # needs DATABASE__URL, REDIS__URL (live services) and AUTH__JWT_SECRET
+uv run pytest -m live                     # opt-in: calls the real AI provider (AI__PROVIDER + AI__API_KEY), skipped without a key
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests
 uv run lint-imports

@@ -13,7 +13,7 @@ Every route except the health endpoints is **rate limited** (strict per-IP limit
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
 - **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker.
 
-Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md).
+Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md).
 
 ## Prerequisites
 
@@ -33,7 +33,7 @@ To run tests and linters on the host:
 cp .env.example .env && docker compose up --build
 ```
 
-That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing.
+That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe.
 
 | What | URL |
 | --- | --- |

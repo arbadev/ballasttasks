@@ -13,6 +13,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 
+from httpx import AsyncClient
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -23,6 +24,7 @@ from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.token_service import TokenService
+from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_repository import UserRepository
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
@@ -34,6 +36,7 @@ from app.application.use_cases.list_tasks import ListTasks
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.update_task import UpdateTask
 from app.infrastructure.ai.health import LanguageModelHealthCheck
+from app.infrastructure.ai.http import create_http_client
 from app.infrastructure.ai.registry import AI_PROVIDERS, build_language_model
 from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.cache.health import RedisHealthCheck
@@ -43,6 +46,7 @@ from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
+from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.jobs.factory import create_celery_app
@@ -67,6 +71,8 @@ class RequestScope:
 
     tasks: TaskRepository
     users: UserRepository
+    # All the task use cases may know about users: "can this id be given a task?".
+    user_directory: UserDirectory
     # Stateless and shared by every scope; they travel with it because the auth use cases
     # need them next to the users repository.
     password_hasher: PasswordHasher
@@ -86,7 +92,7 @@ class RequestScope:
 
     @property
     def create_task(self) -> CreateTask:
-        return CreateTask(self.tasks)
+        return CreateTask(self.tasks, self.user_directory)
 
     @property
     def get_task(self) -> GetTask:
@@ -98,7 +104,7 @@ class RequestScope:
 
     @property
     def update_task(self) -> UpdateTask:
-        return UpdateTask(self.tasks)
+        return UpdateTask(self.tasks, self.user_directory)
 
     @property
     def delete_task(self) -> DeleteTask:
@@ -119,6 +125,7 @@ def _request_scope_factory(
             yield RequestScope(
                 tasks=SqlAlchemyTaskRepository(session),
                 users=SqlAlchemyUserRepository(session),
+                user_directory=SqlAlchemyUserDirectory(session),
                 password_hasher=password_hasher,
                 token_service=token_service,
             )
@@ -167,6 +174,7 @@ class Container:
     request_scope: RequestScopeFactory
     redis: Redis
     rate_limiting: RateLimiting
+    ai_http_client: AsyncClient
 
     @property
     def check_readiness(self) -> CheckReadiness:
@@ -179,6 +187,7 @@ class Container:
         """Release the handles this container owns."""
         await self.engine.dispose()
         await self.redis.aclose()
+        await self.ai_http_client.aclose()
 
 
 def load_settings() -> Settings:
@@ -189,7 +198,8 @@ def load_settings() -> Settings:
 def build_container(settings: Settings) -> Container:
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
-    language_model = build_language_model(settings.ai)
+    ai_http_client = create_http_client(timeout_seconds=settings.ai.timeout_seconds)
+    language_model = build_language_model(settings.ai, ai_http_client)
     session_factory = create_session_factory(engine)
     celery_app = create_celery_app(
         broker_url=settings.redis.url,
@@ -201,7 +211,7 @@ def build_container(settings: Settings) -> Container:
         health_checks=(
             PostgresHealthCheck(engine),
             RedisHealthCheck(redis),
-            LanguageModelHealthCheck(language_model),
+            LanguageModelHealthCheck(language_model, cache_seconds=settings.ai.check_cache_seconds),
         ),
         language_model=language_model,
         job_queue=CeleryJobQueue(celery_app),
@@ -218,4 +228,5 @@ def build_container(settings: Settings) -> Container:
         ),
         redis=redis,
         rate_limiting=_rate_limiting(settings.rate_limit, redis),
+        ai_http_client=ai_http_client,
     )

@@ -5,8 +5,9 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import replace
 
-from app.application.errors import TaskNotFound
+from app.application.errors import InvalidAssigneeError, TaskNotFound
 from app.domain.task import Task
+from tests.auth_fakes import InMemoryUserRepository
 
 
 class StubHealthCheck:
@@ -39,13 +40,20 @@ class InMemoryTaskRepository:
     """TaskRepository fake; passes the same contract suite as the PostgreSQL adapter.
 
     Tasks are copied on the way in and out, as a database would, so a change is only
-    stored by an explicit ``update``.
+    stored by an explicit ``update``. It reads the users fake the way the ``tasks`` table
+    references ``users``: an assignee who is not stored there is refused.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, users: InMemoryUserRepository) -> None:
+        self._users = users
         self._tasks: dict[uuid.UUID, Task] = {}
 
+    async def _refuse_an_unknown_assignee(self, task: Task) -> None:
+        if task.assignee_id is not None and await self._users.get_by_id(task.assignee_id) is None:
+            raise InvalidAssigneeError(task.assignee_id)
+
     async def add(self, task: Task) -> None:
+        await self._refuse_an_unknown_assignee(task)
         self._tasks[task.id] = replace(task)
 
     async def get(self, task_id: uuid.UUID) -> Task | None:
@@ -65,6 +73,7 @@ class InMemoryTaskRepository:
     async def update(self, task: Task) -> None:
         if task.id not in self._tasks:
             raise TaskNotFound(task.id)
+        await self._refuse_an_unknown_assignee(task)
         self._tasks[task.id] = replace(task)
 
     async def delete(self, task_id: uuid.UUID) -> None:

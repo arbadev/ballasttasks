@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 from app.api.schemas.health import HealthResponse, ReadinessResponse
 from tests.api.conftest import ClientFactory
@@ -161,3 +162,12 @@ async def test_openapi_wires_swagger_authorize_to_the_login_form(
     assert "security" not in schema["paths"]["/health"]["get"]
     assert "security" not in schema["paths"]["/health/ready"]["get"]
     assert "security" not in schema["paths"]["/auth/register"]["post"]
+
+
+@pytest.mark.parametrize("model", ["TaskCreate", "TaskUpdate"])
+async def test_openapi_says_who_a_task_can_be_assigned_to(
+    client: httpx.AsyncClient, model: str
+) -> None:
+    schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
+
+    assert "active user" in schemas[model]["properties"]["assignee_id"]["description"]
