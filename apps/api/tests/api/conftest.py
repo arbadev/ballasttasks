@@ -11,7 +11,12 @@ from app.api.security import get_current_user_id
 from app.application.ports.health_check import HealthCheck
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.main import create_app
-from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
+from tests.auth_fakes import (
+    FakePasswordHasher,
+    FakeTokenService,
+    InMemoryUserDirectory,
+    InMemoryUserRepository,
+)
 from tests.fakes import InMemoryTaskRepository, StubHealthCheck
 
 ClientFactory = Callable[
@@ -78,6 +83,7 @@ class RecordingRequestScopes:
             yield RequestScope(
                 tasks=self.tasks,
                 users=self.auth.users,
+                user_directory=InMemoryUserDirectory(self.auth.users),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
             )
@@ -88,13 +94,13 @@ class RecordingRequestScopes:
 
 
 @pytest.fixture
-def tasks() -> InMemoryTaskRepository:
-    return InMemoryTaskRepository()
+def auth_fakes() -> AuthFakes:
+    return AuthFakes(InMemoryUserRepository(), FakePasswordHasher(), FakeTokenService())
 
 
 @pytest.fixture
-def auth_fakes() -> AuthFakes:
-    return AuthFakes(InMemoryUserRepository(), FakePasswordHasher(), FakeTokenService())
+def tasks(auth_fakes: AuthFakes) -> InMemoryTaskRepository:
+    return InMemoryTaskRepository(auth_fakes.users)
 
 
 @pytest.fixture

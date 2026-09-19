@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -7,10 +7,40 @@ from fastapi import FastAPI
 
 from app.api.schemas.tasks import TaskListResponse, TaskResponse
 from app.api.security import get_current_user_id
-from app.application.errors import StoredTaskInvalid
+from app.application.errors import InvalidAssigneeError, StoredTaskInvalid
 from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH, Task
-from tests.api.conftest import USER_ID, RecordingRequestScopes
+from tests.api.conftest import USER_ID, AuthFakes, RecordingRequestScopes
+from tests.auth_fakes import a_user
 from tests.fakes import InMemoryTaskRepository
+
+INVALID_ASSIGNEE = {
+    "type": "invalid_assignee",
+    "loc": ["body", "assignee_id"],
+    "msg": "assignee_id must be the id of an active user",
+}
+
+
+async def stored_user(auth_fakes: AuthFakes, *, is_active: bool = True) -> str:
+    user = a_user(is_active=is_active)
+    await auth_fakes.users.add(user)
+    return str(user.id)
+
+
+async def stored_task_of_a_deactivated_assignee(
+    tasks: InMemoryTaskRepository, auth_fakes: AuthFakes
+) -> tuple[str, str]:
+    """The ids of a task and of its assignee, who was deactivated after being given it."""
+    left_the_team = a_user(is_active=False)
+    await auth_fakes.users.add(left_the_team)
+    task = Task.create(
+        task_id=uuid.uuid4(),
+        title="Write the report",
+        created_by=USER_ID,
+        assignee_id=left_the_team.id,
+        now=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
+    )
+    await tasks.add(task)
+    return str(task.id), str(left_the_team.id)
 
 
 async def create(client: httpx.AsyncClient, **body: object) -> dict[str, object]:
@@ -59,8 +89,10 @@ async def test_create_rejects_created_by_in_the_request_body(
     assert list(await tasks.list()) == []
 
 
-async def test_create_accepts_the_optional_fields(task_client: httpx.AsyncClient) -> None:
-    assignee = str(uuid.uuid4())
+async def test_create_accepts_the_optional_fields(
+    task_client: httpx.AsyncClient, auth_fakes: AuthFakes
+) -> None:
+    assignee = await stored_user(auth_fakes)
 
     body = await create(
         task_client, description="Q1 numbers", due_date="2026-02-01", assignee_id=assignee
@@ -199,9 +231,11 @@ async def test_patch_marks_a_task_completed_and_reopens_it(
     assert reopened.json()["completed_at"] is None
 
 
-async def test_patch_assigns_and_unassigns_a_task(task_client: httpx.AsyncClient) -> None:
+async def test_patch_assigns_and_unassigns_a_task(
+    task_client: httpx.AsyncClient, auth_fakes: AuthFakes
+) -> None:
     created = await create(task_client)
-    assignee = str(uuid.uuid4())
+    assignee = await stored_user(auth_fakes)
 
     assigned = await task_client.patch(f"/tasks/{created['id']}", json={"assignee_id": assignee})
     assert assigned.json()["assignee_id"] == assignee
@@ -277,6 +311,140 @@ async def test_a_stored_task_that_breaks_a_domain_rule_is_a_server_error_not_a_4
         response = await client.get(f"/tasks/{created['id']}")
 
     assert response.status_code == 500
+
+
+# --- assignee_id must be an active user ----------------------------------------------------
+
+
+@pytest.mark.parametrize("assignee", ["unknown", "inactive"])
+async def test_create_answers_422_on_assignee_id_when_the_assignee_is_not_an_active_user(
+    task_client: httpx.AsyncClient,
+    auth_fakes: AuthFakes,
+    request_scopes: RecordingRequestScopes,
+    assignee: str,
+) -> None:
+    assignee_id = (
+        str(uuid.uuid4())
+        if assignee == "unknown"
+        else await stored_user(auth_fakes, is_active=False)
+    )
+
+    response = await task_client.post(
+        "/tasks", json={"title": "Write the report", "assignee_id": assignee_id}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": [INVALID_ASSIGNEE]}
+    assert request_scopes.events == ["begin", "rollback"]
+    assert (await task_client.get("/tasks")).json() == {"items": []}
+
+
+@pytest.mark.parametrize("assignee", ["unknown", "inactive"])
+async def test_patch_answers_422_on_assignee_id_when_the_assignee_is_not_an_active_user(
+    task_client: httpx.AsyncClient, auth_fakes: AuthFakes, assignee: str
+) -> None:
+    created = await create(task_client)
+    assignee_id = (
+        str(uuid.uuid4())
+        if assignee == "unknown"
+        else await stored_user(auth_fakes, is_active=False)
+    )
+
+    response = await task_client.patch(
+        f"/tasks/{created['id']}", json={"title": "Changed", "assignee_id": assignee_id}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": [INVALID_ASSIGNEE]}
+    assert (await task_client.get(f"/tasks/{created['id']}")).json() == created
+
+
+async def test_patch_accepts_the_deactivated_assignee_the_task_already_has(
+    task_client: httpx.AsyncClient, tasks: InMemoryTaskRepository, auth_fakes: AuthFakes
+) -> None:
+    """A form that saves the whole task names the assignee without changing it."""
+    task_id, left_the_team = await stored_task_of_a_deactivated_assignee(tasks, auth_fakes)
+
+    response = await task_client.patch(
+        f"/tasks/{task_id}", json={"title": "Changed", "assignee_id": left_the_team}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "Changed"
+    assert response.json()["assignee_id"] == left_the_team
+    assert (await task_client.get(f"/tasks/{task_id}")).json() == response.json()
+
+
+@pytest.mark.parametrize("assignee", ["unknown", "inactive"])
+async def test_patch_answers_422_when_a_deactivated_assignee_is_changed_to_somebody_not_active(
+    task_client: httpx.AsyncClient,
+    tasks: InMemoryTaskRepository,
+    auth_fakes: AuthFakes,
+    assignee: str,
+) -> None:
+    task_id, _ = await stored_task_of_a_deactivated_assignee(tasks, auth_fakes)
+    before = (await task_client.get(f"/tasks/{task_id}")).json()
+    assignee_id = (
+        str(uuid.uuid4())
+        if assignee == "unknown"
+        else await stored_user(auth_fakes, is_active=False)
+    )
+
+    response = await task_client.patch(
+        f"/tasks/{task_id}", json={"title": "Changed", "assignee_id": assignee_id}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": [INVALID_ASSIGNEE]}
+    assert (await task_client.get(f"/tasks/{task_id}")).json() == before
+
+
+async def test_a_task_can_be_assigned_to_the_user_who_just_registered(
+    task_client: httpx.AsyncClient,
+) -> None:
+    registered = await task_client.post(
+        "/auth/register",
+        json={"email": "grace@example.com", "full_name": "Grace Hopper", "password": "s3cret-pw!"},
+    )
+    assert registered.status_code == 201, registered.text
+
+    created = await create(task_client, assignee_id=registered.json()["id"])
+
+    assert created["assignee_id"] == registered.json()["id"]
+
+
+async def test_an_assignee_the_store_refuses_is_the_same_422_not_a_server_error(
+    task_client: httpx.AsyncClient,
+    auth_fakes: AuthFakes,
+    tasks: InMemoryTaskRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The check passed, then the foreign key said no (the user vanished in between)."""
+    assignee = await stored_user(auth_fakes)
+
+    async def refused_by_the_foreign_key(task: Task) -> None:
+        assert task.assignee_id is not None
+        raise InvalidAssigneeError(task.assignee_id)
+
+    monkeypatch.setattr(tasks, "add", refused_by_the_foreign_key)
+
+    response = await task_client.post("/tasks", json={"title": "t", "assignee_id": assignee})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": [INVALID_ASSIGNEE]}
+
+
+async def test_the_422_does_not_say_whether_the_id_is_unknown_or_inactive(
+    task_client: httpx.AsyncClient, auth_fakes: AuthFakes
+) -> None:
+    inactive = await stored_user(auth_fakes, is_active=False)
+
+    bodies = [
+        (await task_client.post("/tasks", json={"title": "t", "assignee_id": candidate})).json()
+        for candidate in (inactive, str(uuid.uuid4()))
+    ]
+
+    assert bodies[0] == bodies[1]
 
 
 # --- DELETE /tasks/{id} --------------------------------------------------------------------

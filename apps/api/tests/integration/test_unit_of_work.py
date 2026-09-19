@@ -12,6 +12,7 @@ from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
+from tests.postgres import INSERT_USER, user_row
 
 pytestmark = pytest.mark.integration
 
@@ -25,17 +26,28 @@ async def session_factory(migrated_database_url: str) -> AsyncIterator[SessionFa
     await engine.dispose()
 
 
-def a_task() -> Task:
+@pytest.fixture
+async def creator(session_factory: SessionFactory) -> uuid.UUID:
+    """Tasks reference users, so somebody has to have created them."""
+    user = user_row()
+    async with transactional_session(session_factory) as session:
+        await session.execute(INSERT_USER, user)
+    return user["id"]
+
+
+def a_task(created_by: uuid.UUID) -> Task:
     return Task.create(
         task_id=uuid.uuid4(),
         title="Write the report",
-        created_by=uuid.uuid4(),
+        created_by=created_by,
         now=datetime.now(UTC),
     )
 
 
-async def test_work_is_committed_when_the_block_succeeds(session_factory: SessionFactory) -> None:
-    task = a_task()
+async def test_work_is_committed_when_the_block_succeeds(
+    session_factory: SessionFactory, creator: uuid.UUID
+) -> None:
+    task = a_task(creator)
 
     async with transactional_session(session_factory) as session:
         await SqlAlchemyTaskRepository(session).add(task)
@@ -49,8 +61,10 @@ async def test_work_is_committed_when_the_block_succeeds(session_factory: Sessio
         assert await SqlAlchemyTaskRepository(session).get(task.id) is None
 
 
-async def test_work_is_rolled_back_when_the_block_raises(session_factory: SessionFactory) -> None:
-    task = a_task()
+async def test_work_is_rolled_back_when_the_block_raises(
+    session_factory: SessionFactory, creator: uuid.UUID
+) -> None:
+    task = a_task(creator)
 
     async def add_then_fail() -> None:
         async with transactional_session(session_factory) as session:

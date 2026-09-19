@@ -96,12 +96,18 @@ class LanguageModel(Protocol):
 class TaskRepository(Protocol):
     """Stores tasks. Returned tasks are detached: a change is stored only by update."""
 
-    async def add(self, task: Task) -> None: ...
+    async def add(self, task: Task) -> None: ...       # raises InvalidAssigneeError
     async def get(self, task_id: UUID) -> Task | None: ...
     async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
     async def list(self) -> Sequence[Task]: ...        # newest first
-    async def update(self, task: Task) -> None: ...    # raises TaskNotFound
+    async def update(self, task: Task) -> None: ...    # raises TaskNotFound, InvalidAssigneeError
     async def delete(self, task_id: UUID) -> None: ... # raises TaskNotFound
+
+
+class UserDirectory(Protocol):
+    """The one thing the task use cases may ask about users."""
+
+    async def is_active_user(self, user_id: UUID) -> bool: ...  # unknown and inactive are both False
 ```
 
 The Protocol files are the source of truth for exact signatures; if this section and the code disagree, the code wins and this section is corrected in the same commit.
@@ -113,7 +119,8 @@ Adapters in this setup:
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
-| `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker |
+| `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
+| `UserDirectory` | SQLAlchemy on PostgreSQL (`SELECT EXISTS`, no row loaded), in-memory fake over the users fake | Both pass `tests/contract/test_user_directory_contract.py`. It is how `CreateTask` and `UpdateTask` validate an assignee without importing an auth use case or the `UserRepository` |
 | `UserRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_user_repository_contract.py`. `add` raises `EmailAlreadyRegisteredError`, also when a concurrent transaction wins: the unique constraint is the guarantee, and the insert runs in a savepoint so the rest of the unit of work survives the rejection |
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
 | `TokenService` | JWT (`PyJWT`, HMAC), in-memory fake for tests | Tokens carry only `sub`, `iat`, `exp`; `decode` raises `InvalidTokenError` |
@@ -198,20 +205,32 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 
 | Route | Success | Errors |
 | --- | --- | --- |
-| `POST /tasks` | `201` `TaskResponse` | `401`, `422` |
+| `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user) |
 | `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...]}`, newest first | `401` |
 | `GET /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` |
-| `PATCH /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` |
+| `PATCH /tasks/{task_id}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user) |
 | `DELETE /tasks/{task_id}` | `204`, no body | `401`, `404`, `422` |
 
 - `TaskResponse`: `id`, `title`, `description`, `status` (`todo | in_progress | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`.
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
 - `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title` and `status` reject `null`. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
+- **Assignee**: an `assignee_id` that `POST` sets or `PATCH` changes must be an active user. Otherwise the answer is `422` with `{"type": "invalid_assignee", "loc": ["body", "assignee_id"], "msg": "assignee_id must be the id of an active user"}`, the same body for an unknown id and for a deactivated user. `CreateTask` and `UpdateTask` ask the `UserDirectory` port; the foreign key below is the race-safe backstop, and the repository maps its violation to the same `InvalidAssigneeError`, so a user who vanishes between the check and the write is still a `422`, never a `500`. `PATCH` checks the assignee only when the assignment changes: a body that names the `assignee_id` the task already has is accepted even if that user has since been deactivated (a form that saves the whole task sends it back), while a body that changes the assignee to an unknown or inactive user is the `422` above. So a task whose assignee was deactivated later can still be edited, completed or reassigned.
 - The list is an envelope on purpose: pagination can add fields next to `items` without breaking clients.
 - Any authenticated user can read and change any task (a shared team list); there is no ownership model.
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
 - Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`.
+
+### Tasks reference users
+
+Two foreign keys to `users.id`, both indexed, each with a deliberate `ON DELETE` (revision `fa7b13ec7508`, whose docstring is the authority):
+
+| Column | `ON DELETE` | Why |
+| --- | --- | --- |
+| `tasks.created_by` (`fk_tasks_created_by_users`) | `RESTRICT` | A task must not silently lose its creator: a user who created tasks cannot be deleted, only deactivated |
+| `tasks.assignee_id` (`fk_tasks_assignee_id_users`) | `SET NULL` | When an assignee goes away the task stays and becomes unassigned |
+
+The revision also upgrades a database that already holds tasks written while both columns were unchecked UUIDs. No task is deleted and the upgrade does not fail: an `assignee_id` that matches no user becomes `NULL` (what `SET NULL` would have done); a `created_by` that matches no user keeps its id, and an inactive placeholder user (`unknown-<id>@placeholder.invalid`, a hash no password matches) is inserted under that id, so `GET /tasks` answers what it did before. `downgrade` removes those placeholders again. Proven in `tests/integration/test_tasks_users_migration.py`.
 
 ## Authentication
 
@@ -287,6 +306,6 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected, a rejected secret never echoed in the error | Environment variables only |
 | Live | The real AI provider accepts the key and generates text | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`; deselected by default, skipped without a key |
-| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
+| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.

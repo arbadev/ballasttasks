@@ -9,10 +9,14 @@ class TaskRepository(Protocol):
     """Stores tasks. Returned tasks are detached: a change is stored only by ``update``.
 
     A stored task that breaks a domain rule is reported as ``StoredTaskInvalid``.
+
+    Tasks reference users: ``add`` and ``update`` raise ``InvalidAssigneeError`` when the
+    assignee is not a stored user, store nothing, and stay usable. Whether that user is
+    still active is not the store's question; the use cases ask a ``UserDirectory``.
     """
 
     async def add(self, task: Task) -> None:
-        """Store a new task."""
+        """Store a new task. Raises ``InvalidAssigneeError``."""
         ...
 
     async def get(self, task_id: uuid.UUID) -> Task | None:
@@ -32,7 +36,10 @@ class TaskRepository(Protocol):
         ...
 
     async def update(self, task: Task) -> None:
-        """Store the current state of an existing task. Raises ``TaskNotFound``."""
+        """Store the current state of an existing task.
+
+        Raises ``TaskNotFound``, or ``InvalidAssigneeError``.
+        """
         ...
 
     async def delete(self, task_id: uuid.UUID) -> None:

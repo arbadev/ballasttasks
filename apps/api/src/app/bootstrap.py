@@ -23,6 +23,7 @@ from app.application.ports.language_model import LanguageModel
 from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.token_service import TokenService
+from app.application.ports.user_directory import UserDirectory
 from app.application.ports.user_repository import UserRepository
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
@@ -44,6 +45,7 @@ from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.health import PostgresHealthCheck
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
+from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
 from app.infrastructure.jobs.factory import create_celery_app
@@ -65,6 +67,8 @@ class RequestScope:
 
     tasks: TaskRepository
     users: UserRepository
+    # All the task use cases may know about users: "can this id be given a task?".
+    user_directory: UserDirectory
     # Stateless and shared by every scope; they travel with it because the auth use cases
     # need them next to the users repository.
     password_hasher: PasswordHasher
@@ -84,7 +88,7 @@ class RequestScope:
 
     @property
     def create_task(self) -> CreateTask:
-        return CreateTask(self.tasks)
+        return CreateTask(self.tasks, self.user_directory)
 
     @property
     def get_task(self) -> GetTask:
@@ -96,7 +100,7 @@ class RequestScope:
 
     @property
     def update_task(self) -> UpdateTask:
-        return UpdateTask(self.tasks)
+        return UpdateTask(self.tasks, self.user_directory)
 
     @property
     def delete_task(self) -> DeleteTask:
@@ -117,6 +121,7 @@ def _request_scope_factory(
             yield RequestScope(
                 tasks=SqlAlchemyTaskRepository(session),
                 users=SqlAlchemyUserRepository(session),
+                user_directory=SqlAlchemyUserDirectory(session),
                 password_hasher=password_hasher,
                 token_service=token_service,
             )
