@@ -26,5 +26,5 @@ export function linkAttachment(input: string, title: string): LinkResult {
 
   const host = url.host.replace(/^www\./, "");
   const path = url.pathname.replace(/\/+$/, "");
-  return { ok: true, attachment: { kind: "link", name: title.trim() || `${host}${path}`, meta: host } };
+  return { ok: true, attachment: { kind: "link", name: title.trim() || `${host}${path}`, meta: host, url: url.href } };
 }

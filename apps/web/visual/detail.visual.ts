@@ -34,15 +34,7 @@ type Region = keyof typeof REGIONS;
  * region and reported, but held to its own ceiling instead of 1%. The reasons are the ones
  * listed in the delivery notes; nothing here is masked or skipped.
  */
-const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason: string }[] = [
-  { region: "attachments", states: ["rich-task"], maxRatio: 0.05, reason: "Attach file is dimmed: upload is not part of this piece, so the control reads as unavailable." },
-  {
-    region: "attachments",
-    states: ["new-task", "generation-running", "generation-proposed"],
-    maxRatio: 0.09,
-    reason: "Attach file is dimmed, and the empty state no longer promises a drop zone that does not exist.",
-  },
-];
+const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason: string }[] = [];
 
 /**
  * Placeholders are set in --fg-3 for contrast, where the design leaves the browser default.

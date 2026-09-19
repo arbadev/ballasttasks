@@ -42,7 +42,7 @@ export interface TaskCommands {
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
-  addAttachment(id: string, attachment: Attachment): Promise<Task>;
+  addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;
   /** Also discards the step generation in flight for the task, as the design does. */
   remove(id: string): Promise<void>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
@@ -180,7 +180,7 @@ export function useTaskCommands(): TaskCommands {
       toggleStep: async (id, stepId) => saved(await service.toggleStep(id, stepId)),
       removeStep: async (id, stepId) => saved(await service.removeStep(id, stepId)),
       addComment: async (id, text) => saved(await service.addComment(id, text)),
-      addAttachment: async (id, attachment) => saved(await service.addAttachment(id, attachment)),
+      addAttachment: async (id, attachment, file) => saved(await service.addAttachment(id, attachment, file)),
       remove: async (id) => {
         await service.remove(id);
         dispatch({ type: "taskRemoved", id });

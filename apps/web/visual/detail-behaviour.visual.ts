@@ -235,9 +235,16 @@ test("no console errors or warnings across the panel's states", async ({ page })
   await proposal.getByRole("button", { name: /^Add \d+ steps$/ }).click();
   await expect(steps.getByText("0/6")).toBeVisible();
 
-  // Attachments: the unavailable upload, a rejected and an accepted link.
+  // Attachments: a keyboard-opened native picker, a rejected file, and real saved metadata.
   const attachments = dialog.getByRole("region", { name: "Attachments" });
-  await attachments.getByRole("button", { name: "Attach file" }).click({ force: true });
+  await attachments.getByRole("button", { name: "Attach file" }).focus();
+  const picker = page.waitForEvent("filechooser");
+  await page.keyboard.press("Enter");
+  await (await picker).setFiles({ name: "unsafe.html", mimeType: "text/html", buffer: Buffer.from("<html></html>") });
+  await expect(attachments.getByRole("alert")).toHaveText(/Choose a PDF/);
+  await attachments.getByLabel("Choose a file to attach").setInputFiles({ name: "exercise.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7") });
+  await expect(attachments.getByText("PDF · 1 KB")).toBeVisible();
+  await expect(attachments.getByRole("alert")).toBeHidden();
   await attachments.getByRole("button", { name: "Add link" }).click();
   await attachments.getByRole("textbox", { name: "Link URL" }).fill("not a link");
   await attachments.getByRole("button", { name: "Add", exact: true }).click();
@@ -245,7 +252,7 @@ test("no console errors or warnings across the panel's states", async ({ page })
   await attachments.getByRole("textbox", { name: "Link URL" }).fill("https://datatracker.ietf.org/doc/html/rfc7519");
   await attachments.getByRole("textbox", { name: "Title (optional)" }).fill("RFC 7519");
   await page.keyboard.press("Enter");
-  await expect(attachments.getByText("RFC 7519")).toBeVisible();
+  await expect(attachments.getByRole("link", { name: /RFC 7519/ })).toHaveAttribute("href", "https://datatracker.ietf.org/doc/html/rfc7519");
 
   // Activity, completion, deletion.
   const activity = dialog.getByRole("region", { name: "Activity" });

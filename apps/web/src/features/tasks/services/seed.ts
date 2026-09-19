@@ -21,7 +21,8 @@ type SeedTask = Omit<Partial<Task>, "createdAt" | "updatedAt"> &
 /**
  * The design's sixteen seed tasks, dated relative to `now`. The entries below are the
  * design's own `mk({...})` literals, copied verbatim (hence the single quotes) so the data
- * cannot drift from the reference; the helpers around them carry the same names.
+ * cannot drift from the reference; links additionally carry their navigable URLs.
+ * The helpers around them carry the same names.
  */
 export function seedTasks(now: number): Task[] {
   let seq = 100;
@@ -48,7 +49,7 @@ export function seedTasks(now: number): Task[] {
     mk({ id: 't1', title: 'Task CRUD endpoints with pagination and filters', status: 'progress', project: 'ballast', assignee: 'ab', due: day(3), prio: 0, importance: 95, created: 4, updated: 0.8,
       description: 'FastAPI routes under /tasks. Filter by status and due date, paginate with limit/offset. The Pydantic models own the contract — run npm run gen:api after every change.',
       steps: [st('Task entity and TaskStatus enum in domain', true), st('TaskRepository port + in-memory fake, contract suite', true), st('Use cases: create, list (limit/offset), update, delete', true), st('Routes under /tasks with status, due_before, due_after filters'), st('Alembic migration for the tasks table'), st('npm run gen:api and fix the frontend types in the same commit')],
-      attachments: [pdf, { kind: 'link', name: 'Swagger UI', meta: 'localhost:8000/docs' }],
+      attachments: [pdf, { kind: 'link', name: 'Swagger UI', meta: 'localhost:8000/docs', url: 'http://localhost:8000/docs' }],
       activity: [log('ab', 'Created the task', 4), log('ab', 'Moved To Do → In Progress', 2), say('lm', 'The exercise says "filter by due date" — I would accept due_before and due_after so the panel cannot ask for a range we do not have.', 1, 3), log('ai', 'Drafted 6 steps · added by Andres', 1), say('ab', 'Agreed. Pagination stays limit/offset; cursor pagination is a non-goal for this scope.', 0, 20)] }),
     mk({ id: 't2', title: 'Next.js task list and board', status: 'progress', project: 'ballast', assignee: 'ab', due: day(7), prio: 0, importance: 85, created: 3, updated: 1,
       description: 'List and Kanban views over the same query. Components read TaskService from providers.tsx; nothing outside client.ts calls fetch.',
@@ -58,7 +59,7 @@ export function seedTasks(now: number): Task[] {
     mk({ id: 't3', title: 'Generate-steps job: Celery worker + LanguageModel port', status: 'progress', project: 'ballast', assignee: 'tr', due: day(5), prio: 1, importance: 70, created: 2, updated: 1,
       description: 'POST /tasks/{id}/steps:generate enqueues a job; the worker calls LanguageModel.generate and stores proposed steps. The UI polls until the job settles.',
       steps: [st('Job payload and result schema'), st('Prompt template from title, description and attachments'), st('GET /jobs/{id} to poll'), st('Fake provider returns deterministic steps for tests')],
-      attachments: [{ kind: 'link', name: 'docs/architecture.md#ports', meta: 'github.com/arbadev/ballasttasks' }],
+      attachments: [{ kind: 'link', name: 'docs/architecture.md#ports', meta: 'github.com/arbadev/ballasttasks', url: 'https://github.com/arbadev/ballasttasks/blob/main/docs/architecture.md#ports' }],
       activity: [log('tr', 'Created the task', 2)] }),
     mk({ id: 't4', title: 'JWT authentication', status: 'todo', project: 'ballast', due: day(4), prio: 0, importance: 90, created: 4, updated: 4,
       description: 'Register and login, access + refresh tokens, and a current_user dependency on every /tasks route. The panel will ask about expiry and where the token lives in the browser.',
@@ -77,7 +78,7 @@ export function seedTasks(now: number): Task[] {
     mk({ id: 't8', title: 'GenAI write-up: prompt, validation, corrections', status: 'todo', project: 'ballast', assignee: 'ab', due: day(10), prio: 1, importance: 75, created: 2, updated: 2,
       description: 'docs/ai-usage.md: the scaffold prompt, a representative sample of the output, how it was validated and what was corrected.',
       steps: [st('Paste the scaffold prompt'), st('Pick a representative sample of generated code'), st('List the corrections and why'), st('Edge cases: auth, validation, performance')],
-      attachments: [{ kind: 'link', name: 'docs/ai-usage.md', meta: 'github.com/arbadev/ballasttasks' }],
+      attachments: [{ kind: 'link', name: 'docs/ai-usage.md', meta: 'github.com/arbadev/ballasttasks', url: 'https://github.com/arbadev/ballasttasks/blob/main/docs/ai-usage.md' }],
       activity: [log('ab', 'Created the task', 2)] }),
     mk({ id: 't9', title: 'Presentation and code-review walkthrough', status: 'todo', project: 'ballast', assignee: 'ab', due: day(13), prio: 1, importance: 80, created: 2, updated: 2,
       description: 'Twelve minutes: user story, architecture, live demo, GenAI usage. Then the code review — have bootstrap.py, the ports and TaskService ready to open.',
@@ -98,7 +99,7 @@ export function seedTasks(now: number): Task[] {
     mk({ id: 't14', title: 'Pre-commit: ruff, mypy, import-linter', status: 'done', project: 'ballast', assignee: 'tr', due: day(-7), prio: 3, importance: 40, created: 10, updated: 7,
       activity: [log('tr', 'Created the task', 10), log('tr', 'Moved In Progress → Done', 7)] }),
     mk({ id: 't15', title: 'Review Vectal task detail for assistant patterns', status: 'todo', project: 'inbox', assignee: 'ab', prio: 3, importance: 30, created: 1, updated: 1,
-      attachments: [{ kind: 'image', name: 'vectal-task-detail.png', meta: 'PNG · 2560×1456' }, { kind: 'link', name: 'vectal.ai', meta: 'Generate Steps, AI Toolkit' }],
+      attachments: [{ kind: 'image', name: 'vectal-task-detail.png', meta: 'PNG · 2560×1456' }, { kind: 'link', name: 'vectal.ai', meta: 'Generate Steps, AI Toolkit', url: 'https://vectal.ai/' }],
       activity: [log('ab', 'Created the task', 1)] }),
     mk({ id: 't16', title: 'Confirm the panel slot with the recruiter', status: 'todo', project: 'inbox', assignee: 'ab', due: day(0), prio: 1, importance: 70, created: 1, updated: 1,
       activity: [log('ab', 'Created the task', 1)] }),

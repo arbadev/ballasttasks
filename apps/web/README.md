@@ -80,7 +80,7 @@ than `useTaskService()` directly.
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
-| `addAttachment(id, attachment)` | `addAttachment` | Detail attachments. |
+| `addAttachment(id, attachment, file?)` | `addAttachment` | Detail attachments. File bytes are passed to the adapter; the in-memory service stores only metadata. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
@@ -108,9 +108,11 @@ card, the New task button) on close, so an opener needs nothing more than being 
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
   start, and both are still there after another task has been opened and closed.
-- **Attachments**: links are added here (URL plus optional title, validated by
-  `model/linkAttachment.ts`). "Attach file" is drawn as designed but marked unavailable; upload
-  is a later piece.
+- **Attachments**: links retain their full validated URL and open in a new tab (URL plus optional
+  title, validated by `model/linkAttachment.ts`). "Attach file" opens a labelled native picker;
+  dropping a file works too. PDF, PNG, JPG, GIF and WEBP files up to 10 MB show uploading metadata
+  until the service settles; invalid files or failed saves show an inline error. The in-memory
+  adapter keeps metadata only, never file bytes; a future HTTP adapter receives the original file.
 - **Escape** closes the innermost thing: the link form or the delete prompt first, then the panel.
 
 ## Commands
