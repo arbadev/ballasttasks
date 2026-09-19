@@ -243,7 +243,10 @@ export interface paths {
         /** The steps of a task, in order */
         get: operations["list_steps_tasks__id_or_key__steps_get"];
         put?: never;
-        /** Add a step at the end of the list */
+        /**
+         * Add a step at the end of the list
+         * @description A task holds at most 100 steps; the one after that is rejected with `422`.
+         */
         post: operations["add_step_tasks__id_or_key__steps_post"];
         delete?: never;
         options?: never;
@@ -262,7 +265,7 @@ export interface paths {
         put?: never;
         /**
          * Add several steps at once, all or none
-         * @description How proposed steps are accepted: up to 20 titles, appended in the order given in one transaction, and logged as one activity entry. One invalid title refuses them all.
+         * @description How proposed steps are accepted: up to 20 titles, appended in the order given in one transaction, and logged as one activity entry. One invalid title refuses them all, and so does a batch that would take the task past its 100 steps: nothing of it is added.
          */
         post: operations["add_steps_tasks__id_or_key__steps_bulk_post"];
         delete?: never;
@@ -953,7 +956,10 @@ export interface components {
              * @description How many comments its activity holds.
              */
             comments_count: number;
-            /** Steps */
+            /**
+             * Steps
+             * @description Every step of the task, in order: 100 of them at most.
+             */
             steps: components["schemas"]["StepResponse"][];
         };
         /**

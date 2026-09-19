@@ -13,10 +13,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.use_cases.add_step import AddStep
-from app.application.use_cases.add_steps import AddSteps
+from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE, AddSteps
 from app.application.use_cases.delete_step import DeleteStep
 from app.application.use_cases.reorder_steps import ReorderSteps
-from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE
 from app.domain.step import MAX_STEPS_PER_TASK, InvalidStepError, InvalidStepOrderError, Step
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog

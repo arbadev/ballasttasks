@@ -8,7 +8,7 @@ from app.application.ports.step_repository import StepRepository
 from app.application.ports.task_repository import TaskRepository
 from app.domain import activity_log
 from app.domain.activity import ActivityEntry
-from app.domain.step import Step
+from app.domain.step import Step, check_room_for
 
 
 class AddStep:
@@ -35,12 +35,14 @@ class AddStep:
         self._new_id = new_id
 
     async def execute(self, task_id: uuid.UUID, *, title: str, actor_id: uuid.UUID) -> Step:
-        """Raises ``TaskNotFound``, or ``InvalidStepError`` before anything is stored."""
+        """Raises ``TaskNotFound``, or ``InvalidStepError`` (a bad title, or a task that
+        already holds every step it may) before anything is stored."""
         task = await self._tasks.get_for_update(task_id)
         if task is None:
             raise TaskNotFound(task_id)
         now = self._clock()
         existing = await self._steps.list_for_task(task_id)
+        check_room_for(len(existing), adding=1)
         step = Step.create(
             step_id=self._new_id(), task_id=task_id, title=title, position=len(existing), now=now
         )

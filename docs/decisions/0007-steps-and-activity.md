@@ -37,6 +37,8 @@ Title, description, importance and project changes, step renames, unticking, reo
 
 Steps have zero-based dense integer positions, unique per task. Every writer first locks the owning task (`SELECT ... FOR UPDATE`) inside the unit of work. Appends use the list length; deletion renumbers successors; reorder requires an exact permutation of current ids. Stale, duplicate, missing or foreign ids reject the entire request. Bulk insertion validates all 1–20 titles first and appends them atomically in request order.
 
+A task holds at most 100 steps, checked in the domain (`check_room_for`) by both the single and the bulk append while they hold the task lock, so a batch that would cross the ceiling is refused whole and adds nothing. The cap, not pagination, is what keeps the detail response and the whole-list read behind every step update and delete bounded; 100 is far above what a detail panel's checklist needs and far below what makes those reads costly.
+
 The `(task_id, position)` unique constraint is `DEFERRABLE INITIALLY DEFERRED`: intermediate swaps may collide, but the committed result cannot. The task lock serializes appends, deletions and reorders together without locking unrelated tasks. This is simpler than fractional positions for small detail-panel lists; it costs O(n) writes for a reorder. PostgreSQL concurrency tests prove both density and task-local locking.
 
 ### Reading and migration

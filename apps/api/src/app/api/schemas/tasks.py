@@ -38,7 +38,7 @@ from app.application.task_query import (
 from app.application.use_cases.summarise_tasks import TaskSummary
 from app.application.use_cases.update_task import TaskChanges
 from app.domain.attention import Attention, AttentionReason
-from app.domain.step import Step
+from app.domain.step import MAX_STEPS_PER_TASK, Step
 from app.domain.task import (
     DEFAULT_IMPORTANCE,
     DEFAULT_PRIORITY,
@@ -205,7 +205,9 @@ class TaskResponse(BaseModel):
 class TaskDetailResponse(TaskResponse):
     """One task as the detail panel reads it: the task and its steps, in order."""
 
-    steps: list[StepResponse]
+    steps: list[StepResponse] = Field(
+        description=f"Every step of the task, in order: {MAX_STEPS_PER_TASK} of them at most."
+    )
 
     @classmethod
     def with_steps(

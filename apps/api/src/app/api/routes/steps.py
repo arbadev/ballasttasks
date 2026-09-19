@@ -28,6 +28,7 @@ from app.api.schemas.steps import (
     StepUpdate,
 )
 from app.api.security import CurrentUserId, get_current_user_id
+from app.domain.step import MAX_STEPS_PER_TASK
 
 TASK_OR_STEP_NOT_FOUND: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
@@ -57,6 +58,10 @@ async def list_steps(task_id: TaskId, list_steps: ListStepsDep) -> StepListRespo
 @router.post(
     "",
     summary="Add a step at the end of the list",
+    description=(
+        f"A task holds at most {MAX_STEPS_PER_TASK} steps; the one after that is rejected "
+        "with `422`."
+    ),
     status_code=status.HTTP_201_CREATED,
     response_model=StepResponse,
 )
@@ -72,7 +77,9 @@ async def add_step(
     summary="Add several steps at once, all or none",
     description=(
         "How proposed steps are accepted: up to 20 titles, appended in the order given in one "
-        "transaction, and logged as one activity entry. One invalid title refuses them all."
+        "transaction, and logged as one activity entry. One invalid title refuses them all, "
+        f"and so does a batch that would take the task past its {MAX_STEPS_PER_TASK} steps: "
+        "nothing of it is added."
     ),
     status_code=status.HTTP_201_CREATED,
     response_model=StepListResponse,

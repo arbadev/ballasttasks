@@ -9,7 +9,7 @@ from app.application.ports.task_repository import TaskRepository
 from app.application.ports.user_directory import UserDirectory
 from app.domain import activity_log
 from app.domain.activity import ActivityEntry
-from app.domain.step import InvalidStepError, Step
+from app.domain.step import InvalidStepError, Step, check_room_for
 
 MAX_STEPS_AT_ONCE = 20
 
@@ -38,7 +38,8 @@ class AddSteps:
     async def execute(
         self, task_id: uuid.UUID, *, titles: Sequence[str], actor_id: uuid.UUID
     ) -> list[Step]:
-        """Raises ``TaskNotFound``, or ``InvalidStepError`` before anything is stored."""
+        """Raises ``TaskNotFound``, or ``InvalidStepError`` (too many or too few titles, a
+        bad one, or no room for them all) before anything is stored: never a part of them."""
         if not 1 <= len(titles) <= MAX_STEPS_AT_ONCE:
             raise InvalidStepError(f"titles must hold from 1 to {MAX_STEPS_AT_ONCE} titles")
         task = await self._tasks.get_for_update(task_id)
@@ -46,6 +47,7 @@ class AddSteps:
             raise TaskNotFound(task_id)
         now = self._clock()
         first_free = len(await self._steps.list_for_task(task_id))
+        check_room_for(first_free, adding=len(titles))
         # Every step is built, and so checked, before the first one is stored.
         created = [
             Step.create(

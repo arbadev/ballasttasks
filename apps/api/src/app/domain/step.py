@@ -2,7 +2,8 @@
 
 Standard library only. A task's steps sit at the positions ``0 .. n-1`` with no gap and no
 repeat; ``in_order`` and ``close_gap`` are the only two ways positions change, so that rule
-has one home (ADR 0007).
+has one home (ADR 0007). A task holds at most ``MAX_STEPS_PER_TASK`` of them, which is what
+keeps a task's list, and so every read of it, bounded.
 """
 
 import uuid
@@ -12,6 +13,7 @@ from datetime import datetime
 from typing import Self
 
 STEP_TITLE_MAX_LENGTH = 200
+MAX_STEPS_PER_TASK = 100
 
 
 class InvalidStepError(ValueError):
@@ -57,6 +59,13 @@ class Step:
         changed = self.done != done
         self.done = done
         return changed
+
+
+def check_room_for(existing: int, adding: int) -> None:
+    """Raises ``InvalidStepError``, before any step is built, unless the task can hold
+    ``adding`` more steps. A batch that does not fit whole does not fit at all."""
+    if existing + adding > MAX_STEPS_PER_TASK:
+        raise InvalidStepError(f"a task may hold at most {MAX_STEPS_PER_TASK} steps")
 
 
 def in_order(steps: Sequence[Step], step_ids: Sequence[uuid.UUID]) -> list[Step]:
