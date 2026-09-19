@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+
 from app.domain.task import (
     DESCRIPTION_MAX_LENGTH,
     TITLE_MAX_LENGTH,
