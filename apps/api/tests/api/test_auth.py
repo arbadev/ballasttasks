@@ -101,6 +101,20 @@ async def test_register_never_echoes_a_rejected_password(auth_client: httpx.Asyn
     assert "hunter2" not in response.text
 
 
+async def test_a_validation_error_never_echoes_the_request_body(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    """A missing field makes pydantic report the whole body as ``input``: password included."""
+    response = await auth_client.post(
+        "/auth/register", json={"full_name": "Ada", "password": "correct horse"}
+    )
+
+    assert response.status_code == 422
+    assert "correct horse" not in response.text
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "email"]]
+    assert all("input" not in error for error in response.json()["detail"])
+
+
 # --- POST /auth/login ------------------------------------------------------------------
 
 

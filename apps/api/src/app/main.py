@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import health
+from app.api.errors import register_error_handlers
+from app.api.routes import auth, health
 from app.bootstrap import Container, Settings, build_container, load_settings
 
 
@@ -37,5 +38,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    register_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app
