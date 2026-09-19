@@ -38,7 +38,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
-| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
+| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks, project creation against committed baselines; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
 | `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
 
 ## Repo map

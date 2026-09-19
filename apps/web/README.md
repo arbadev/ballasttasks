@@ -12,7 +12,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | --- | --- |
 | `src/app/providers.tsx` | Composition root: the only place a concrete service is constructed. Exports the hooks `useTaskService`, `useDirectoryService`, `useStepGenerationService`, `useClock`, `useHealthService`. |
 | `src/app/globals.css` | The design tokens, once: the skin's CSS variables, mapped into the Tailwind theme (`bg-card`, `text-fg-3`, `rounded-bt`, `shadow-glow`, `animate-bt-in`, ...), plus base rules and the `bt-*` keyframes. Components use token names, never raw hex. |
-| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own `BT_DESIGN_DIR`). Validates on load. |
+| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own `BT_DESIGN_DIR` and `BT_VISUAL_PORT`). Validates on load. |
 | `src/lib/api/client.ts` | The only module that calls `fetch`. Throws a typed `ApiError`. |
 | `src/lib/api/schema.d.ts` | Generated from the API's OpenAPI document. Never edited by hand. |
 | `src/components/ui/` | Shared primitives: `Button`, `IconButton`, `Select`, `SegmentedControl`, `TextInput`, `Avatar`, `Pill`. No feature knowledge. |
@@ -66,7 +66,7 @@ All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 | --- | --- |
 | `selectTask(id)` | List rows and board cards, to open the detail panel. |
 | `clearSelection()` | Detail: close button, backdrop, Escape. |
-| `addProject(project)` | Project creation, after `DirectoryService.createProject` resolves: lists the project in the sidebar and selects it over all tasks. |
+| `addProject(project)` | Project creation, after `DirectoryService.createProject` resolves: lists the project in the sidebar and selects it in a clean view (scope All tasks; Attention signal, filters and search reset; sort and view kept). |
 | `selectScope`, `toggleProject`, `setStatusFilter`, `setDueFilter`, `setPriorityFilter`, `setSort`, `setSearch`, `toggleSignal`, `clearSignal`, `setView`, `reload` | The shell. Available to the views, rarely needed. |
 
 **Task commands** (`useTaskCommands()`): each calls `TaskService` and then puts the saved task
