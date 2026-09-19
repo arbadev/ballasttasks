@@ -92,7 +92,7 @@ describe("attention banner", () => {
     fireEvent.click(screen.getByRole("button", { name: "Assign to me" }));
     await settle();
     expect(taskService.calls).toContainEqual(["update", "t4", { assignee: "ab" }]);
-    expect(screen.getByTestId("detail-banner")).toHaveTextContent(/^P0 due in 4 days$/);
+    expect(within(screen.getByTestId("detail-banner")).getByText("P0 due in 4 days")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Assign to me" })).not.toBeInTheDocument();
   });
 

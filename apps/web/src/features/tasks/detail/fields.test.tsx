@@ -48,7 +48,7 @@ describe("title and description autosave", () => {
     openTask("t4");
     expect(title()).toHaveValue("JWT authentication");
     expect(title()).toHaveAttribute("placeholder", "Task name");
-    expect(description()).toHaveValue(expect.stringContaining("Register and login"));
+    expect((description() as HTMLTextAreaElement).value).toContain("Register and login");
     expect(description()).toHaveAttribute("placeholder", "What does done look like?");
   });
 

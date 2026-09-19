@@ -10,10 +10,10 @@ describe("steps checklist", () => {
   it("lists the steps with their progress", async () => {
     await renderDetail();
     openTask("t1");
-    expect(stepTexts()).toHaveLength(7);
-    expect(steps().getByText("3/7")).toBeInTheDocument();
+    expect(stepTexts()).toHaveLength(6);
+    expect(steps().getByText("3/6")).toBeInTheDocument();
     const bar = steps().getByRole("progressbar", { name: "Steps completed" });
-    expect(bar).toHaveAttribute("aria-valuenow", "43");
+    expect(bar).toHaveAttribute("aria-valuenow", "50");
     expect(steps().getByRole("checkbox", { name: "Task entity and TaskStatus enum in domain" })).toBeChecked();
     expect(steps().getByRole("checkbox", { name: "Alembic migration for the tasks table" })).not.toBeChecked();
   });
@@ -33,7 +33,7 @@ describe("steps checklist", () => {
     await settle();
     expect(taskService.calls.filter((c) => c[0] === "toggleStep")).toHaveLength(1);
     expect(steps().getByRole("checkbox", { name: "Alembic migration for the tasks table" })).toBeChecked();
-    expect(steps().getByText("4/7")).toBeInTheDocument();
+    expect(steps().getByText("4/6")).toBeInTheDocument();
   });
 
   it("removes a step", async () => {
@@ -42,8 +42,8 @@ describe("steps checklist", () => {
     fireEvent.click(steps().getByRole("button", { name: "Remove step: Alembic migration for the tasks table" }));
     await settle();
     expect(taskService.calls.filter((c) => c[0] === "removeStep")).toHaveLength(1);
-    expect(stepTexts()).toHaveLength(6);
-    expect(steps().getByText("3/6")).toBeInTheDocument();
+    expect(stepTexts()).toHaveLength(5);
+    expect(steps().getByText("3/5")).toBeInTheDocument();
   });
 
   it("adds a step on Enter, clears the input, and ignores a blank one", async () => {
