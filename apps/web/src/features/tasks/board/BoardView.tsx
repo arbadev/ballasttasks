@@ -67,6 +67,8 @@ function Board() {
    * refused, so focus follows it until the move has settled: it is never left on the body.
    */
   const focusAfterMove = useRef<FocusAfterMove | null>(null);
+  /** Removing a focused alert does not emit blur; an ordinary focus change does. */
+  const focusedFailure = useRef<{ taskId: string; column: TaskStatus } | null>(null);
 
   const cardButton = (taskId: string) => grid.current?.querySelector<HTMLElement>(`[data-card-open=${JSON.stringify(taskId)}]`) ?? null;
   const cardsIn = (status: TaskStatus) => [...(grid.current?.querySelectorAll<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-card-open]`) ?? [])];
@@ -74,6 +76,15 @@ function Board() {
   const columnAdd = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-add]`) ?? null;
 
   useEffect(() => {
+    const focused = focusedFailure.current;
+    if (focused && !moves.failures.some((failure) => failure.taskId === focused.taskId)) {
+      focusedFailure.current = null;
+      if (document.activeElement === document.body) {
+        const status = state.tasks.find((task) => task.id === focused.taskId)?.status ?? focused.column;
+        (cardButton(focused.taskId) ?? columnHeading(status))?.focus();
+      }
+    }
+
     const pending = focusAfterMove.current;
     if (!pending) return;
     const done = moves.settled[pending.taskId] === pending.move;
@@ -147,6 +158,8 @@ function Board() {
           dismissLabel={`Dismiss: could not move "${failure.title}"`}
           onRetry={() => retryMove(failure)}
           onDismiss={() => dismissMove(failure)}
+          onFocus={() => (focusedFailure.current = { taskId: failure.taskId, column: failure.from })}
+          onBlur={() => (focusedFailure.current = null)}
         />
       ))}
       {STATUSES.filter((status) => adding[status.id] === "failed").map((status) => (

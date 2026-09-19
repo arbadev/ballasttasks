@@ -119,16 +119,19 @@ A refused move is therefore carried on the user's newest target and not on the o
 refused, because the intermediate hops were never sent, which is why the alert states only that
 the card did not move and which column it is back in. A retry consequently records a single
 status change rather than one per hop; that follows from coalescing and is intended.
-Feedback is kept against the card it belongs to, never against one latest attempt: a refused move
-always raises its own alert, whatever any other card did, and only that card's next attempt or a
-dismissal takes it away, so two refused cards show two alerts. A refusal is a failure only when
+Feedback is kept against the card it belongs to, never against one latest attempt: an unsatisfied
+refused move raises its own alert, whatever any other card did. Only that card's next attempt,
+a dismissal, or reaching its target takes it away, so two unsatisfied refused cards show two alerts. A refusal is a failure only when
 the card is not already in the user's newest target: a hop refused on the way back to where the
 card started asked for nothing that did not happen, so it raises no alert and leaves no Retry
 with nothing to do. The same rule holds afterwards: a failure is dropped for good, not hidden,
 as soon as the workspace says the card reached that target, whatever moved it there, so no alert
-can outlive its target or come back if the card moves away again. Settlement tickets are kept
-per task as well, so answers batched with another task cannot erase the signal that restores
-keyboard focus. "Add a task" belongs to its column
+can outlive its target or come back if the card moves away again. A fulfilled command updates the
+saved-status snapshot immediately, so a queued refusal in the same microtask chain sees that save
+even before React renders it. Settlement tickets are kept per task as well, so answers batched
+with another task cannot erase the signal that restores keyboard focus. If authoritative target
+satisfaction removes a focused alert, focus returns to its card or column heading; unrelated
+focus is left alone. "Add a task" belongs to its column
 rather than to a card, and a column adds one task at a time: while its call is out, and once that
 call has been refused, the column's "Add a task" reads as unavailable (`aria-disabled`, and
 `aria-busy` while the call is out) and does nothing, so the refusal keeps its place until the

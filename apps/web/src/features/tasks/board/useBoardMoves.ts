@@ -78,7 +78,7 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
    */
   const calling = useRef(new Set<string>());
   const sequence = useRef(0);
-  /** The saved statuses as they are when an answer arrives, not as they were when it was asked. */
+  /** Saved workspace statuses, including fulfilled commands before React commits their updates. */
   const saved = useRef(all);
   saved.current = all;
 
@@ -112,7 +112,12 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
       };
 
       commands.move(taskId, asked.to).then(
-        () => answered(false),
+        (task) => {
+          // The workspace dispatched this save, but a queued refusal can answer before React
+          // renders it. Keep that fulfilled result rather than reading a pre-success snapshot.
+          saved.current = saved.current.map((current) => (current.id === taskId ? task : current));
+          answered(false);
+        },
         () => answered(true),
       );
     },

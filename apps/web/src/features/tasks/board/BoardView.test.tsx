@@ -1046,7 +1046,7 @@ describe("authoritative move settlement", () => {
     await act(async () => forward());
     if (separateRender) {
       // Give the successful save its own React commit before the reverse call refuses.
-      expect(service.tasks.find((task) => task.title === PRD)?.status).toBe("progress");
+      expect((await service.get("t5"))?.status).toBe("progress");
       await act(async () => reverse());
     }
 
