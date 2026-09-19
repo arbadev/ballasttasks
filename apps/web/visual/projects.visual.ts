@@ -248,3 +248,40 @@ test("the dialog's entrance respects prefers-reduced-motion", async ({ browser }
   expect(duration).toBe("1e-05s");
   await context.close();
 });
+
+test("the first-task placeholder is the muted text token, at 4.5:1 or better on its background", async ({ browser }) => {
+  const { context, page } = await openApp(browser, VIEWPORTS[0]);
+  await control(page).click();
+  await page.keyboard.type("Marketing");
+  await page.keyboard.press("Enter");
+  await page.clock.runFor(1000);
+
+  const result = await page.getByPlaceholder("Name the first task and press Enter").evaluate((input) => {
+    const probe = document.body.appendChild(document.createElement("span"));
+    probe.style.color = "var(--fg-3)";
+    const token = getComputedStyle(probe).color;
+    probe.remove();
+
+    const channels = (colour: string) => (colour.match(/[\d.]+/g) ?? []).map(Number);
+    const luminance = (colour: string) => {
+      const [r, g, b] = channels(colour).map((c) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    // The input is transparent: its background is the first opaque surface behind it.
+    let surface = "";
+    for (let el: Element | null = input; el && !surface; el = el.parentElement) {
+      const background = getComputedStyle(el).backgroundColor;
+      if ((channels(background)[3] ?? 1) === 1) surface = background;
+    }
+    const style = getComputedStyle(input, "::placeholder");
+    const [light, dark] = [luminance(style.color), luminance(surface)].sort((a, b) => b - a);
+    return { placeholder: style.color, opacity: style.opacity, token, surface, contrast: Number(((light + 0.05) / (dark + 0.05)).toFixed(2)) };
+  });
+
+  expect(result.placeholder).toBe(result.token);
+  expect(result.opacity).toBe("1");
+  expect(result.contrast).toBeGreaterThanOrEqual(4.5);
+  test.info().annotations.push({ type: "placeholder contrast", description: `${result.placeholder} on ${result.surface} = ${result.contrast}:1` });
+  console.log(`first-task placeholder: ${result.placeholder} on ${result.surface} = ${result.contrast}:1`);
+  await context.close();
+});

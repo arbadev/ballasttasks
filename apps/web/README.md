@@ -110,7 +110,8 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 and runs four suites from `visual/`:
+`npm run test:visual` starts the app on port 47812 (`BT_VISUAL_PORT` moves it; an app already
+listening there is reused, so two checkouts must not share a port) and runs four suites from `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
