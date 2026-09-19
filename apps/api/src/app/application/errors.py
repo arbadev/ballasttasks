@@ -17,6 +17,18 @@ class StoredTaskInvalid(RuntimeError):  # noqa: N818 - named for what happened
         self.task_id = task_id
 
 
+class InvalidAssigneeError(Exception):
+    """The assignee is not a user who can be given a task: unknown, or no longer active.
+
+    One error and one message for both, from the ``UserDirectory`` check and from the
+    repository when the store itself refuses the assignee.
+    """
+
+    def __init__(self, assignee_id: uuid.UUID) -> None:
+        super().__init__("assignee_id must be the id of an active user")
+        self.assignee_id = assignee_id
+
+
 class EmailAlreadyRegisteredError(Exception):
     """A user with this (normalised) email already exists."""
 

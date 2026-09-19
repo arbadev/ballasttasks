@@ -10,7 +10,7 @@ from alembic.migration import MigrationContext
 
 import app.infrastructure.db.models  # noqa: F401  (registers the tables on Base.metadata)
 from app.infrastructure.db.base import Base
-from tests.postgres import run_alembic, temporary_database
+from tests.postgres import INSERT_USER, run_alembic, temporary_database, user_row
 
 pytestmark = pytest.mark.integration
 
@@ -69,14 +69,20 @@ def test_the_database_rejects_a_status_outside_the_vocabulary(
 ) -> None:
     upgrade(empty_database)
 
+    creator = user_row()
     insert = sqlalchemy.text(
         "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at) "
-        "VALUES (gen_random_uuid(), 't', :status, gen_random_uuid(), now(), now())"
+        "VALUES (gen_random_uuid(), 't', :status, :created_by, now(), now())"
     )
     with empty_database.begin() as connection:
-        connection.execute(insert, {"status": "todo"})
-    with pytest.raises(sqlalchemy.exc.IntegrityError), empty_database.begin() as connection:
-        connection.execute(insert, {"status": "archived"})
+        connection.execute(INSERT_USER, creator)
+        connection.execute(insert, {"status": "todo", "created_by": creator["id"]})
+    with (
+        pytest.raises(sqlalchemy.exc.IntegrityError) as error,
+        empty_database.begin() as connection,
+    ):
+        connection.execute(insert, {"status": "archived", "created_by": creator["id"]})
+    assert "ck_tasks_status" in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -91,16 +97,23 @@ def test_the_database_rejects_a_completed_at_that_does_not_follow_the_status(
 ) -> None:
     upgrade(empty_database)
 
+    creator = user_row()
     insert = sqlalchemy.text(
         "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at, completed_at) "
-        "VALUES (gen_random_uuid(), 't', :status, gen_random_uuid(), now(), now(), "
+        "VALUES (gen_random_uuid(), 't', :status, :created_by, now(), now(), "
         "CAST(:completed_at AS timestamptz))"
     )
+    by = {"created_by": creator["id"]}
     with empty_database.begin() as connection:
-        connection.execute(insert, {"status": "done", "completed_at": datetime.now(UTC)})
-        connection.execute(insert, {"status": "todo", "completed_at": None})
-    with pytest.raises(sqlalchemy.exc.IntegrityError), empty_database.begin() as connection:
-        connection.execute(insert, {"status": status, "completed_at": completed_at})
+        connection.execute(INSERT_USER, creator)
+        connection.execute(insert, by | {"status": "done", "completed_at": datetime.now(UTC)})
+        connection.execute(insert, by | {"status": "todo", "completed_at": None})
+    with (
+        pytest.raises(sqlalchemy.exc.IntegrityError) as error,
+        empty_database.begin() as connection,
+    ):
+        connection.execute(insert, by | {"status": status, "completed_at": completed_at})
+    assert "ck_tasks_completed_at_follows_status" in str(error.value)
 
 
 def test_downgrade_to_base_removes_the_tables(empty_database: sqlalchemy.Engine) -> None:

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors import EmailAlreadyRegisteredError
 from app.domain.user import User
+from app.infrastructure.db.constraints import violated_constraint
 from app.infrastructure.db.models.user import EMAIL_UNIQUE_CONSTRAINT, UserModel
 
 
@@ -27,7 +28,7 @@ class SqlAlchemyUserRepository:
                 self._session.add(_to_model(user))
         except IntegrityError as error:
             # The unique constraint, not a prior SELECT, is what makes registration race-safe.
-            if _violated_constraint(error) == EMAIL_UNIQUE_CONSTRAINT:
+            if violated_constraint(error) == EMAIL_UNIQUE_CONSTRAINT:
                 raise EmailAlreadyRegisteredError(user.email) from error
             raise
 
@@ -38,12 +39,6 @@ class SqlAlchemyUserRepository:
     async def get_by_email(self, email: str) -> User | None:
         model = await self._session.scalar(select(UserModel).where(UserModel.email == email))
         return None if model is None else _to_entity(model)
-
-
-def _violated_constraint(error: IntegrityError) -> str | None:
-    diagnostics = getattr(error.orig, "diag", None)
-    name = getattr(diagnostics, "constraint_name", None)
-    return name if isinstance(name, str) else None
 
 
 def _to_model(user: User) -> UserModel:

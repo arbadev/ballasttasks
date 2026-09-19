@@ -11,6 +11,18 @@ from app.application.errors import EmailAlreadyRegisteredError, InvalidTokenErro
 from app.domain.user import User
 
 
+def a_user(*, is_active: bool = True) -> User:
+    """A user nobody logs in as: someone to create tasks or to be assigned them."""
+    return User(
+        id=uuid.uuid4(),
+        email=f"{uuid.uuid4().hex}@example.com",
+        full_name="Grace Hopper",
+        hashed_password="not-a-real-hash",
+        is_active=is_active,
+        created_at=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
+    )
+
+
 def _refuse_nul(*values: str) -> None:
     if any("\x00" in value for value in values):
         raise ValueError("PostgreSQL text cannot contain NUL (0x00) characters")
@@ -38,6 +50,17 @@ class InMemoryUserRepository:
     async def get_by_email(self, email: str) -> User | None:
         _refuse_nul(email)
         return next((user for user in self._users.values() if user.email == email), None)
+
+
+class InMemoryUserDirectory:
+    """UserDirectory double: reads the users fake, so whoever registered can be assigned."""
+
+    def __init__(self, users: InMemoryUserRepository) -> None:
+        self._users = users
+
+    async def is_active_user(self, user_id: uuid.UUID) -> bool:
+        user = await self._users.get_by_id(user_id)
+        return user is not None and user.is_active
 
 
 class FakePasswordHasher:
