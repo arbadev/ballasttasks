@@ -1,6 +1,6 @@
 """Rate limiting over HTTP: which budget a request spends, the 429, and the headers.
 
-A router (or route) opts in with one of two dependencies; a route without one, like the
+A router (or route) opts in with one of three dependencies; a route without one, like the
 health endpoints, is not limited:
 
 - ``limit_auth_attempts``: the strict ``auth`` policy, keyed by client IP. For the routes
@@ -9,8 +9,11 @@ health endpoints, is not limited:
   resolves to a user, otherwise the ``anonymous`` policy keyed by client IP (the route then
   answers its 401). A user keeps one budget across addresses, and users who share an
   address (an office, a carrier NAT) do not spend each other's.
+- ``limit_streaming_requests``: those same two policies for a route that streams its body,
+  naming the caller apart from the request's unit of work (ADR 0008).
 
-Both are the same few lines, ``_enforce``; they differ only in how they name the caller.
+All three are the same few lines, ``_enforce``; they differ only in how they name the
+caller.
 The decision is left on ``request.state`` and ``RateLimitHeadersMiddleware`` copies it onto
 whatever response follows, so a 401, 404 or 422 carries the headers too, not only a 2xx.
 
