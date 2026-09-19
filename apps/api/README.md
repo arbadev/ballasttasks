@@ -14,10 +14,9 @@ Celery + Redis. PostgreSQL everywhere, including tests.
 | `app.bootstrap` | composition root: the only importer of concrete adapters | everything |
 | `app.main` | `create_app()`: settings -> bootstrap -> routes | `bootstrap`, `api` |
 
-Swapping or adding an adapter = a new adapter file, one registration line
-(`infrastructure/ai/registry.py` for AI providers, `bootstrap.py` for health checks,
-`infrastructure/jobs/tasks.py` for jobs), one line in the port's contract suite
-(`tests/contract/`), and an env change.
+Swapping or adding an adapter = a new adapter file, one registration line, one line in the
+port's contract suite (`tests/contract/`), and an env change. Where each kind of adapter is
+registered: "How to add an adapter" in [`docs/architecture.md`](../../docs/architecture.md#how-to-add-an-adapter).
 
 ## Commands (run from `apps/api`)
 
@@ -25,7 +24,7 @@ Swapping or adding an adapter = a new adapter file, one registration line
 uv sync                                   # install (locked)
 uv run pytest --cov                       # default suite: needs NO PostgreSQL/Redis, coverage >= 80%
 uv run pytest -m integration              # needs DATABASE__URL, REDIS__URL (live services) and AUTH__JWT_SECRET
-uv run pytest -m live                     # opt-in: calls the real AI provider (AI__PROVIDER + AI__API_KEY), skipped without a key
+uv run pytest -m live                     # opt-in: calls real third parties (AI provider, Google sign-in), skipped without their credentials
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests
 uv run lint-imports
@@ -36,8 +35,8 @@ uv run uvicorn app.main:create_app --factory --reload --no-proxy-headers
 uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 ```
 
-Configuration is environment-only (`APP__*`, `DATABASE__URL`, `REDIS__URL`, `AI__*`, `AUTH__*`, `CORS__*`);
-for local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
+Configuration is environment-only; every variable is documented in the repo-root `.env.example`.
+For local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
 
 ## Docker
 
