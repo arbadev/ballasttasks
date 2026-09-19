@@ -1,4 +1,4 @@
-"""ASGI entrypoint: ``uvicorn app.main:create_app --factory``."""
+"""ASGI entrypoint: ``uvicorn app.main:create_app --factory --no-proxy-headers``."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
