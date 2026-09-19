@@ -178,9 +178,9 @@ async def test_the_workspace_end_to_end(client: httpx.AsyncClient) -> None:
 @pytest.mark.parametrize(
     ("path", "statements"),
     [
-        # One to authenticate the caller, then: the page and its total; the three counts of
-        # the summary; every project with its count.
-        ("/tasks?status=all&limit=200", 3),
+        # One to authenticate the caller, then: the page, its total and the attachment counts
+        # of the page; the three counts of the summary; every project with its count.
+        ("/tasks?status=all&limit=200", 4),
         ("/tasks/summary", 4),
         ("/projects", 2),
     ],

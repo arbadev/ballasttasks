@@ -333,3 +333,23 @@ def test_moving_to_another_project_keeps_the_key() -> None:
 def test_a_key_that_is_not_in_canonical_form_is_rejected(key: str) -> None:
     with pytest.raises(InvalidTaskError, match="key"):
         new_task(key=key)
+
+
+def test_touch_records_that_something_around_the_task_changed() -> None:
+    task = new_task()
+    untouched = new_task(task_id=task.id)
+
+    task.touch(now=LATER)
+
+    assert task.updated_at == LATER
+    untouched.updated_at = LATER
+    assert task == untouched
+
+
+def test_touch_needs_a_timezone_aware_moment() -> None:
+    task = new_task()
+
+    with pytest.raises(InvalidTaskError, match="timezone"):
+        task.touch(now=datetime(2026, 1, 6, 9, 0))
+
+    assert task.updated_at == CREATED

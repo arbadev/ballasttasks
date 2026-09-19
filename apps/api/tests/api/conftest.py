@@ -18,7 +18,12 @@ from tests.auth_fakes import (
     InMemoryUserDirectory,
     InMemoryUserRepository,
 )
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository, StubHealthCheck
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+    StubHealthCheck,
+)
 
 ClientFactory = Callable[
     [Sequence[HealthCheck] | None], AbstractAsyncContextManager[httpx.AsyncClient]
@@ -72,9 +77,15 @@ class RecordingRequestScopes:
     """Stands in for ``Container.request_scope``: the same in-memory repositories for
     every request, and a record of how each scope ended."""
 
-    def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes) -> None:
+    def __init__(
+        self,
+        tasks: InMemoryTaskRepository,
+        auth: AuthFakes,
+        attachments: InMemoryAttachmentRepository,
+    ) -> None:
         self.tasks = tasks
         self.auth = auth
+        self.attachments = attachments
         self.events: list[str] = []
         # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
         self.clock: Clock = utc_now
@@ -89,6 +100,7 @@ class RecordingRequestScopes:
                 user_directory=InMemoryUserDirectory(self.auth.users),
                 projects=self.tasks.projects,
                 people=InMemoryUserDirectory(self.auth.users),
+                attachments=self.attachments,
                 clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,
@@ -110,8 +122,17 @@ def tasks(auth_fakes: AuthFakes) -> InMemoryTaskRepository:
 
 
 @pytest.fixture
-def request_scopes(tasks: InMemoryTaskRepository, auth_fakes: AuthFakes) -> RecordingRequestScopes:
-    return RecordingRequestScopes(tasks, auth_fakes)
+def attachments(tasks: InMemoryTaskRepository) -> InMemoryAttachmentRepository:
+    return InMemoryAttachmentRepository(tasks)
+
+
+@pytest.fixture
+def request_scopes(
+    tasks: InMemoryTaskRepository,
+    auth_fakes: AuthFakes,
+    attachments: InMemoryAttachmentRepository,
+) -> RecordingRequestScopes:
+    return RecordingRequestScopes(tasks, auth_fakes, attachments)
 
 
 @pytest.fixture
