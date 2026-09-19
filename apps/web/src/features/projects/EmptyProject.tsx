@@ -13,6 +13,7 @@ export function useEmptyProject(): Project | null {
   const { projects } = useDirectory();
   const project = projects.find((p) => p.id === state.query.project);
   if (!project || state.load.status !== "ready") return null;
+  if (state.page) return state.page.projectHasTasks === false ? project : null;
   return state.tasks.some((t) => t.project === project.id) ? null : project;
 }
 

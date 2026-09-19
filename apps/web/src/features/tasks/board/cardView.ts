@@ -29,7 +29,9 @@ export function cardView(task: Task, now: number): CardView {
   const done = task.status === "done";
   const timed = u.overdue || u.today || u.soon;
   const hot = u.critical || (u.overdue && task.prio === 0);
-  const stepsDone = task.steps.filter((s) => s.done).length;
+  const stepsDone = task.tally?.done ?? task.steps.filter((s) => s.done).length;
+  const totalSteps = task.tally?.steps ?? task.steps.length;
+  const attachments = task.tally?.attachments ?? task.attachments.length;
 
   return {
     done,
@@ -40,8 +42,8 @@ export function cardView(task: Task, now: number): CardView {
     blink: u.blink,
     prioLabel: `P${task.prio}`,
     prioTone: hot ? "hot" : (`p${task.prio}` as CardView["prioTone"]),
-    stepsLabel: task.steps.length > 0 ? `${stepsDone}/${task.steps.length}` : null,
-    attachmentsLabel: task.attachments.length > 0 ? String(task.attachments.length) : null,
+    stepsLabel: totalSteps > 0 ? `${stepsDone}/${totalSteps}` : null,
+    attachmentsLabel: attachments > 0 ? String(attachments) : null,
     unassigned: u.unassigned,
   };
 }

@@ -1,4 +1,5 @@
 import type { Attachment, Person, Project, ProjectTone, Task, TaskStatus } from "../model/types";
+import type { TaskPage, TaskPageRequest } from "./query";
 
 /** Returns the current time in epoch milliseconds. Injected so tests and screenshots are deterministic. */
 export type Clock = () => number;
@@ -28,7 +29,10 @@ export type TaskPatch = Partial<Pick<Task, "title" | "description" | "assignee" 
  * Mutations on an unknown id reject with TaskNotFoundError.
  */
 export interface TaskService {
+  /** Legacy complete-list capability for explicit demo/test consumers. */
   list(): Promise<Task[]>;
+  /** Real workspace queries and pages on the server; never treats a page as the complete list. */
+  query?(request: TaskPageRequest): Promise<TaskPage>;
   get(id: string): Promise<Task | null>;
   create(input: NewTask): Promise<Task>;
   /**

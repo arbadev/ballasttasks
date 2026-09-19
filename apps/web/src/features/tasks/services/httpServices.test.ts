@@ -7,6 +7,7 @@ import { apiPerson, apiProject, apiTask } from "@/test/httpFixtures";
 import { HttpTaskService } from "./httpTaskService";
 import { HttpDirectoryService } from "./httpDirectoryService";
 import { ProjectRejectedError, TaskNotFoundError } from "./types";
+import { DEFAULT_QUERY } from "../model/filter";
 
 const base = "http://tasks.test";
 const client = () => new ApiClient(base, { token: () => "test-token" });
@@ -16,6 +17,41 @@ const detail = (task = apiTask()) => server.use(
 );
 
 describe("HTTP task adapter", () => {
+  it("sends filters, sort, search and offsets to the API and uses full-workspace summary counts", async () => {
+    server.use(
+      http.get(`${base}/tasks`, ({ request }) => {
+        expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({ scope: "mine", project_id: "project-id", status: "in_progress", due: "week", priority: "P0", q: "hello %_", signal: "needs_owner", sort: "due_date", limit: "50", offset: "50" });
+        return HttpResponse.json({ items: [apiTask()], total: 123, limit: 50, offset: 50 });
+      }),
+      http.get(`${base}/tasks/summary`, ({ request }) => {
+        expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({ project_id: "project-id" });
+        return HttpResponse.json({ counts: { all: 300, mine: 200, overdue: 10 }, projects: [apiProject], signals: { overdue: 5, p0_at_risk: 3, due_soon: 4, needs_owner: 6 } });
+      }),
+    );
+    const page = await new HttpTaskService(client()).query({ query: { ...DEFAULT_QUERY, scope: "mine", project: "project-id", status: "progress", due: "week", priority: "0", search: " hello %_ ", signal: "unassigned" }, sort: "due", board: false, offset: 50 });
+    expect(page).toMatchObject({ total: 123, headerTotal: 123, offset: 50, limit: 50, projectHasTasks: true, sidebar: { all: 300, mine: 200, overdue: 10, byProject: { "project-id": 1 } }, signals: { overdue: 5, critical: 3, soon: 4, unassigned: 6 } });
+    expect(page.tasks).toHaveLength(1);
+  });
+
+  it("ignores only status on the board, obtains complete column/header totals and detects done-only projects", async () => {
+    const counts: Record<string, number> = { todo: 6, in_progress: 4, testing: 3, done: 8 };
+    server.use(
+      http.get(`${base}/tasks`, ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        if (!params.has("q")) {
+          expect(params.get("status")).toBe("all");
+          return HttpResponse.json({ items: [apiTask({ status: "done" })], total: 8, limit: 1, offset: 0 });
+        }
+        expect(params.get("q")).toBe("needle");
+        const total = params.get("status") === "all" ? 21 : counts[params.get("status")!];
+        return HttpResponse.json({ items: [], total, limit: Number(params.get("limit")), offset: 0 });
+      }),
+      http.get(`${base}/tasks/summary`, () => HttpResponse.json({ counts: { all: 0, mine: 0, overdue: 0 }, projects: [{ ...apiProject, open_tasks: 0 }], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } })),
+    );
+    const page = await new HttpTaskService(client()).query({ query: { ...DEFAULT_QUERY, project: "project-id", search: "needle" }, sort: "importance", board: true, offset: 0 });
+    expect(page).toMatchObject({ total: 21, headerTotal: 13, columns: { todo: 6, progress: 4, testing: 3, done: 8 }, projectHasTasks: true });
+  });
+
   it("loads every list page with all statuses and preserves keys/tallies without fake children", async () => {
     const pages: number[] = [];
     server.use(http.get(`${base}/tasks`, ({ request }) => {

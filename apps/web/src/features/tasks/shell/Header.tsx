@@ -27,7 +27,8 @@ export function Header({ navigationId, navigationOpen, onOpenNavigation }: Heade
   const { projects } = useDirectory();
   const commands = useTaskCommands();
   // The count always describes the list's filters, as in the design, even on the board.
-  const count = useVisibleTasks().length;
+  const loadedCount = useVisibleTasks().length;
+  const count = state.page?.headerTotal ?? loadedCount;
   const project = projects.find((p) => p.id === state.query.project);
 
   return (

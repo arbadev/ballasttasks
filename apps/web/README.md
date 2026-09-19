@@ -41,6 +41,21 @@ The bearer credential lives **only in memory**. Full reloads and new tabs requir
 again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
 Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
 to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
+Next development request logs exclude `/auth/callback`; deployment proxy/access logs must
+also omit callback query strings. Real-vendor OAuth setup and primary-stack activation are
+separate operator actions, not performed by the local fake-provider tests.
+
+The HTTP workspace uses the API's filters, sorting, search and limit/offset pages (50 rows),
+not client filtering over the first page. Page/filter changes discard stale requests;
+mutations reload canonical query results and counts. Sidebar counts describe the whole
+workspace; Attention counts describe open work in the selected project, as in the design.
+Board queries ignore only the status filter, with per-column totals fetched from the API;
+the header still describes the list's status filter. Pagination is across all columns.
+Already-loaded views stay mounted during refresh (marked busy), preserving pending gestures
+and focus. Full-scope column totals do not hide optimistic cards or imply every card is on
+this page; columns with off-page rows say so.
+Selected-task detail/activity is loaded separately, not once per list row. The complete
+`TaskService.list()` remains a legacy/demo capability, not the HTTP workspace's data path.
 
 `client.ts` attaches bearer headers, carries Retry-After, uploads multipart files and returns
 authenticated download blobs (never bearer URLs). It fences both late responses and queued
@@ -48,7 +63,10 @@ work from an obsolete session. Client disposal does not undo an already accepted
 Generation handles belong to tasks; observation pauses when not selected/visible/subscribed,
 uses 2/4/8/10-second delays, respects Retry-After and stops at terminal results. Proposals
 are accepted through one atomic bulk endpoint; an ambiguous acceptance must be checked by
-reloading the task, not blindly retried. The API's 100-step ceiling remains authoritative.
+reloading the task, not blindly retried. The API's 100-step ceiling remains authoritative;
+a single bulk request accepts at most 20 titles. The explicit demo follows per-task proposal,
+local-only discard and accepting-user activity semantics too. The shared 120 requests/60s
+allowance is unchanged; it is not a generation quota or paid-provider cost budget.
 
 SWR was evaluated via Context7's `/vercel/swr` and `/vercel/swr-site` official sources,
 with the 2.5.1 tag checked against React 19. It is not added: the existing workspace and
@@ -112,16 +130,20 @@ than `useTaskService()` directly.
 | `create({ title, status? }, { open? })` | `create` | List quick-add and the empty project's first task (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
 | `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
-| `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
+| `update(id, patch, note?)` | `update` | Detail fields. The API owns assignment/due-date/priority event wording; legacy `note` is ignored, never posted as a comment or invented event. |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
-| `addAttachment(id, attachment)` | `addAttachment` | Detail attachments. |
+| `addAttachment(id, attachment)` | `addAttachment` | Link attachment with an absolute URL. |
+| `uploadAttachment`, `downloadAttachment`, `removeAttachment` | same names | Optional capabilities for older demo doubles; HTTP implements all three. Upload/removal synchronize workspace state; download returns an authenticated blob, never a credential-bearing URL. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
 **Step generation** (`useStepGenerationService()` from `@/app/providers`): `start(taskId)`,
-`subscribe(listener)` and `current()` to observe `running` then `proposed`, `removeProposed(stepId)`,
-`accept()` (then `commands.sync(task)`), `discard()`.
+`subscribe(listener)` and `current()` to observe `running`, `proposed` or `error`, `removeProposed(stepId)`,
+`accept()` (then `commands.sync(task)`), `discard()`. The workspace coordinates optional
+`select`, `setVisible` and `forget`; the composition root disposes obsolete session services.
+Discard writes no activity and does not cancel a server job. The selected task's `detailLoad`
+and `actions.reloadDetail()` distinguish a summary from complete children/activity.
 
 **Testing a view**: `renderWithServices(<YourView />, { tasks })` from `src/test/` gives fake
 services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026); wrap the view in
@@ -200,7 +222,7 @@ npm run test:visual          # Playwright (Chromium): see below
 npm run lint
 npm run typecheck
 npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
-npm run gen:api              # regenerate schema.d.ts from http://localhost:8000/openapi.json
+npm run gen:api -- http://localhost:8000/openapi.json  # use your OWN API URL; source is explicit
 ```
 
 Any change to an API response model is followed by `npm run gen:api` in the same commit.

@@ -3,94 +3,89 @@ import type { InMemoryTaskStore } from "./inMemoryTaskStore";
 import { draftStepsFor } from "./stepDrafts";
 import type { Generation, StepGenerationService } from "./types";
 
-/** How long the assistant "thinks" before proposing, as in the design. */
+/** How long the explicit demo provider takes to propose, as in the design. */
 export const GENERATION_DELAY_MS = 2200;
 
-/** The author id of assistant log entries. */
-const ASSISTANT_ID = "ai";
-
+/** Demo proposals share the HTTP contract: per-task, local discard, atomic acceptance. */
 export class InMemoryStepGenerationService implements StepGenerationService {
-  private generation: Generation | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly generations = new Map<string, Generation>();
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private selected: string | null = null;
   private readonly listeners = new Set<(generation: Generation | null) => void>();
 
   constructor(private readonly store: InMemoryTaskStore) {}
 
   async start(taskId: string): Promise<void> {
     const task = this.store.require(taskId);
-    if (this.generation?.taskId === taskId && this.generation.phase === "running") return;
-    this.cancelTimer();
-    this.set({ taskId, phase: "running" });
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      if (!this.store.find(taskId)) return this.set(null);
+    this.selected = taskId;
+    if (this.generations.get(taskId)?.phase === "running") return;
+    this.generations.set(taskId, { taskId, phase: "running" });
+    this.emit();
+    this.timers.set(taskId, setTimeout(() => {
+      this.timers.delete(taskId);
+      if (!this.store.find(taskId)) return this.forget(taskId);
       const steps = draftStepsFor(task.id).map((text) => ({ id: this.store.nextId("s"), text }));
-      this.set({ taskId, phase: "proposed", steps });
-    }, GENERATION_DELAY_MS);
+      this.generations.set(taskId, { taskId, phase: "proposed", steps });
+      this.emit();
+    }, GENERATION_DELAY_MS));
   }
 
   current(): Generation | null {
-    return this.generation;
+    return this.selected ? this.generations.get(this.selected) ?? null : null;
   }
+
+  select(taskId: string | null): void { this.selected = taskId; this.emit(); }
 
   subscribe(listener: (generation: Generation | null) => void): () => void {
     this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => { this.listeners.delete(listener); };
   }
 
   removeProposed(stepId: string): void {
-    const g = this.generation;
+    const g = this.current();
     if (g?.phase !== "proposed") return;
-    this.set({ ...g, steps: g.steps.filter((s) => s.id !== stepId) });
+    this.generations.set(g.taskId, { ...g, steps: g.steps.filter((s) => s.id !== stepId) });
+    this.emit();
   }
 
   async accept(): Promise<Task | null> {
-    const g = this.generation;
-    if (g?.phase !== "proposed") return null;
+    const g = this.current();
+    if (g?.phase !== "proposed" || !g.steps.length) return null;
     if (!this.store.find(g.taskId)) {
-      this.set(null);
+      this.forget(g.taskId);
       return null;
     }
     const n = g.steps.length;
     const now = this.store.now();
-    const task = this.store.replace(g.taskId, (t) => ({
-      ...t,
-      updatedAt: now,
-      steps: [...t.steps, ...g.steps.map((s) => ({ id: s.id, text: s.text, done: false }))],
-      activity: [...t.activity, { type: "log", who: ASSISTANT_ID, text: `Drafted ${n} step${n === 1 ? "" : "s"} · added by ${this.actor()}`, at: now }],
-    }));
-    this.set(null);
+    const task = this.store.replace(g.taskId, (t) => {
+      if (t.steps.length + n > 100) throw new Error("A task can hold at most 100 steps. No steps were added.");
+      return {
+        ...t, updatedAt: now,
+        steps: [...t.steps, ...g.steps.map((s) => ({ id: s.id, text: s.text, done: false }))],
+        activity: [...t.activity, { type: "log", who: this.store.currentUserId, text: `Drafted ${n} step${n === 1 ? "" : "s"} · added by ${this.actor()}`, at: now }],
+      };
+    });
+    this.forget(g.taskId);
     return task;
   }
 
-  async discard(): Promise<void> {
-    const g = this.generation;
-    if (!g) return;
-    this.cancelTimer();
-    if (!this.store.find(g.taskId)) return this.set(null);
-    const now = this.store.now();
-    // The design leaves updatedAt alone here: a discarded draft did not change the task.
-    this.store.replace(g.taskId, (t) => ({
-      ...t,
-      activity: [...t.activity, { type: "log", who: ASSISTANT_ID, text: `Draft discarded by ${this.actor()}`, at: now }],
-    }));
-    this.set(null);
+  async discard(): Promise<void> { if (this.selected && this.generations.has(this.selected)) this.forget(this.selected); }
+
+  forget(taskId: string): void {
+    clearTimeout(this.timers.get(taskId));
+    this.timers.delete(taskId);
+    this.generations.delete(taskId);
+    this.emit();
   }
 
-  /** The current user's first name, as the assistant's log lines address them. */
-  private actor(): string {
-    return this.store.personName(this.store.currentUserId).split(" ")[0];
+  dispose(): void {
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    this.generations.clear();
+    this.selected = null;
+    this.listeners.clear();
   }
 
-  private cancelTimer(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
-  }
-
-  private set(generation: Generation | null): void {
-    this.generation = generation;
-    this.listeners.forEach((listener) => listener(generation));
-  }
+  private actor(): string { return this.store.personName(this.store.currentUserId).split(" ")[0]; }
+  private emit(): void { this.listeners.forEach((listener) => listener(this.current())); }
 }

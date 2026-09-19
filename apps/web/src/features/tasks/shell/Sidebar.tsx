@@ -35,7 +35,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
   const { people, projects, currentUser } = useDirectory();
   const now = useNow();
   const loaded = state.load.status === "ready";
-  const counts = sidebarCounts(state.tasks, { now, currentUserId: currentUser?.id ?? "" });
+  const counts = state.page?.sidebar ?? sidebarCounts(state.tasks, { now, currentUserId: currentUser?.id ?? "" });
   const scopeCount = { all: counts.all, mine: counts.mine, overdue: counts.overdue };
 
   return (

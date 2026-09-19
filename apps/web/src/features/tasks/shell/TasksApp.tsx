@@ -10,6 +10,7 @@ import { AttentionStrip } from "./AttentionStrip";
 import { FilterToolbar } from "./FilterToolbar";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
+import { TaskPagination } from "./TaskPagination";
 
 /** The tasks application: workspace state plus the shell that mounts the three views. */
 export function TasksApp() {
@@ -57,6 +58,7 @@ function Shell() {
         ) : (
           <BoardView />
         )}
+        <TaskPagination />
       </main>
       <TaskDetail />
     </div>

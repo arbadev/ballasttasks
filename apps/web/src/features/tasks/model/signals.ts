@@ -41,8 +41,13 @@ export function attentionSignals(
     .filter((t) => t.status !== "done" && (context.project === "all" || t.project === context.project))
     .map((t) => urgency(t, context.now));
 
+  return signalsFromCounts(Object.fromEntries(DEFINITIONS.map((d) => [d.id, scoped.filter(d.matches).length])) as Record<SignalId, number>, context.active);
+}
+
+/** Server summary counts use the same labels/tones without inventing representative tasks. */
+export function signalsFromCounts(counts: Record<SignalId, number>, active: SignalId | null): AttentionSignal[] {
   return DEFINITIONS.map((d) => {
-    const count = scoped.filter(d.matches).length;
-    return { id: d.id, label: count === 1 ? d.one : d.many, count, tone: d.tone, blink: d.blink, active: context.active === d.id };
+    const count = counts[d.id];
+    return { id: d.id, label: count === 1 ? d.one : d.many, count, tone: d.tone, blink: d.blink, active: active === d.id };
   }).filter((s) => s.count > 0 || s.active);
 }

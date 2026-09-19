@@ -3,7 +3,7 @@ import type { ActivityEntry, Attachment, Task, TaskStatus } from "../model/types
 import type { InMemoryTaskStore } from "./inMemoryTaskStore";
 import type { NewTask, TaskPatch, TaskService } from "./types";
 
-/** TaskService over the shared in-memory store. Logs activity exactly as the design does. */
+/** Explicit demo adapter. Mutation event wording follows domain/activity_log.py in the API. */
 export class InMemoryTaskService implements TaskService {
   constructor(private readonly store: InMemoryTaskStore) {}
 
@@ -38,11 +38,16 @@ export class InMemoryTaskService implements TaskService {
   }
 
   async update(id: string, patch: TaskPatch, note?: string): Promise<Task> {
+    void note; // Deprecated compatibility hint, not an event-writing capability.
     const clean = { ...patch };
     if (clean.importance !== undefined) clean.importance = Math.max(0, Math.min(100, clean.importance));
     return this.store.replace(id, (task) => {
-      const text = note ?? this.assignmentNote(task, clean);
-      return this.touch({ ...task, ...clean }, text);
+      const logs: string[] = [];
+      const assignment = this.assignmentNote(task, clean);
+      if (assignment) logs.push(assignment);
+      if (clean.due !== undefined && clean.due !== task.due) logs.push(this.dueNote(task.due, clean.due));
+      if (clean.prio !== undefined && clean.prio !== task.prio) logs.push(`Priority P${task.prio} → P${clean.prio}`);
+      return this.touch({ ...task, ...clean }, logs);
     });
   }
 
@@ -62,14 +67,16 @@ export class InMemoryTaskService implements TaskService {
   async addStep(id: string, text: string): Promise<Task> {
     const trimmed = text.trim();
     if (!trimmed) return this.store.require(id);
-    return this.store.replace(id, (t) =>
-      this.touch({ ...t, steps: [...t.steps, { id: this.store.nextId("s"), text: trimmed, done: false }] }),
-    );
+    return this.store.replace(id, (t) => {
+      if (t.steps.length >= 100) throw new Error("A task can hold at most 100 steps.");
+      return this.touch({ ...t, steps: [...t.steps, { id: this.store.nextId("s"), text: trimmed, done: false }] }, `Added step “${trimmed}”`);
+    });
   }
 
   async toggleStep(id: string, stepId: string): Promise<Task> {
     return this.store.replace(id, (t) =>
-      this.touch({ ...t, steps: t.steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) }),
+      this.touch({ ...t, steps: t.steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)) },
+        t.steps.find((s) => s.id === stepId && !s.done) ? `Completed step “${t.steps.find((s) => s.id === stepId)!.text}”` : undefined),
     );
   }
 
@@ -100,13 +107,25 @@ export class InMemoryTaskService implements TaskService {
     return patch.assignee ? `Assigned to ${this.store.personName(patch.assignee)}` : "Unassigned";
   }
 
+  private dueNote(old: string | null, next: string | null): string {
+    if (next === null) return "Due date cleared";
+    const today = new Date(this.store.now()).toISOString().slice(0, 10);
+    const after = (date: string, days: number) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    if (next === after(today, 1)) return "Due date moved to tomorrow";
+    if (next === after(old && old > today ? old : today, 7)) return "Due date moved a week out";
+    const date = new Date(`${next}T00:00:00Z`);
+    const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()];
+    return `Due date moved to ${month} ${date.getUTCDate()}${next.slice(0, 4) === today.slice(0, 4) ? "" : `, ${date.getUTCFullYear()}`}`;
+  }
+
   private log(text: string, at: number): ActivityEntry {
     return { type: "log", who: this.store.currentUserId, text, at };
   }
 
   /** Stamps updatedAt and, when there is something to say, appends a log entry. */
-  private touch(task: Task, logText?: string): Task {
+  private touch(task: Task, logText?: string | string[]): Task {
     const now = this.store.now();
-    return { ...task, updatedAt: now, activity: logText ? [...task.activity, this.log(logText, now)] : task.activity };
+    const logs = typeof logText === "string" ? [logText] : logText ?? [];
+    return { ...task, updatedAt: now, activity: logs.length ? [...task.activity, ...logs.map((text) => this.log(text, now))] : task.activity };
   }
 }

@@ -2,6 +2,7 @@ import { ApiError, type HttpTransport } from "@/lib/api/client";
 import type { Attachment, Task, TaskStatus } from "../model/types";
 import { TaskNotFoundError, type NewTask, type TaskPatch, type TaskService } from "./types";
 import { apiStatus, attachmentFromApi, taskFromApi, type Schemas } from "./httpMapping";
+import type { TaskPage, TaskPageRequest } from "./query";
 
 const pathFor = (id: string) => `/tasks/${encodeURIComponent(id)}`;
 
@@ -9,6 +10,46 @@ const pathFor = (id: string) => `/tasks/${encodeURIComponent(id)}`;
 export class HttpTaskService implements TaskService {
   private writes = new Map<string, Promise<unknown>>();
   constructor(private readonly client: HttpTransport) {}
+
+  async query({ query, sort, board, offset, limit = 50 }: TaskPageRequest): Promise<TaskPage> {
+    const params = new URLSearchParams({ scope: query.scope, status: board ? "all" : query.status === "progress" ? "in_progress" : query.status });
+    if (query.project !== "all") params.set("project_id", query.project);
+    if (query.due !== "any") params.set("due", query.due);
+    if (query.priority !== "any") params.set("priority", `P${query.priority}`);
+    if (query.search.trim()) params.set("q", query.search.trim());
+    if (query.signal) params.set("signal", ({ overdue: "overdue", critical: "p0_at_risk", soon: "due_soon", unassigned: "needs_owner" } as const)[query.signal]);
+    params.set("sort", sort === "due" ? "due_date" : sort);
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    // The design's Attention strip describes open work in the project, independent of toolbar/scope.
+    const summaryParams = new URLSearchParams(query.project === "all" ? {} : { project_id: query.project });
+    const [page, summary, columnEntries] = await Promise.all([
+      this.client.get<Schemas["TaskListResponse"]>(`/tasks?${params}`),
+      this.client.get<Schemas["TaskSummaryResponse"]>(`/tasks/summary${summaryParams.size ? `?${summaryParams}` : ""}`),
+      board ? Promise.all((["todo", "progress", "testing", "done"] as const).map(async (status) => {
+        const countParams = new URLSearchParams(params);
+        countParams.set("status", apiStatus(status)); countParams.set("limit", "1"); countParams.set("offset", "0");
+        const count = await this.client.get<Schemas["TaskListResponse"]>(`/tasks?${countParams}`);
+        return [status, count.total] as const;
+      })) : Promise.resolve(null),
+    ]);
+    const columns = columnEntries ? Object.fromEntries(columnEntries) as Record<TaskStatus, number> : undefined;
+    const headerTotal = columns ? query.status === "all" ? page.total : query.status === "open"
+      ? columns.todo + columns.progress + columns.testing : columns[query.status] : page.total;
+    let projectHasTasks: boolean | undefined;
+    if (query.project !== "all") {
+      projectHasTasks = (summary.projects.find((p) => p.id === query.project)?.open_tasks ?? 0) > 0;
+      if (!projectHasTasks) {
+        const existence = await this.client.get<Schemas["TaskListResponse"]>(`/tasks?${new URLSearchParams({ project_id: query.project, status: "all", limit: "1", offset: "0" })}`);
+        projectHasTasks = existence.total > 0;
+      }
+    }
+    return {
+      tasks: page.items.map(taskFromApi), total: page.total, offset: page.offset, limit: page.limit, headerTotal, columns, projectHasTasks,
+      sidebar: { ...summary.counts, byProject: Object.fromEntries(summary.projects.map((p) => [p.id, p.open_tasks])) },
+      signals: { overdue: summary.signals.overdue, critical: summary.signals.p0_at_risk, soon: summary.signals.due_soon, unassigned: summary.signals.needs_owner },
+    };
+  }
 
   async list(): Promise<Task[]> {
     const tasks = new Map<string, Task>();

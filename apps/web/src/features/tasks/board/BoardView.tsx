@@ -29,12 +29,12 @@ export function BoardView() {
   const { state, actions } = useWorkspace();
 
   return (
-    <section aria-label="Board" className="flex min-w-0 flex-1 flex-col">
-      {state.load.status === "loading" && <BoardSkeleton />}
+    <section aria-label="Board" aria-busy={state.load.status === "loading"} className="flex min-w-0 flex-1 flex-col">
+      {state.load.status === "loading" && !state.page && <BoardSkeleton />}
       {state.load.status === "error" && (
         <BoardLoadError detail={state.load.message === LOAD_FAILED_WITHOUT_DETAIL ? undefined : state.load.message} onRetry={actions.reload} />
       )}
-      {state.load.status === "ready" && <Board />}
+      {(state.page || state.load.status === "ready") && <Board />}
     </section>
   );
 }
@@ -173,7 +173,8 @@ function Board() {
             <BoardColumn
               key={status.id}
               status={status}
-              count={tasks.length}
+              count={state.page?.columns?.[status.id] ?? tasks.length}
+              visibleCount={tasks.length}
               dropTarget={overStatus === status.id}
               onDragOver={(event: DragEvent<HTMLElement>) => {
                 event.preventDefault();
