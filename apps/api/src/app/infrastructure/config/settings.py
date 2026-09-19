@@ -107,6 +107,36 @@ class AuthSettings(_Group):
         return self
 
 
+class _RateLimitPolicySettings(_Group):
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(default=60, gt=0)
+
+
+class AuthRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=10, gt=0)
+
+
+class AuthenticatedRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=120, gt=0)
+
+
+class AnonymousRateLimitSettings(_RateLimitPolicySettings):
+    limit: int = Field(default=60, gt=0)
+
+
+class RateLimitSettings(_Group):
+    """Three policies; each variable overrides its own default (``RATE_LIMIT__AUTH__LIMIT``)."""
+
+    enabled: bool = True
+    # Only behind a reverse proxy that sets X-Forwarded-For itself: see api/rate_limit.py.
+    trust_proxy: bool = False
+    # Environments that share one Redis keep their counters apart with this.
+    key_prefix: str = Field(default="ratelimit", min_length=1)
+    auth: AuthRateLimitSettings = AuthRateLimitSettings()
+    authenticated: AuthenticatedRateLimitSettings = AuthenticatedRateLimitSettings()
+    anonymous: AnonymousRateLimitSettings = AnonymousRateLimitSettings()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__", frozen=True, extra="ignore", hide_input_in_errors=True
@@ -118,6 +148,7 @@ class Settings(BaseSettings):
     ai: AiSettings = AiSettings()
     auth: AuthSettings
     cors: CorsSettings = CorsSettings()
+    rate_limit: RateLimitSettings = RateLimitSettings()
 
 
 def load_settings(*, valid_ai_providers: Collection[str]) -> Settings:

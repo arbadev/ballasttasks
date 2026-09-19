@@ -45,4 +45,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER app
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# --no-proxy-headers: request.client stays the TCP peer; X-Forwarded-For is read only by
+# api/rate_limit.py, and only with RATE_LIMIT__TRUST_PROXY=true (ADR 0004).
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
