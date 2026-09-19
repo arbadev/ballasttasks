@@ -46,7 +46,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
       )}
     >
       <div className="flex items-center gap-2.5 px-[18px] pt-[18px] pb-3.5">
-        <span className="grid size-[22px] place-items-center rounded-r-sm bg-acc text-acc-fg shadow-glow">
+        <span className="grid size-[22px] place-items-center rounded-bt-sm bg-acc text-acc-fg shadow-glow">
           <Check aria-hidden="true" size={12} strokeWidth={3.5} />
         </span>
         <span className="flex items-baseline gap-[5px] font-heading text-base font-[var(--hw)] tracking-[var(--hls)]">
@@ -84,7 +84,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
             }}
             className="h-8"
           >
-            <span aria-hidden="true" className={cn("size-2 flex-none rounded-r-sm", project.tone === "accent" ? "bg-acc" : "bg-fg-3")} />
+            <span aria-hidden="true" className={cn("size-2 flex-none rounded-bt-sm", project.tone === "accent" ? "bg-acc" : "bg-fg-3")} />
             <span className="flex-1">{project.name}</span>
             <Count>{loaded ? (counts.byProject[project.id] ?? 0) : ""}</Count>
           </NavButton>
@@ -127,7 +127,7 @@ function NavButton({ active, onClick, className, children }: { active: boolean; 
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer items-center gap-2.5 rounded-r-sm px-2.5 text-left text-[13px] font-medium transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:min-h-11",
+        "flex cursor-pointer items-center gap-2.5 rounded-bt-sm px-2.5 text-left text-[13px] font-medium transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:min-h-11",
         active ? "bg-card-2 text-fg" : "text-fg-2",
         className,
       )}

@@ -15,7 +15,7 @@ interface IconButtonProps {
 }
 
 const BASE =
-  "inline-grid size-7 flex-none cursor-pointer place-items-center rounded-r-sm text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:size-11";
+  "inline-grid size-7 flex-none cursor-pointer place-items-center rounded-bt-sm text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:size-11";
 
 export function IconButton({ icon: Icon, label, href, onClick, className, ...aria }: IconButtonProps) {
   const icon = <Icon aria-hidden="true" size={15} strokeWidth={2} />;

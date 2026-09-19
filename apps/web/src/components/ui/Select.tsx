@@ -15,7 +15,7 @@ export function Select<T extends string>({ label, value, options, onChange, clas
   return (
     <label
       className={cn(
-        "relative flex h-[30px] items-center rounded-r border border-line bg-card pl-2.5 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:border-line-2 pointer-coarse:h-11",
+        "relative flex h-[30px] items-center rounded-bt border border-line bg-card pl-2.5 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:border-line-2 pointer-coarse:h-11",
         className,
       )}
     >

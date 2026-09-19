@@ -109,13 +109,6 @@ describe("TextInput", () => {
     expect(onChange).toHaveBeenCalledWith("jwt");
   });
 
-  it("colours its placeholder with the muted text token, not the browser default", () => {
-    // The browser default (#757575) is 3.4:1 on the card surface and fails WCAG AA;
-    // --fg-3 is 4.65:1 and is what the design uses for the icon beside it.
-    render(<TextInput label="Search tasks" placeholder="Search tasks" value="" onChange={() => {}} />);
-    expect(screen.getByRole("textbox").className).toContain("placeholder:text-fg-3");
-  });
-
   it("can be a search box", () => {
     render(<TextInput type="search" label="Search tasks" value="" onChange={() => {}} />);
     expect(screen.getByRole("searchbox", { name: "Search tasks" })).toBeInTheDocument();

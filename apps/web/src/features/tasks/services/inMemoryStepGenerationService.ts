@@ -23,6 +23,7 @@ export class InMemoryStepGenerationService implements StepGenerationService {
     this.set({ taskId, phase: "running" });
     this.timer = setTimeout(() => {
       this.timer = null;
+      if (!this.store.find(taskId)) return this.set(null);
       const steps = draftStepsFor(task.id).map((text) => ({ id: this.store.nextId("s"), text }));
       this.set({ taskId, phase: "proposed", steps });
     }, GENERATION_DELAY_MS);
@@ -48,6 +49,10 @@ export class InMemoryStepGenerationService implements StepGenerationService {
   async accept(): Promise<Task | null> {
     const g = this.generation;
     if (g?.phase !== "proposed") return null;
+    if (!this.store.find(g.taskId)) {
+      this.set(null);
+      return null;
+    }
     const n = g.steps.length;
     const now = this.store.now();
     const task = this.store.replace(g.taskId, (t) => ({
@@ -64,6 +69,7 @@ export class InMemoryStepGenerationService implements StepGenerationService {
     const g = this.generation;
     if (!g) return;
     this.cancelTimer();
+    if (!this.store.find(g.taskId)) return this.set(null);
     const now = this.store.now();
     // The design leaves updatedAt alone here: a discarded draft did not change the task.
     this.store.replace(g.taskId, (t) => ({

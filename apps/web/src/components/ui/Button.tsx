@@ -10,9 +10,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANTS = {
   primary:
-    "h-[34px] gap-2 rounded-r bg-acc px-3.5 text-[13px] font-semibold text-acc-fg shadow-glow transition-[transform,filter] hover:-translate-y-px hover:brightness-[1.08] active:translate-y-0 active:scale-[.98]",
+    "h-[34px] gap-2 rounded-bt bg-acc px-3.5 text-[13px] font-semibold text-acc-fg shadow-glow transition-[transform,filter] hover:-translate-y-px hover:brightness-[1.08] active:translate-y-0 active:scale-[.98]",
   ghost:
-    "h-7 gap-1.5 rounded-r-sm bg-transparent px-2.5 text-[12.5px] text-fg-3 transition-colors hover:bg-card hover:text-fg",
+    "h-7 gap-1.5 rounded-bt-sm bg-transparent px-2.5 text-[12.5px] text-fg-3 transition-colors hover:bg-card hover:text-fg",
 };
 
 export function Button({ variant = "primary", icon: Icon, className, children, ...props }: ButtonProps) {

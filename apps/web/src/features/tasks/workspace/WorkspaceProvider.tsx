@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
-import { useClock, useDirectoryService, useTaskService } from "@/app/providers";
+import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
 import { selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
 import type { NewTask, TaskPatch } from "../services/types";
@@ -43,6 +43,7 @@ export interface TaskCommands {
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
   addAttachment(id: string, attachment: Attachment): Promise<Task>;
+  /** Also discards the step generation in flight for the task, as the design does. */
   remove(id: string): Promise<void>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
   sync(task: Task): void;
@@ -153,6 +154,7 @@ export function useVisibleTasks(options: { applyStatus?: boolean } = {}): Task[]
 
 export function useTaskCommands(): TaskCommands {
   const service = useTaskService();
+  const stepGeneration = useStepGenerationService();
   const { state, dispatch } = useWorkspaceContext();
   const project = state.query.project;
 
@@ -182,11 +184,12 @@ export function useTaskCommands(): TaskCommands {
       remove: async (id) => {
         await service.remove(id);
         dispatch({ type: "taskRemoved", id });
+        if (stepGeneration.current()?.taskId === id) await stepGeneration.discard();
       },
       sync: (task) => {
         saved(task);
       },
     }),
-    [service, saved, dispatch, project],
+    [service, stepGeneration, saved, dispatch, project],
   );
 }

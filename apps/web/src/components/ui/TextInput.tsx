@@ -23,7 +23,7 @@ export function TextInput({ label, value, onChange, type = "text", placeholder, 
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          "h-[30px] w-full appearance-none rounded-r border border-line bg-card pr-2.5 text-[12.5px] text-fg placeholder:text-fg-3 placeholder:opacity-100 transition-[border-color,box-shadow] duration-[160ms] ease-bt focus:border-acc focus:shadow-[0_0_0_3px_var(--acc-soft)] pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none",
+          "h-[30px] w-full appearance-none rounded-bt border border-line bg-card pr-2.5 text-[12.5px] text-fg placeholder:text-fg-3 placeholder:opacity-100 transition-[border-color,box-shadow] duration-[160ms] ease-bt focus:border-acc focus:shadow-[0_0_0_3px_var(--acc-soft)] pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none",
           Icon ? "pl-[30px]" : "pl-2.5",
         )}
       />

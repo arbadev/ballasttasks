@@ -20,5 +20,5 @@ const TONES = {
 
 /** A small monospace badge: counts, priorities, statuses. */
 export function Pill({ children, tone = "outline", className }: PillProps) {
-  return <span className={cn("inline-flex items-center rounded-r-sm font-mono", TONES[tone], className)}>{children}</span>;
+  return <span className={cn("inline-flex items-center rounded-bt-sm font-mono", TONES[tone], className)}>{children}</span>;
 }

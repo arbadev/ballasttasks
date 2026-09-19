@@ -32,7 +32,7 @@ export function AttentionStrip() {
             aria-pressed={signal.active}
             onClick={() => actions.toggleSignal(signal.id)}
             className={cn(
-              "inline-flex h-7 cursor-pointer items-center gap-[7px] rounded-r border pr-2.5 pl-[9px] text-[12.5px] font-medium transition-[background-color,border-color,color,transform] duration-[160ms] ease-bt hover:-translate-y-px pointer-coarse:min-h-11",
+              "inline-flex h-7 cursor-pointer items-center gap-[7px] rounded-bt border pr-2.5 pl-[9px] text-[12.5px] font-medium transition-[background-color,border-color,color,transform] duration-[160ms] ease-bt hover:-translate-y-px pointer-coarse:min-h-11",
               tone.hover,
               signal.active ? tone.active : "border-line bg-card text-fg-2",
             )}

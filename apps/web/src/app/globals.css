@@ -68,9 +68,9 @@
   --color-info-soft: var(--info-soft);
   --color-backdrop: var(--backdrop);
 
-  --radius-r: var(--r);
-  --radius-r-sm: var(--r-sm);
-  --radius-r-av: var(--r-av);
+  --radius-bt: var(--r);
+  --radius-bt-sm: var(--r-sm);
+  --radius-bt-av: var(--r-av);
 
   --shadow-1: var(--sh-1);
   --shadow-2: var(--sh-2);

@@ -122,6 +122,39 @@ describe("InMemoryStepGenerationService", () => {
     expect(seen).toEqual([{ taskId: "t4", phase: "running" }, null]);
   });
 
+  it("discards a run whose task was deleted, and never proposes for it", async () => {
+    await service.start("t4");
+    await tasks.remove("t4");
+    await expect(service.discard()).resolves.toBeUndefined();
+    vi.advanceTimersByTime(5000);
+    expect(service.current()).toBeNull();
+    expect(seen).toEqual([{ taskId: "t4", phase: "running" }, null]);
+  });
+
+  it("clears a run on its own when the task is deleted before the proposal", async () => {
+    await service.start("t4");
+    await tasks.remove("t4");
+    vi.advanceTimersByTime(2200);
+    expect(service.current()).toBeNull();
+    expect(seen.map((g) => g?.phase)).toEqual(["running", undefined]);
+  });
+
+  it("clears a proposal whose task was deleted instead of accepting it", async () => {
+    await service.start("t16");
+    vi.advanceTimersByTime(2200);
+    await tasks.remove("t16");
+    expect(await service.accept()).toBeNull();
+    expect(service.current()).toBeNull();
+  });
+
+  it("discards a proposal whose task was deleted", async () => {
+    await service.start("t16");
+    vi.advanceTimersByTime(2200);
+    await tasks.remove("t16");
+    await service.discard();
+    expect(service.current()).toBeNull();
+  });
+
   it("discarding nothing is a no-op", async () => {
     await service.discard();
     expect(seen).toEqual([]);

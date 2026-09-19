@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Providers } from "@/app/providers";
 import { NOW, due, makeTask } from "@/test/tasks";
-import { FakeDirectoryService, FakeTaskService } from "@/test/fakeServices";
+import { FakeDirectoryService, FakeStepGenerationService, FakeTaskService } from "@/test/fakeServices";
 import { WorkspaceProvider, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "./WorkspaceProvider";
 
 const tasks = [
@@ -12,9 +12,9 @@ const tasks = [
   makeTask({ id: "shipped", title: "Shipped", status: "done" }),
 ];
 
-function setup(taskService = new FakeTaskService(tasks)) {
+function setup(taskService = new FakeTaskService(tasks), stepGeneration = new FakeStepGenerationService()) {
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <Providers taskService={taskService} directoryService={new FakeDirectoryService()} clock={() => NOW}>
+    <Providers taskService={taskService} directoryService={new FakeDirectoryService()} stepGenerationService={stepGeneration} clock={() => NOW}>
       <WorkspaceProvider>{children}</WorkspaceProvider>
     </Providers>
   );
@@ -22,7 +22,7 @@ function setup(taskService = new FakeTaskService(tasks)) {
     () => ({ workspace: useWorkspace(), visible: useVisibleTasks(), board: useVisibleTasks({ applyStatus: false }), directory: useDirectory(), commands: useTaskCommands(), now: useNow() }),
     { wrapper },
   );
-  return { ...hook, taskService };
+  return { ...hook, taskService, stepGeneration };
 }
 
 const ready = async (result: ReturnType<typeof setup>["result"]) => waitFor(() => expect(result.current.workspace.state.load.status).toBe("ready"));
@@ -126,6 +126,22 @@ describe("WorkspaceProvider", () => {
     await ready(result);
     await act(() => result.current.commands.remove("late"));
     expect(result.current.workspace.state.tasks.map((t) => t.id)).toEqual(["theirs", "shipped"]);
+  });
+
+  it("removing a task discards the step generation in flight for it", async () => {
+    const { result, stepGeneration } = setup();
+    await ready(result);
+    await stepGeneration.start("late");
+    await act(() => result.current.commands.remove("late"));
+    expect(stepGeneration.current()).toBeNull();
+  });
+
+  it("removing a task leaves another task's step generation running", async () => {
+    const { result, stepGeneration } = setup();
+    await ready(result);
+    await stepGeneration.start("theirs");
+    await act(() => result.current.commands.remove("late"));
+    expect(stepGeneration.current()).toEqual({ taskId: "theirs", phase: "running" });
   });
 
   it("refuses to run outside its provider", () => {

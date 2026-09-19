@@ -22,7 +22,7 @@ const SIZES = {
 };
 
 export function Avatar({ initials, name, tone = "neutral", size = 24 }: AvatarProps) {
-  const className = cn("grid flex-none place-items-center rounded-r-av border border-line font-semibold", TONES[tone], SIZES[size]);
+  const className = cn("grid flex-none place-items-center rounded-bt-av border border-line font-semibold", TONES[tone], SIZES[size]);
   return name ? (
     <span role="img" aria-label={name} title={name} className={className}>
       {initials}

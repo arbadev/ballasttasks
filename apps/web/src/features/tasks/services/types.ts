@@ -69,6 +69,8 @@ export type Generation =
 /**
  * Drafts steps for a task. One generation is in flight at a time: it is `running`, then
  * `proposed` with steps the user can prune, then accepted into the task or discarded.
+ * A generation never outlives its task: once the task is gone, `accept` and `discard` clear
+ * it without touching anything else.
  */
 export interface StepGenerationService {
   /** Starting the task that is already running is a no-op; another task replaces the run. */

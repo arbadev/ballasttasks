@@ -19,7 +19,7 @@ export function SegmentedControl<T extends string>({ label, name, value, options
     <div
       role="radiogroup"
       aria-label={label}
-      className="relative grid h-[34px] rounded-r border border-line bg-card p-[3px]"
+      className="relative grid h-[34px] rounded-bt border border-line bg-card p-[3px]"
       style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}
     >
       <span
