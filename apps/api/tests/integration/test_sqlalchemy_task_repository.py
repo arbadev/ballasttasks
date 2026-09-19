@@ -1,4 +1,5 @@
-"""What only the PostgreSQL adapter can show: row locks, and rows the domain rejects."""
+"""What only the PostgreSQL adapter can show: row locks, rows the domain rejects, and the
+foreign key settling what a check-then-write cannot."""
 
 import asyncio
 import uuid
@@ -9,13 +10,16 @@ import pytest
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.errors import StoredTaskInvalid
+from app.application.errors import InvalidAssigneeError, StoredTaskInvalid
+from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.update_task import TaskChanges, UpdateTask
 from app.domain.task import Task, TaskStatus
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
 from app.infrastructure.db.unit_of_work import transactional_session
+from tests.postgres import INSERT_USER, user_row
 
 pytestmark = pytest.mark.integration
 
@@ -34,6 +38,19 @@ async def session_factory(migrated_database_url: str) -> AsyncIterator[SessionFa
     await engine.dispose()
 
 
+@pytest.fixture
+async def creator(session_factory: SessionFactory) -> uuid.UUID:
+    """Tasks reference users, so somebody has to have created them."""
+    return await stored_user(session_factory)
+
+
+async def stored_user(session_factory: SessionFactory, *, is_active: bool = True) -> uuid.UUID:
+    user = user_row(is_active=is_active)
+    async with transactional_session(session_factory) as session:
+        await session.execute(INSERT_USER, user)
+    return user["id"]
+
+
 async def until_a_writer_waits_for_a_lock(session_factory: SessionFactory) -> None:
     while True:
         async with session_factory() as session:
@@ -43,13 +60,13 @@ async def until_a_writer_waits_for_a_lock(session_factory: SessionFactory) -> No
 
 
 async def test_a_second_writer_waits_and_then_works_from_what_the_first_one_stored(
-    session_factory: SessionFactory,
+    session_factory: SessionFactory, creator: uuid.UUID
 ) -> None:
     """Two PATCHes that both read ``todo``: ``done`` first, ``in_progress`` right behind it."""
     task = Task.create(
         task_id=uuid.uuid4(),
         title="Write the report",
-        created_by=uuid.uuid4(),
+        created_by=creator,
         now=datetime.now(UTC),
     )
     async with transactional_session(session_factory) as session:
@@ -59,17 +76,17 @@ async def test_a_second_writer_waits_and_then_works_from_what_the_first_one_stor
 
     async def first_writer() -> None:
         async with transactional_session(session_factory) as session:
-            await UpdateTask(SqlAlchemyTaskRepository(session)).execute(
-                task.id, TaskChanges(status=TaskStatus.DONE)
-            )
+            await UpdateTask(
+                SqlAlchemyTaskRepository(session), SqlAlchemyUserDirectory(session)
+            ).execute(task.id, TaskChanges(status=TaskStatus.DONE))
             first_has_written.set()
             await first_may_commit.wait()
 
     async def second_writer() -> None:
         async with transactional_session(session_factory) as session:
-            await UpdateTask(SqlAlchemyTaskRepository(session)).execute(
-                task.id, TaskChanges(status=TaskStatus.IN_PROGRESS)
-            )
+            await UpdateTask(
+                SqlAlchemyTaskRepository(session), SqlAlchemyUserDirectory(session)
+            ).execute(task.id, TaskChanges(status=TaskStatus.IN_PROGRESS))
 
     try:
         async with asyncio.timeout(30):
@@ -94,16 +111,16 @@ async def test_a_second_writer_waits_and_then_works_from_what_the_first_one_stor
 
 
 async def test_a_stored_row_the_domain_rejects_is_reported_as_stored_task_invalid(
-    session_factory: SessionFactory,
+    session_factory: SessionFactory, creator: uuid.UUID
 ) -> None:
     task_id = uuid.uuid4()
     blank_title_row = sqlalchemy.text(
         "INSERT INTO tasks (id, title, status, created_by, created_at, updated_at) "
-        "VALUES (:id, '   ', 'todo', gen_random_uuid(), now(), now())"
+        "VALUES (:id, '   ', 'todo', :created_by, now(), now())"
     )
 
     async with session_factory() as session:
-        await session.execute(blank_title_row, {"id": task_id})
+        await session.execute(blank_title_row, {"id": task_id, "created_by": creator})
         repository = SqlAlchemyTaskRepository(session)
 
         with pytest.raises(StoredTaskInvalid) as error:
@@ -113,3 +130,60 @@ async def test_a_stored_row_the_domain_rejects_is_reported_as_stored_task_invali
         await session.rollback()
 
     assert error.value.task_id == task_id
+
+
+async def test_a_refused_assignee_leaves_the_rest_of_the_unit_of_work_intact(
+    session_factory: SessionFactory, creator: uuid.UUID
+) -> None:
+    kept = Task.create(
+        task_id=uuid.uuid4(), title="kept", created_by=creator, now=datetime.now(UTC)
+    )
+    refused = Task.create(
+        task_id=uuid.uuid4(),
+        title="refused",
+        created_by=creator,
+        assignee_id=uuid.uuid4(),
+        now=datetime.now(UTC),
+    )
+
+    async with transactional_session(session_factory) as session:
+        repository = SqlAlchemyTaskRepository(session)
+        await repository.add(kept)
+        with pytest.raises(InvalidAssigneeError):
+            await repository.add(refused)
+
+    async with transactional_session(session_factory) as session:
+        repository = SqlAlchemyTaskRepository(session)
+        assert await repository.get(kept.id) == kept
+        assert await repository.get(refused.id) is None
+
+
+async def test_an_assignee_deleted_between_the_check_and_the_write_is_refused_by_the_foreign_key(
+    session_factory: SessionFactory, creator: uuid.UUID
+) -> None:
+    """The race the directory check alone cannot win: the user is there when ``CreateTask``
+    asks, and gone by the time the task is written."""
+    assignee = await stored_user(session_factory)
+
+    class DirectoryThatLosesTheRace:
+        def __init__(self, session: AsyncSession) -> None:
+            self._directory = SqlAlchemyUserDirectory(session)
+
+        async def is_active_user(self, user_id: uuid.UUID) -> bool:
+            answer = await self._directory.is_active_user(user_id)
+            async with transactional_session(session_factory) as elsewhere:
+                await elsewhere.execute(
+                    sqlalchemy.text("DELETE FROM users WHERE id = :id"), {"id": user_id}
+                )
+            return answer
+
+    async def create() -> None:
+        async with transactional_session(session_factory) as session:
+            await CreateTask(
+                SqlAlchemyTaskRepository(session), DirectoryThatLosesTheRace(session)
+            ).execute(title="Write the report", created_by=creator, assignee_id=assignee)
+
+    with pytest.raises(InvalidAssigneeError) as error:
+        await create()
+
+    assert error.value.assignee_id == assignee

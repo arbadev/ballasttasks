@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TypedDict
 
 import sqlalchemy
 from alembic import command
@@ -47,3 +48,22 @@ def run_alembic(database_url: str, action: str, revision: str) -> None:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
     with ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(getattr(command, action), config, revision).result()
+
+
+INSERT_USER = sqlalchemy.text(
+    "INSERT INTO users (id, email, full_name, hashed_password, is_active, created_at) "
+    "VALUES (:id, :email, 'Grace Hopper', 'not-a-real-hash', :is_active, now())"
+)
+
+
+class UserRow(TypedDict):
+    id: uuid.UUID
+    email: str
+    is_active: bool
+
+
+def user_row(*, is_active: bool = True) -> UserRow:
+    """Parameters for ``INSERT_USER``: tasks reference users, so a test that writes a task
+    row by hand needs somebody to have created it."""
+    user_id = uuid.uuid4()
+    return {"id": user_id, "email": f"{user_id.hex}@example.com", "is_active": is_active}
