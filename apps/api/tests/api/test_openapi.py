@@ -200,5 +200,8 @@ async def test_openapi_documents_the_single_sign_on_contract(client: httpx.Async
     assert callback["404"]["content"]["application/json"]["schema"] == error
     assert exchange["401"]["content"]["application/json"]["schema"] == error
     assert exchange["200"]["content"]["application/json"]["schema"] == token
-    for path in ("/auth/sso/providers", "/auth/sso/exchange"):
+    # The routes that present a credential of their own take no bearer token at all. The
+    # other two are public as well; the general rate limiter merely reads an optional bearer
+    # there, so that a signed-in caller spends their own budget.
+    for path in ("/auth/sso/{provider}/callback", "/auth/sso/exchange"):
         assert "security" not in next(iter(schema["paths"][path].values()))

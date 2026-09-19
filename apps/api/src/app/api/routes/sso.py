@@ -12,13 +12,17 @@ Every failure of the callback is the same redirect, ``<web callback>?error=sso_f
 (``provider_unavailable`` when the provider could not be reached, so the screen can offer
 "try again"): it says nothing about which check failed. Reasons are logged by error class
 only; no state, code, cookie, token or email is ever logged.
+
+Rate limiting: the callback and the exchange present a credential and spend the strict
+``auth`` budget by client IP, like login; listing providers and starting a flow spend the
+general one.
 """
 
 import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 
 from app.api.dependencies import (
@@ -28,6 +32,7 @@ from app.api.dependencies import (
     SsoConfigDep,
     StartSsoSignInDep,
 )
+from app.api.rate_limit import TOO_MANY_REQUESTS, limit_auth_attempts, limit_requests
 from app.api.schemas.auth import TokenResponse
 from app.api.schemas.errors import ErrorResponse
 from app.api.schemas.sso import SsoExchangeRequest, SsoProvider, SsoProvidersResponse
@@ -43,7 +48,7 @@ from app.application.sso import MAX_SECRET_LENGTH, STATE_TTL, SsoConfig
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth/sso", tags=["auth"])
+router = APIRouter(prefix="/auth/sso", tags=["auth"], responses={**TOO_MANY_REQUESTS})
 
 BINDING_COOKIE = "sso_binding"
 # The cookie is sent to the start and callback routes and to nothing else.
@@ -84,6 +89,7 @@ def _provider_redirect_uri(request: Request, config: SsoConfig, provider: str) -
     "/providers",
     response_model=SsoProvidersResponse,
     summary="The identity providers the login screen can offer",
+    dependencies=[Depends(limit_requests)],
 )
 async def providers(identity_providers: IdentityProvidersDep) -> SsoProvidersResponse:
     return SsoProvidersResponse(providers=[SsoProvider(name=name) for name in identity_providers])
@@ -94,6 +100,7 @@ async def providers(identity_providers: IdentityProvidersDep) -> SsoProvidersRes
     status_code=status.HTTP_303_SEE_OTHER,
     response_class=RedirectResponse,
     summary="Begin a sign-in: redirect the browser to the identity provider",
+    dependencies=[Depends(limit_requests)],
     description=(
         "Navigate the browser here (a link, not `fetch`). Creates the state and nonce of "
         "this sign-in, remembers them server-side for a few minutes, binds them to this "
@@ -135,6 +142,9 @@ async def start(
     status_code=status.HTTP_303_SEE_OTHER,
     response_class=RedirectResponse,
     summary="Where the identity provider sends the browser back",
+    # Strict, like login: a state and a code are presented here, and the API calls the
+    # provider. The limiter runs first, so a limited callback spends nothing and can be retried.
+    dependencies=[Depends(limit_auth_attempts)],
     description=(
         "Validates the state (single use, this browser, this provider), exchanges the "
         "provider's `code`, finds or creates the user, then redirects to the web app's "
@@ -195,6 +205,7 @@ def _failure_url(config: SsoConfig, error: str) -> str:
     "/exchange",
     response_model=TokenResponse,
     summary="Swap the one-time code for an access token",
+    dependencies=[Depends(limit_auth_attempts)],
     description=(
         "The same body as `POST /auth/login`. The code works once and for about a minute; "
         "every failure, whatever its cause, is the same 401."

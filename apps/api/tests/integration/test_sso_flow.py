@@ -77,6 +77,9 @@ def api_url(
     monkeypatch.setenv("SSO__ENABLED_PROVIDERS", '["fake"]')
     monkeypatch.setenv("SSO__API_PUBLIC_BASE_URL", base_url)
     monkeypatch.setenv("SSO__WEB_CALLBACK_URL", WEB_CALLBACK)
+    # Every request here comes from 127.0.0.1, and six tabs sign in at once: that is not what
+    # the strict per-IP budget is for. The limiter stays on (tests/api/test_sso_rate_limit.py).
+    monkeypatch.setenv("RATE_LIMIT__AUTH__LIMIT", "200")
     monkeypatch.setitem(IDENTITY_PROVIDERS, "fake", lambda settings: at_the_provider)
 
     app = create_app(container=build_container(load_settings()))

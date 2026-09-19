@@ -96,9 +96,10 @@ Existing rows are not rewritten: every user keeps their hash and gets an identit
 | Pre-registration hijack: somebody registers a victim's address with a password first, the victim later signs in with Google and is linked to that account | **Accepted residual risk, documented.** Password registration does not verify email ownership (out of scope by an earlier decision), so rule 3 trusts an address the password holder never proved. The fix belongs to registration (verify the address) or to linking (require the password once before the first link); until then the exposure is limited to addresses somebody bothered to squat before their owner arrived |
 | Secrets in logs, errors or URLs | Application errors have constant messages. The routes log the error class only. State, exchange code and binding reach Redis only as SHA-256 digests. The client secret is a `SecretStr` in settings, wrapped in the adapter so it has no `repr`, and sent only in the body of the token request. The only secret that travels in a URL of ours is the one-time exchange code, and the API's access log drops the query string of every `/auth/sso/` request (`api/access_log.py`), so the provider's code and the state are not written there either |
 | Key-endpoint abuse: made-up `kid` values force a JWKS fetch per request | Keys are cached for their `Cache-Control: max-age` (bounded); an unknown `kid` forces at most one early refetch per minute |
+| Guessing a state or an exchange code, or using the callback to make the API hammer the provider | 256 random bits each, and the callback and the exchange spend the strict per-IP `auth` rate limit of [ADR 0004](0004-rate-limiting.md), like login. The limiter runs first, so a limited callback spends no state and can be retried |
 | The fake provider enabled in production | Its factory refuses to build when `APP__ENV=production`, and `.env.example` ships with no provider enabled |
 
-Not covered, by scope: rate limiting of the SSO routes (a later piece adds rate limiting), logout at the provider, refresh tokens, setting or resetting a password, roles.
+Not covered, by scope: logout at the provider, refresh tokens, setting or resetting a password, roles.
 
 ## Consequences
 

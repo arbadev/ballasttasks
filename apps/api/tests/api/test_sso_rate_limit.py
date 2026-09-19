@@ -128,3 +128,13 @@ async def test_providers_and_start_spend_the_general_budget_not_the_strict_one(
     assert "set-cookie" not in limited.headers
     # ...while the strict budget is untouched
     assert (await client.post("/auth/sso/exchange", json={"code": "x"})).status_code == 401
+
+
+async def test_the_public_routes_need_no_token_and_ignore_a_bad_one(
+    client: httpx.AsyncClient,
+) -> None:
+    """The general limiter reads an optional bearer; it must never turn these routes into
+    authenticated ones."""
+    for headers in ({}, {"Authorization": "Bearer not-a-token"}):
+        assert (await client.get("/auth/sso/providers", headers=headers)).status_code == 200
+        assert (await client.get("/auth/sso/fake/start", headers=headers)).status_code == 303
