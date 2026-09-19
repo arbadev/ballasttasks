@@ -273,6 +273,11 @@ describe("quick-add", () => {
     expect(taskService.calls.filter(([name]) => name === "create")).toEqual([]);
   });
 
+  it("names its field, so the browser raises no form-field issue", async () => {
+    await renderList([]);
+    expect(quickAdd()).toHaveAttribute("name", "title");
+  });
+
   it("Escape clears the field", async () => {
     await renderList([]);
     fireEvent.change(quickAdd(), { target: { value: "Never mind" } });
