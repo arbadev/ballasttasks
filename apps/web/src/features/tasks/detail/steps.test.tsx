@@ -14,6 +14,16 @@ function deferred() {
   return { promise, reject };
 }
 
+/** Refuses the first `times` adds, recording each attempt, then lets the real service run. */
+function refuseAddStep(service: FakeTaskService, times: number) {
+  const original = service.addStep.bind(service);
+  return async (id: string, text: string) => {
+    if (times-- <= 0) return original(id, text);
+    service.calls.push(["addStep:rejected", id, text]);
+    throw new Error("offline");
+  };
+}
+
 /** Rejects every add, recording the attempt, so a test can count what was actually sent. */
 const rejectAddStep = (service: FakeTaskService) => async (id: string, text: string) => {
   service.calls.push(["addStep:rejected", id, text]);
@@ -287,6 +297,86 @@ describe("steps checklist", () => {
     fireEvent.keyDown(input(), { key: "Enter" });
     await settle();
     expect(stepTexts()).toEqual(["First step", "Second step"]);
+  });
+
+  it("clears the box after a Retry that lands, however many refusals it took", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = refuseAddStep(taskService, 2);
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+    const retry = () => fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Retry" }));
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(input()).toHaveValue("Pick the token lifetime");
+
+    retry();
+    await settle();
+    // Refused a second time: the box still holds the text this send put there, and still owns it.
+    expect(input()).toHaveValue("Pick the token lifetime");
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+
+    retry();
+    await settle();
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+    expect(input()).toHaveValue("");
+    expect(steps().queryByRole("alert")).not.toBeInTheDocument();
+    expect(taskService.calls.filter((c) => c[0] === "addStep")).toEqual([["addStep", "t4", "Pick the token lifetime"]]);
+    expect(taskService.calls.filter((c) => c[0] === "addStep:rejected")).toHaveLength(2);
+
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+  });
+
+  it("leaves a newer draft alone when a Retry lands after two refusals", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = refuseAddStep(taskService, 2);
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+    const retry = () => fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Retry" }));
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+
+    // Typed over the restored text: the box is the user's again from here on.
+    fireEvent.change(input(), { target: { value: "Rotate the refresh token" } });
+    retry();
+    await settle();
+    expect(input()).toHaveValue("Rotate the refresh token");
+
+    retry();
+    await settle();
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+    expect(input()).toHaveValue("Rotate the refresh token");
+  });
+
+  it("adds nothing on Enter while a refused step is held, and says why", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = rejectAddStep(taskService);
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("alert")).toHaveTextContent("Enter adds nothing until you retry or dismiss it");
+    expect(input()).toHaveAttribute("aria-busy", "true");
+
+    // The draft stays editable, but nothing is sent until the held send is dealt with.
+    fireEvent.change(input(), { target: { value: "Rotate the refresh token" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep:rejected")).toHaveLength(1);
+    expect(input()).toHaveValue("Rotate the refresh token");
+
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(input()).toHaveAttribute("aria-busy", "false");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep:rejected")).toHaveLength(2);
   });
 
   it("keeps a half-typed step when the panel closes and reopens", async () => {

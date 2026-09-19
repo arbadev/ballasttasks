@@ -9,6 +9,16 @@ const section = () => within(screen.getByRole("region", { name: "Activity" }));
 const entries = () => within(section().getByRole("list", { name: "Activity" })).getAllByRole("listitem");
 const box = () => section().getByRole("textbox", { name: "Write a comment" });
 
+/** Refuses the first `times` posts, recording each attempt, then lets the real service run. */
+function refuseAddComment(service: FakeTaskService, times: number) {
+  const original = service.addComment.bind(service);
+  return async (id: string, text: string) => {
+    if (times-- <= 0) return original(id, text);
+    service.calls.push(["addComment:rejected", id, text]);
+    throw new Error("offline");
+  };
+}
+
 /** Rejects every post, recording the attempt, so a test can count what was actually sent. */
 const rejectAddComment = (service: FakeTaskService) => async (id: string, text: string) => {
   service.calls.push(["addComment:rejected", id, text]);
@@ -220,6 +230,82 @@ describe("activity", () => {
     expect(section().queryByRole("status")).not.toBeInTheDocument();
     expect(section().getByRole("button", { name: "Comment" })).toBeEnabled();
     expect(box()).toHaveValue("Second comment");
+  });
+
+  it("clears the box after a Retry that lands, however many refusals it took", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    taskService.addComment = refuseAddComment(taskService, 2);
+    openTask("t1");
+    const retry = () => fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+
+    fireEvent.change(box(), { target: { value: "Ping the vendor" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(box()).toHaveValue("Ping the vendor");
+
+    retry();
+    await settle();
+    expect(box()).toHaveValue("Ping the vendor");
+    expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+
+    retry();
+    await settle();
+    expect(box()).toHaveValue("");
+    expect(section().queryByRole("alert")).not.toBeInTheDocument();
+    expect(taskService.calls.filter((c) => c[0] === "addComment")).toEqual([["addComment", "t1", "Ping the vendor"]]);
+    expect(taskService.calls.filter((c) => c[0] === "addComment:rejected")).toHaveLength(2);
+
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment")).toHaveLength(1);
+  });
+
+  it("leaves a newer draft alone when a Retry lands after two refusals", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    taskService.addComment = refuseAddComment(taskService, 2);
+    openTask("t1");
+    const retry = () => fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+
+    fireEvent.change(box(), { target: { value: "Ping the vendor" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+
+    fireEvent.change(box(), { target: { value: "Following up separately" } });
+    retry();
+    await settle();
+    expect(box()).toHaveValue("Following up separately");
+
+    retry();
+    await settle();
+    expect(taskService.calls).toContainEqual(["addComment", "t1", "Ping the vendor"]);
+    expect(box()).toHaveValue("Following up separately");
+  });
+
+  it("makes both send controls unavailable while a refused comment is held, and says why", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    taskService.addComment = rejectAddComment(taskService);
+    openTask("t1");
+    const commentButton = () => section().getByRole("button", { name: "Comment" });
+
+    fireEvent.change(box(), { target: { value: "Ping the vendor" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(section().getByRole("alert")).toHaveTextContent("neither Enter nor Comment sends until you retry or dismiss it");
+    expect(commentButton()).toBeDisabled();
+    expect(box()).toHaveAttribute("aria-busy", "true");
+
+    fireEvent.change(box(), { target: { value: "Following up separately" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    fireEvent.click(commentButton());
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment:rejected")).toHaveLength(1);
+    expect(box()).toHaveValue("Following up separately");
+
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(commentButton()).toBeEnabled();
+    fireEvent.click(commentButton());
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment:rejected")).toHaveLength(2);
   });
 
   it("keeps what was typed since, and Retry sends the comment that failed", async () => {

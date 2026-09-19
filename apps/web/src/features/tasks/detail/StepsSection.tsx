@@ -94,7 +94,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           name="new-step"
           placeholder="Add a step and press Enter"
           value={box.text}
-          aria-busy={box.sending}
+          aria-busy={box.busy}
           onChange={(e) => box.setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") box.submit();
@@ -109,7 +109,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
       )}
       {box.failed !== null && (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
-          Could not add the step. It is kept: retry it, or dismiss it to add another.
+          Could not add the step. It is kept, and Enter adds nothing until you retry or dismiss it.
         </ActionError>
       )}
 

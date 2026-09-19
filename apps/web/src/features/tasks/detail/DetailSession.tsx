@@ -157,7 +157,9 @@ export interface Composer {
   sending: boolean;
   /** The text of a send that was refused, kept for Retry until it is retried or dismissed. */
   failed: string | null;
-  /** Sends what is in the box. Does nothing while this box is waiting on a send. */
+  /** This box cannot take a send: one is running, or one was refused and is still held. */
+  busy: boolean;
+  /** Sends what is in the box. Does nothing while this box is `busy`. */
   submit(): void;
   retry(): void;
   dismiss(): void;
@@ -167,14 +169,17 @@ export interface Composer {
  * A step or comment box and the one send it is waiting on, both kept under the task's own key
  * so they come back with the task and survive the panel closing mid-send. The box sends one
  * thing at a time: while a send runs the box says so and takes no second one, and a send that
- * is refused is held until it is retried or dismissed. The box stays the user's to type in
- * throughout; text is only ever taken back out of it when a failure put it there and nothing
- * has been typed since, so no send can erase what the user wrote or post the same thing twice.
+ * is refused is held, still blocking, until it is retried or dismissed — there is no implicit
+ * way past it. The box stays the user's to type in throughout; text is only ever taken back
+ * out of it when a failure put it there and nothing has been typed over it since, however
+ * many refusals that took, so no send can erase what the user wrote or post the same thing
+ * twice.
  */
 export function useComposer(key: string, send: (text: string) => Promise<unknown>): Composer {
   const { composers } = useDetailSession();
   const read = useCallback(() => composers.get(key), [composers, key]);
-  const state = useSyncExternalStore((listener) => composers.subscribe(listener), read, read);
+  const subscribe = useCallback((listener: () => void) => composers.subscribe(listener), [composers]);
+  const state = useSyncExternalStore(subscribe, read, read);
   const latest = useRef(send);
 
   useEffect(() => {
@@ -192,7 +197,9 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
           })),
         () =>
           composers.update(key, (c) => {
-            const restored = c.text === "";
+            // Still this send's text in the box: either it was empty, or an earlier refusal of
+            // the same send put the text there and nothing has been typed over it since.
+            const restored = c.text === "" || (c.sending?.restored === true && c.text === value);
             return { text: restored ? value : c.text, sending: { text: value, failed: true, restored } };
           }),
       );
@@ -232,6 +239,7 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
     setText,
     sending: state.sending !== null && !state.sending.failed,
     failed: state.sending?.failed ? state.sending.text : null,
+    busy: state.sending !== null,
     submit,
     retry,
     dismiss,

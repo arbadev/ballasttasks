@@ -81,7 +81,7 @@ export function ActivitySection({ task }: { task: Task }) {
           placeholder="Write a comment — Enter to post"
           rows={1}
           value={box.text}
-          aria-busy={box.sending}
+          aria-busy={box.busy}
           onChange={(e) => box.setText(e.target.value)}
           onKeyDown={(e) => {
             // Shift+Enter falls through to the textarea and breaks the line.
@@ -91,7 +91,7 @@ export function ActivitySection({ task }: { task: Task }) {
           }}
           className={`${BOX_INPUT} field-sizing-content block max-h-40 min-h-[34px] min-w-0 flex-1 resize-none px-3 py-[6px] text-[13px] leading-5`}
         />
-        <PanelButton variant="secondary" className="h-[34px] px-3" disabled={box.sending} onClick={box.submit}>
+        <PanelButton variant="secondary" className="h-[34px] px-3" disabled={box.busy} onClick={box.submit}>
           Comment
         </PanelButton>
       </div>
@@ -102,7 +102,7 @@ export function ActivitySection({ task }: { task: Task }) {
       )}
       {box.failed !== null && (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
-          Could not post the comment. It is kept: retry it, or dismiss it to write another.
+          Could not post the comment. It is kept, and neither Enter nor Comment sends until you retry or dismiss it.
         </ActionError>
       )}
     </section>

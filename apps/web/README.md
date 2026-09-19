@@ -118,9 +118,10 @@ card, the New task button) on close, so an opener needs nothing more than being 
   the send it is waiting on in one record per task and box, so both survive the panel closing
   mid-send and the box that opens again sees how that send ended. While a send runs the box says
   so and takes no second one; the next draft can be typed and is kept. A refused send is held
-  with its exact text until Retry or Dismiss, and is put back in the box only if the box is
-  empty — a newer draft is never overwritten, and a Retry that lands clears only text the
-  failure itself put there.
+  with its exact text until Retry or Dismiss — the send controls stay unavailable and say so
+  meanwhile, and nothing dismisses it implicitly. It is put back in the box only if the box is
+  empty, and it keeps that text as its own however many refusals it takes, so a newer draft is
+  never overwritten and a Retry that lands clears only text the failure itself put there.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
