@@ -31,8 +31,8 @@ def a_user(
     )
 
 
-def _refuse_nul(*values: str) -> None:
-    if any("\x00" in value for value in values):
+def _refuse_nul(*values: str | None) -> None:
+    if any(value is not None and "\x00" in value for value in values):
         raise ValueError("PostgreSQL text cannot contain NUL (0x00) characters")
 
 

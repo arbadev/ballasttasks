@@ -24,7 +24,7 @@ from tests.postgres import (
 
 pytestmark = pytest.mark.integration
 
-PREVIOUS_HEAD = "8b2f4c6d1a3e"
+PREVIOUS_HEAD = "0ecd0978f6fd"
 REVISION = "a1c5e7f90b24"
 
 INSERT_TASK = sqlalchemy.text(
@@ -60,6 +60,8 @@ def with_existing_tasks(engine: sqlalchemy.Engine) -> tuple[uuid.UUID, uuid.UUID
     """Two tasks by two people, one of whom has since been deactivated."""
     migrate(engine, "upgrade", PREVIOUS_HEAD)
     ada, gone = user_row(), user_row(is_active=False)
+    # SSO-only users have no password hash; they can own tasks and activity too.
+    ada["hashed_password"] = None
     open_task, done_task = uuid.uuid4(), uuid.uuid4()
     with engine.begin() as connection:
         connection.execute(INSERT_USER, ada)
@@ -82,7 +84,7 @@ def with_existing_tasks(engine: sqlalchemy.Engine) -> tuple[uuid.UUID, uuid.UUID
     return open_task, done_task, gone["id"]
 
 
-def test_the_revision_follows_the_design_model(database: sqlalchemy.Engine) -> None:
+def test_the_revision_follows_user_identities(database: sqlalchemy.Engine) -> None:
     migrate(database, "upgrade", "head")
 
     assert {"task_steps", "task_activity"} <= tables(database)

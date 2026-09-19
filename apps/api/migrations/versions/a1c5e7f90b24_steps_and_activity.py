@@ -3,7 +3,7 @@
 The steps (subtasks) of a task and its append-only activity: log lines and comments.
 
 Revision ID: a1c5e7f90b24
-Revises: 8b2f4c6d1a3e
+Revises: 0ecd0978f6fd
 Create Date: 2026-09-18 23:19:29.127513
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "a1c5e7f90b24"
-down_revision: str | Sequence[str] | None = "8b2f4c6d1a3e"
+down_revision: str | Sequence[str] | None = "0ecd0978f6fd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
