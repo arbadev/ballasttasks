@@ -42,7 +42,7 @@ def database(monkeypatch: pytest.MonkeyPatch) -> Iterator[sa.Engine]:
 
 
 def seed(now: datetime = NOW) -> bool:
-    return asyncio.run(entry.run(clock=lambda: now))
+    return asyncio.run(entry.run(confirmed=True, clock=lambda: now))
 
 
 def snapshot(engine: sa.Engine) -> dict[str, list[dict[str, Any]]]:
@@ -239,7 +239,10 @@ def test_concurrent_invocations_do_not_duplicate_or_allocate_extra_keys(
     database: sa.Engine,
 ) -> None:
     async def together() -> list[bool]:
-        results = await asyncio.gather(entry.run(clock=lambda: NOW), entry.run(clock=lambda: NOW))
+        results = await asyncio.gather(
+            entry.run(confirmed=True, clock=lambda: NOW),
+            entry.run(confirmed=True, clock=lambda: NOW),
+        )
         return list(results)
 
     assert sorted(asyncio.run(together())) == [False, True]
@@ -350,7 +353,7 @@ def test_failure_on_last_task_rolls_back_every_row_and_key(
     with pytest.raises(sa.exc.ProgrammingError, match="test-only insertion failure"):
         seed()
     assert snapshot(database) == before
-    assert entry.main() == 1
+    assert entry.main([entry.CONFIRM_FLAG]) == 1
     output = capsys.readouterr()
     assert "test-only insertion failure" not in output.out + output.err
     assert "Demo seed failed" in output.err
@@ -361,13 +364,25 @@ def test_failure_on_last_task_rolls_back_every_row_and_key(
     assert len(snapshot(database)["tasks"]) == 16
 
 
-def test_production_entry_point_refuses_without_writing(
+def test_production_entry_point_refuses_even_when_confirmed(
     database: sa.Engine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("APP__ENV", "production")
     before = snapshot(database)
-    assert entry.main() == 1
+    assert entry.main([entry.CONFIRM_FLAG]) == 1
     assert "production" in capsys.readouterr().err
+    assert snapshot(database) == before
+
+
+def test_unconfirmed_entry_point_writes_nothing(
+    database: sa.Engine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = snapshot(database)
+    assert entry.main([]) == 1
+    assert entry.CONFIRM_FLAG in capsys.readouterr().err
+    assert snapshot(database) == before
+    with pytest.raises(entry.DemoSeedRefusedError, match=entry.CONFIRM_FLAG):
+        asyncio.run(entry.run(confirmed=False, clock=lambda: NOW))
     assert snapshot(database) == before
 
 
@@ -382,8 +397,8 @@ def test_cli_is_explicit_and_reports_success_without_credentials(
 
     asyncio.run(startup())
     assert snapshot(database)["users"] == []
-    assert entry.main() == 0
-    assert entry.main() == 0
+    assert entry.main([entry.CONFIRM_FLAG]) == 0
+    assert entry.main([entry.CONFIRM_FLAG]) == 0
     output = capsys.readouterr()
     assert "created" in output.out
     assert "unchanged" in output.out

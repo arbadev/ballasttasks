@@ -84,6 +84,7 @@ type = "forbidden"
 source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
+    "app.seed_demo",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
     "jwt", "argon2", "httpx", "cryptography",
 ]
@@ -93,7 +94,7 @@ name = "application imports only domain (no framework)"
 type = "forbidden"
 source_modules = ["app.application"]
 forbidden_modules = [
-    "app.infrastructure", "app.api", "app.bootstrap", "app.main",
+    "app.infrastructure", "app.api", "app.bootstrap", "app.main", "app.seed_demo",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
     "jwt", "argon2", "httpx", "cryptography",
 ]
@@ -103,7 +104,7 @@ name = "api does not import infrastructure adapters or the composition root"
 type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
-    "app.infrastructure", "app.bootstrap", "app.main",
+    "app.infrastructure", "app.bootstrap", "app.main", "app.seed_demo",
     "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx", "cryptography",
 ]
 
@@ -111,11 +112,13 @@ forbidden_modules = [
 name = "infrastructure does not import api or the composition root"
 type = "forbidden"
 source_modules = ["app.infrastructure"]
-forbidden_modules = ["app.api", "app.bootstrap", "app.main", "fastapi", "starlette"]
+forbidden_modules = [
+    "app.api", "app.bootstrap", "app.main", "app.seed_demo", "fastapi", "starlette",
+]
 
 [[tool.importlinter.contracts]]
-name = "only app.bootstrap imports app.infrastructure (main goes through bootstrap)"
+name = "only app.bootstrap imports app.infrastructure (entry points go through bootstrap)"
 type = "forbidden"
-source_modules = ["app.main"]
+source_modules = ["app.main", "app.seed_demo"]
 forbidden_modules = ["app.infrastructure"]
 allow_indirect_imports = true

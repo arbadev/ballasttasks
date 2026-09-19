@@ -44,14 +44,25 @@ After migrations, seed **only a local development/demo database**. With the loca
 API running, invoke from the repo root:
 
 ```sh
-docker compose exec api python -m app.seed_demo
+docker compose exec api python -m app.seed_demo --confirm-demo-accounts
 ```
 
 Or, from `apps/api`, with your local `DATABASE__URL`, `REDIS__URL`, `AUTH__JWT_SECRET`
-and other settings loaded: `uv run python -m app.seed_demo`. No seed runs on startup;
-there is no seed HTTP route or startup flag. `APP__ENV=production` is refused before
-opening any database connection. Do not override that setting to seed a deployed database.
-The command does not run migrations and requires no AI/provider calls.
+and other settings loaded: `uv run python -m app.seed_demo --confirm-demo-accounts`.
+No seed runs on startup; there is no seed HTTP route or startup flag. The command does
+not run migrations and requires no AI/provider calls.
+
+Two refusals guard it, both before any database connection is opened:
+
+- `APP__ENV=production` is refused, with or without the flag. Do not override that
+  setting to seed a deployed database.
+- Without `--confirm-demo-accounts` nothing is written at all.
+
+The flag records your intent; it is not a safety check. It says you accept that this
+database will hold accounts whose password is published in this repository. Nothing in
+the command can tell whether `DATABASE__URL` points at a local database you own — a
+shared development or staging database is not production-labelled and would be seeded —
+so read that variable yourself before passing the flag.
 
 Intentional **public, demo-only** password: `ballast-local-demo-only` for these accounts:
 
