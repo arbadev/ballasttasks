@@ -12,7 +12,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | --- | --- |
 | `src/app/providers.tsx` | Composition root: the only place a concrete service is constructed. Exports the hooks `useTaskService`, `useDirectoryService`, `useStepGenerationService`, `useClock`, `useHealthService`. |
 | `src/app/globals.css` | The design tokens, once: the skin's CSS variables, mapped into the Tailwind theme (`bg-card`, `text-fg-3`, `rounded-bt`, `shadow-glow`, `animate-bt-in`, ...), plus base rules and the `bt-*` keyframes. Components use token names, never raw hex. |
-| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own `BT_DESIGN_DIR` and `BT_VISUAL_PORT`). Validates on load. |
+| `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own `BT_DESIGN_DIR`). Validates on load. |
 | `src/lib/api/client.ts` | The only module that calls `fetch`. Throws a typed `ApiError`. |
 | `src/lib/api/schema.d.ts` | Generated from the API's OpenAPI document. Never edited by hand. |
 | `src/components/ui/` | Shared primitives: `Button`, `IconButton`, `Select`, `SegmentedControl`, `TextInput`, `Avatar`, `Pill`. No feature knowledge. |
@@ -110,8 +110,7 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 
 ## Visual tests
 
-`npm run test:visual` starts the app on port 47812 (`BT_VISUAL_PORT` moves it; an app already
-listening there is reused, so two checkouts must not share a port) and runs four suites from `visual/`:
+`npm run test:visual` starts the app on port 47812 and runs four suites from `visual/`:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view

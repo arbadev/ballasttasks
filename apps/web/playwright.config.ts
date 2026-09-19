@@ -7,13 +7,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const designDir = process.env.BT_DESIGN_DIR;
 
-/**
- * `reuseExistingServer` will happily test whatever already listens on the port, which is
- * another checkout's app when two worktrees run this at once. BT_VISUAL_PORT moves this one.
- */
-const appPort = process.env.BT_VISUAL_PORT ?? "47812";
-
-export const APP_URL = `http://127.0.0.1:${appPort}`;
+export const APP_URL = "http://127.0.0.1:47812";
 export const DESIGN_URL = "http://127.0.0.1:47811";
 
 export default defineConfig({
@@ -32,7 +26,7 @@ export default defineConfig({
   webServer: [
     {
       // The tasks UI is in-memory; the API URL only has to be well-formed.
-      command: `node node_modules/next/dist/bin/next dev --port ${appPort} --hostname 127.0.0.1`,
+      command: "node node_modules/next/dist/bin/next dev --port 47812 --hostname 127.0.0.1",
       url: APP_URL,
       env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:47899" },
       reuseExistingServer: true,
