@@ -55,10 +55,12 @@ function Board() {
   const moves = useBoardMoves(useVisibleTasks({ applyStatus: false }));
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
-  /** The column whose "Add a task" was refused. */
-  const [addFailedIn, setAddFailedIn] = useState<TaskStatus | null>(null);
-  /** Only the latest "Add a task" can report a failure, regardless of response order. */
-  const attempt = useRef(0);
+  /**
+   * Each column adds one task at a time, and columns do not wait for each other: a column is
+   * busy while its call is out, and stays busy once refused, so the refusal keeps its place on
+   * the screen until the user retries or dismisses it.
+   */
+  const [adding, setAdding] = useState<Partial<Record<TaskStatus, "pending" | "failed">>>({});
   const grid = useRef<HTMLDivElement>(null);
   /**
    * The card moved without a drag. It is remounted in its new column, and again if the move is
@@ -96,13 +98,11 @@ function Board() {
   };
 
   const addTask = (status: TaskStatus) => {
-    const ticket = ++attempt.current;
-    // Only the failures already on screen make way; a move still in flight keeps its answer.
-    for (const shown of moves.failures) moves.dismissFailure(shown.taskId);
-    setAddFailedIn(null);
-    commands.create({ title: "Untitled task", status }, { open: true }).catch(() => {
-      if (ticket === attempt.current) setAddFailedIn(status);
-    });
+    setAdding((current) => ({ ...current, [status]: "pending" }));
+    commands.create({ title: "Untitled task", status }, { open: true }).then(
+      () => setAdding((current) => ({ ...current, [status]: undefined })),
+      () => setAdding((current) => ({ ...current, [status]: "failed" })),
+    );
   };
 
   const moveWithoutDrag = (taskId: string, from: TaskStatus, to: TaskStatus) => {
@@ -115,17 +115,22 @@ function Board() {
   const retryMove = (failure: MoveFailure) => moveWithoutDrag(failure.taskId, failure.from, failure.to);
 
   /**
-   * Dismissing takes the pressed button off the screen, so focus goes first to what the alert
-   * was about: the card, the column it is in, or the "Add a task" that was refused.
+   * Retrying and dismissing take the pressed button off the screen, so focus goes first to what
+   * the alert was about: the card, the column it is in, or the "Add a task" that was refused.
    */
   const dismissMove = (failure: MoveFailure) => {
     (cardButton(failure.taskId) ?? columnHeading(failure.from))?.focus();
     moves.dismissFailure(failure.taskId);
   };
 
+  const retryAdd = (status: TaskStatus) => {
+    columnAdd(status)?.focus();
+    addTask(status);
+  };
+
   const dismissAdd = (status: TaskStatus) => {
     columnAdd(status)?.focus();
-    setAddFailedIn(null);
+    setAdding((current) => ({ ...current, [status]: undefined }));
   };
 
   return (
@@ -142,9 +147,14 @@ function Board() {
           onDismiss={() => dismissMove(failure)}
         />
       ))}
-      {addFailedIn && (
-        <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => dismissAdd(addFailedIn)} />
-      )}
+      {STATUSES.filter((status) => adding[status.id] === "failed").map((status) => (
+        <BoardAlert
+          key={status.id}
+          message={`Could not add a task to ${status.name}.`}
+          onRetry={() => retryAdd(status.id)}
+          onDismiss={() => dismissAdd(status.id)}
+        />
+      ))}
 
       <div ref={grid} className={BOARD_GRID}>
         {STATUSES.map((status, position) => {
@@ -167,7 +177,9 @@ function Board() {
                 if (id) moves.move(id, status.id);
                 endDrag();
               }}
-              onAddTask={() => addTask(status.id)}
+              onAddTask={() => {
+                if (!adding[status.id]) addTask(status.id);
+              }}
             >
               {tasks.map((task, index) => (
                 <li key={task.id}>

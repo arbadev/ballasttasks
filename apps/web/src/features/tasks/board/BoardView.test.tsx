@@ -595,7 +595,7 @@ describe("moving without a drag", () => {
 });
 
 describe("concurrent board attempts", () => {
-  it("replaces a move error with the newer add error, without reviving either on dismissal", async () => {
+  it("keeps a move error the user has not acted on when an add is started, and reports both", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     service.failNextMove = true;
     await renderBoard({ taskService: service });
@@ -604,9 +604,26 @@ describe("concurrent board attempts", () => {
 
     service.failNextCreate = true;
     fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing."));
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    expect(screen.getAllByRole("alert").map((a) => a.textContent)).toEqual([
+      expect.stringContaining(`Could not move "${PRD}". It is back in To Do.`),
+      expect.stringContaining("Could not add a task to Testing."),
+    ]);
+
+    for (const alert of screen.getAllByRole("alert")) fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps a move error on screen when an add in another column succeeds", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+    drag(PRD, "Testing").drop();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`);
+
+    fireEvent.click(within(column("Done")).getByRole("button", { name: "Add a task" }));
+    await screen.findByRole("dialog", { name: "Untitled task" });
+    expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
   });
 
   it("reports a refused add that was in flight while a move succeeded", async () => {
@@ -817,6 +834,75 @@ describe("add a task", () => {
     fireEvent.click(within(screen.getAllByRole("alert")[0]).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
     expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+  });
+
+  it("reports a refused add even though another column started one before it answered", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("To Do")).getByRole("button", { name: "Add a task" }));
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    await act(async () => release());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add a task to To Do.");
+    await waitFor(() => expect(titlesIn("Testing")).toContain("Untitled task"));
+    expect(titlesIn("To Do")).not.toContain("Untitled task");
+  });
+
+  it("asks for one task at a time in a column, and for both when two columns add at once", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    fireEvent.click(within(column("Done")).getByRole("button", { name: "Add a task" }));
+    await act(async () => release());
+
+    await waitFor(() => expect(titlesIn("Done")).toContain("Untitled task"));
+    expect(service.calls.filter((c) => c[0] === "create")).toEqual([
+      ["create", { title: "Untitled task", status: "testing", project: "inbox" }],
+      ["create", { title: "Untitled task", status: "done", project: "inbox" }],
+    ]);
+  });
+
+  it("holds the column until a refused add is retried or dismissed", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    const creates = vi.spyOn(service, "create");
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+    const addIn = (name: string) => within(column(name)).getByRole("button", { name: "Add a task" });
+
+    fireEvent.click(addIn("Testing"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+
+    fireEvent.click(addIn("Testing"));
+    expect(creates).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
+
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(addIn("Testing"));
+    await screen.findByRole("dialog", { name: "Untitled task" });
+    expect(creates).toHaveBeenCalledTimes(2);
+  });
+
+  it("puts focus back on the Add a task when its alert is retried", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    retry.focus();
+    fireEvent.click(retry);
+
+    expect(within(column("Testing")).getByRole("button", { name: "Add a task" })).toHaveFocus();
+    await screen.findByRole("dialog", { name: "Untitled task" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

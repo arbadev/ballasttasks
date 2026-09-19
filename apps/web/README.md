@@ -123,11 +123,13 @@ Feedback is kept against the card it belongs to, never against one latest attemp
 always raises its own alert, whatever any other card did, and only that card's next attempt or a
 dismissal takes it away, so two refused cards show two alerts. Settlement tickets are kept per
 task as well, so answers batched with another task cannot erase the signal that restores keyboard
-focus. "Add a task" is the board's own attempt rather than a card's: starting it clears the move
-alerts already on screen, but neither operation ever silences the other's answer, so an add and a
-move can each report their own refusal side by side. Dismissing an alert hands focus to what it
-was about — the card, its column's heading once the card is off the board, or that column's
-"Add a task" — so the keyboard is never left on the body.
+focus. "Add a task" belongs to its column rather than to a card, and a column adds one task at a
+time: while its call is out, and once that call has been refused, the column's "Add a task" does
+nothing, so the refusal keeps its place until the user retries or dismisses it. Columns are
+independent of each other, and no add or move ever clears another's alert, so several refusals
+can be on screen at once, each with its own Retry. Retrying or dismissing an alert hands focus to
+what it was about — the card, its column's heading once the card is off the board, or that
+column's "Add a task" — so the keyboard is never left on the body.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.
