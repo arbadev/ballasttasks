@@ -66,9 +66,10 @@ See [the HTTP/lifetime contract](../../docs/architecture.md#queued-step-generati
 
 `AI__PROVIDER=fake` (default) produces three deterministic draft titles offline;
 `openrouter` and `gemini` use the existing provider-neutral `AI__MODEL`, `AI__API_KEY`,
-`AI__BASE_URL` and `AI__TIMEOUT_SECONDS` settings. The worker caps model time at 240
-seconds and its hard execution limit is 250 seconds; use Celery's default prefork pool
-in deployment. Never use eager mode in the API process.
+`AI__BASE_URL` and `AI__TIMEOUT_SECONDS` settings. The worker waits
+`min(AI__TIMEOUT_SECONDS, 240)` seconds for the model and its hard execution limit is 250
+seconds; use Celery's default prefork pool in deployment. Never use eager mode in the API
+process.
 
 Offline real-worker proof (against your own PostgreSQL/Redis):
 
