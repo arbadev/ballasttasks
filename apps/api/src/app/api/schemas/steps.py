@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE
 from app.application.use_cases.update_step import StepChanges
-from app.domain.step import STEP_TITLE_MAX_LENGTH, Step
+from app.domain.step import MAX_STEPS_PER_TASK, STEP_TITLE_MAX_LENGTH, Step
 
 StepTitle = Annotated[
     str,
@@ -63,10 +63,12 @@ class StepsOrder(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     step_ids: list[uuid.UUID] = Field(
+        max_length=MAX_STEPS_PER_TASK,
         description=(
-            "Every step of the task, exactly once, in the order wanted. A list that misses a "
-            "step, repeats one or names a step of another task is rejected with `422`."
-        )
+            "Every step of the task, exactly once, in the order wanted; a task holds at most "
+            "100 of them. A list that misses a step, repeats one, names a step of another "
+            "task or is longer than the task may hold is rejected with `422`."
+        ),
     )
 
 

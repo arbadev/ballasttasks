@@ -839,7 +839,7 @@ export interface components {
         StepsOrder: {
             /**
              * Step Ids
-             * @description Every step of the task, exactly once, in the order wanted. A list that misses a step, repeats one or names a step of another task is rejected with `422`.
+             * @description Every step of the task, exactly once, in the order wanted; a task holds at most 100 of them. A list that misses a step, repeats one, names a step of another task or is longer than the task may hold is rejected with `422`.
              */
             step_ids: string[];
         };
