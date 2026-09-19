@@ -290,11 +290,15 @@ def test_an_unknown_provider_is_reported_before_its_missing_key(
         load_settings(valid_ai_providers=PROVIDERS)
 
 
-def test_the_fake_provider_ignores_a_blank_api_key(minimal_env: pytest.MonkeyPatch) -> None:
-    """``AI__API_KEY=`` left empty in ``.env`` must not stop the default stack."""
+def test_blank_optional_ai_variables_mean_unset(minimal_env: pytest.MonkeyPatch) -> None:
+    """``.env.example`` ships them empty; that must not stop the default stack."""
     minimal_env.setenv("AI__API_KEY", "")
+    minimal_env.setenv("AI__BASE_URL", "")
 
-    assert load_settings(valid_ai_providers=PROVIDERS).ai.api_key is None
+    ai = load_settings(valid_ai_providers=PROVIDERS).ai
+
+    assert ai.api_key is None
+    assert ai.base_url is None
 
 
 @pytest.mark.parametrize("timeout", ["0", "-1"])

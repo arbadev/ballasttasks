@@ -32,7 +32,7 @@ Source code dependencies point inward only. An inner layer never imports an oute
 flowchart TB
     subgraph outer [Outer: frameworks and drivers]
         presentation[api, the presentation layer<br/>FastAPI routes, Pydantic response models]
-        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, fake AI]
+        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, AI providers]
     end
     application[application<br/>use cases and ports]
     domain[domain<br/>entities and rules, no framework imports]
@@ -89,7 +89,8 @@ class LanguageModel(Protocol):
     @property
     def model(self) -> str: ...         # e.g. "fake-1"
 
-    def complete(self, prompt: str) -> str: ...
+    async def generate(self, prompt: str) -> str: ...   # non-empty text, or a LanguageModelError
+    async def check(self) -> bool: ...                  # never raises, never spends tokens
 
 
 class TaskRepository(Protocol):
@@ -111,7 +112,7 @@ Adapters in this setup:
 | --- | --- | --- |
 | `HealthCheck` | `database`, `redis`, `ai` | One entry per adapter appears in `GET /health/ready` |
 | `JobQueue` | Celery (Redis broker), in-memory fake for unit tests | |
-| `LanguageModel` | `fake` only | No real provider SDK and no API key in this setup |
+| `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker |
 | `UserRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_user_repository_contract.py`. `add` raises `EmailAlreadyRegisteredError`, also when a concurrent transaction wins: the unique constraint is the guarantee, and the insert runs in a savepoint so the rest of the unit of work survives the rejection |
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
@@ -238,7 +239,7 @@ flowchart LR
 | Principle | Concrete mechanism | Where it is enforced |
 | --- | --- | --- |
 | Single responsibility | One module per use case, adapter, route and component; `settings.py` / `config.ts` are the only env readers; `client.ts` is the only fetch caller | Code review; config tests cover the env readers; import-linter keeps concerns in their layer |
-| Open/closed | A new provider or backend is a new adapter plus one registry line in `bootstrap.py`; `checks` is a list, so a new health check changes no schema and no frontend code | Registry in `bootstrap.py`; the pinned health contract above |
+| Open/closed | A new provider or backend is a new adapter plus one registry line (`infrastructure/ai/registry.py` for a provider); `checks` is a list, so a new health check changes no schema and no frontend code | Registry in `bootstrap.py`; the pinned health contract above |
 | Liskov substitution | Every adapter of a port passes the same contract test suite as every other adapter of that port | Contract suites in the API tests, parametrised over all adapters of the port |
 | Interface segregation | Small `typing.Protocol` ports (`HealthCheck`, `JobQueue`, `LanguageModel`); small frontend service interfaces; no catch-all interface | `mypy` checks structural conformance; review rejects ports that grow unrelated methods |
 | Dependency inversion | Application and UI depend on interfaces; only `bootstrap.py` and `providers.tsx` name concrete classes | import-linter contracts (`uv run lint-imports`); frontend components receive services from context |
@@ -256,6 +257,24 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 
 No existing adapter, use case, route, schema or frontend file changes. If one must, the port is wrong: stop and revisit the port instead.
 
+### Worked example: the OpenRouter and Gemini providers
+
+Both real `LanguageModel` adapters arrived by those six steps.
+
+1. Tests first: `tests/unit/test_openrouter_language_model.py` and `tests/unit/test_gemini_language_model.py`, plus one factory line each in `ADAPTERS` of the contract suite. They run against `httpx.MockTransport` fed with response bodies copied from the providers' references (`tests/ai_stubs.py`), so they need neither network nor key. They were committed failing.
+2. `infrastructure/ai/openrouter.py` and `infrastructure/ai/gemini.py`, each on the shared helpers in `infrastructure/ai/http.py`.
+3. The contract suite passes for `fake`, `openrouter` and `gemini` alike.
+4. One line each in `AI_PROVIDERS`: `"openrouter": _over_http(OpenRouterLanguageModel)` and `"gemini": _over_http(GeminiLanguageModel)`.
+5. `AI__API_KEY`, `AI__BASE_URL` and `AI__TIMEOUT_SECONDS` joined the `ai` group. They are provider-neutral, so a third HTTP provider needs no new setting.
+6. Checks, then commit.
+
+What changed in `apps/api/src` outside `infrastructure/ai/`: the `ai` settings group; the client lifetime in `bootstrap.py` (one `httpx.AsyncClient`, created in `build_container`, closed by `Container.aclose`); and the typed errors next to the port. No use case, route, schema or frontend file changed, and switching provider is an edit to `.env`.
+
+- **Typed failures**: `generate` raises only subclasses of `LanguageModelError`, defined next to the port in `application/ports/language_model.py`: `LanguageModelUnavailableError`, `LanguageModelRateLimitedError`, `LanguageModelAuthenticationError`, `LanguageModelInvalidResponseError`, `LanguageModelTimeoutError`. The mapping from HTTP statuses and transport errors is `error_for_status` and `send` in `infrastructure/ai/http.py`. import-linter forbids `httpx` in `domain`, `application` and `api`.
+- **`check()` is free**: OpenRouter reads `GET /key` (the public models listing would accept any key); Gemini reads the model resource, `GET /models/{id}`. Neither generates. Both use a 2 second timeout and return `False` instead of raising.
+- **The key**: `AI__API_KEY` is a `SecretStr`, required for every provider except `fake`, and a missing one stops startup with a message naming the variable. Adapter errors carry a status code or a fixed phrase, never a header or a response body. Gemini receives the key in the `x-goog-api-key` header, not the `?key=` query, so it cannot appear in a logged URL.
+- **Live tests**: `uv run pytest -m live` calls the real provider named by `AI__PROVIDER` with `AI__API_KEY`. They are deselected by default and skipped without a key.
+
 ## Testing strategy
 
 Tests are written first, seen to fail, then made to pass. A test is never weakened or deleted to get green.
@@ -266,6 +285,7 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected, a rejected secret never echoed in the error | Environment variables only |
+| Live | The real AI provider accepts the key and generates text | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`; deselected by default, skipped without a key |
 | Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.
