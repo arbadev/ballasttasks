@@ -1,12 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { cn } from "@/lib/cn";
 import { relativeTime } from "../model/time";
 import type { Person, Task } from "../model/types";
 import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
 import { ActionError, BOX_INPUT, PanelButton, SECTION_LABEL } from "./controls";
-import { useDetailSession, useDraft } from "./DetailSession";
+import { useComposer, useDetailSession } from "./DetailSession";
 
 const AVATAR_TONES = {
   neutral: "bg-card-2 text-fg-2",
@@ -32,28 +32,12 @@ export function ActivitySection({ task }: { task: Task }) {
   const { people, currentUser } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const [comment, setComment] = useDraft(`comment:${task.id}`);
-  const [failed, setFailed] = useState<string | null>(null);
+  const box = useComposer(`comment:${task.id}`, (text) => track(task.id, commands.addComment(task.id, text)));
 
   const entries = [...task.activity].sort((a, b) => a.at - b.at);
   const person = (id: string) => people.find((p) => p.id === id) ?? (id === ASSISTANT.id ? ASSISTANT : null);
   const tone = (id: string): keyof typeof AVATAR_TONES => (id === ASSISTANT.id ? "solid" : id === currentUser?.id ? "accent" : "neutral");
 
-  const send = (text: string) => {
-    setFailed(null);
-    void track(task.id, commands.addComment(task.id, text)).catch(() => {
-      // The box belongs to the user: take it back only when nothing has been typed since.
-      setComment((current) => current || text);
-      setFailed(text);
-    });
-  };
-
-  const post = () => {
-    const text = comment.trim();
-    if (!text) return;
-    setComment("");
-    send(text);
-  };
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3.5 border-t border-line pt-[18px]">
@@ -96,21 +80,25 @@ export function ActivitySection({ task }: { task: Task }) {
           name="comment"
           placeholder="Write a comment — Enter to post"
           rows={1}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
+          value={box.text}
+          onChange={(e) => box.setText(e.target.value)}
           onKeyDown={(e) => {
             // Shift+Enter falls through to the textarea and breaks the line.
             if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
             e.preventDefault();
-            post();
+            box.submit();
           }}
           className={`${BOX_INPUT} field-sizing-content block max-h-40 min-h-[34px] min-w-0 flex-1 resize-none px-3 py-[6px] text-[13px] leading-5`}
         />
-        <PanelButton variant="secondary" className="h-[34px] px-3" onClick={post}>
+        <PanelButton variant="secondary" className="h-[34px] px-3" onClick={box.submit}>
           Comment
         </PanelButton>
       </div>
-      {failed !== null && <ActionError onRetry={() => send(failed)}>Could not post the comment. It is kept, and Retry sends it again.</ActionError>}
+      {box.pending?.failed && (
+        <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
+          Could not post the comment. It is kept: retry it, or dismiss it to write another.
+        </ActionError>
+      )}
     </section>
   );
 }

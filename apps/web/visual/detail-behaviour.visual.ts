@@ -181,6 +181,72 @@ test("prefers-reduced-motion stills the panel's entrance and its loops", async (
   await context.close();
 });
 
+test("a due date being retyped reports empty to the app, and still ends on the finished date", async ({ page }) => {
+  await openApp(page);
+  const dialog = await openTask(page, RICH_TASK);
+  const properties = dialog.getByRole("complementary", { name: "Properties" });
+  const date = properties.getByLabel("Due date");
+  const stored = await date.inputValue();
+  expect(stored, "this task starts with a due date").not.toBe("");
+
+  // Every value the control reports as the user works, so an intermediate empty is visible.
+  await date.evaluate((el) => {
+    (window as unknown as { seen: string[] }).seen = [];
+    el.addEventListener("input", () => (window as unknown as { seen: string[] }).seen.push((el as HTMLInputElement).value));
+  });
+
+  // Clearing one segment of a date that already has a value: Chrome reports the whole control
+  // as empty until the date is complete again. That empty is not a date the task can hold.
+  await date.click();
+  await page.keyboard.press("Backspace");
+  await expect(date).toHaveValue("");
+  await expect(properties.getByRole("group", { name: "Remove the date?" })).toBeVisible();
+
+  await date.fill("2027-12-24");
+  await expect(properties.getByRole("group", { name: "Remove the date?" })).toBeHidden();
+  const seen = await page.evaluate(() => (window as unknown as { seen: string[] }).seen);
+  expect(seen, "Chrome reports an empty value while the date is being retyped").toContain("");
+
+  await expect(date).toHaveValue("2027-12-24");
+  await expect(dialog.getByTestId("save-state")).toHaveText(/^saved · /);
+  await dialog.getByRole("button", { name: "Close task" }).click();
+
+  const reopened = await openTask(page, RICH_TASK);
+  await expect(reopened.getByRole("complementary", { name: "Properties" }).getByLabel("Due date")).toHaveValue("2027-12-24");
+});
+
+test("emptying a due date and leaving puts it back; only Clear date removes it", async ({ page }) => {
+  await openApp(page);
+  const dialog = await openTask(page, RICH_TASK);
+  const properties = dialog.getByRole("complementary", { name: "Properties" });
+  const date = properties.getByLabel("Due date");
+  const stored = await date.inputValue();
+  expect(stored).not.toBe("");
+
+  await date.click();
+  await page.keyboard.press("Backspace");
+  await expect(date).toHaveValue("");
+  await expect(properties.getByRole("group", { name: "Remove the date?" })).toBeVisible();
+
+  // Escape is a cancel gesture: it closes the panel and must not remove the date.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  const reopened = await openTask(page, RICH_TASK);
+  const back = reopened.getByRole("complementary", { name: "Properties" }).getByLabel("Due date");
+  await expect(back).toHaveValue(stored);
+
+  await back.click();
+  await page.keyboard.press("Backspace");
+  const prompt = reopened.getByRole("complementary", { name: "Properties" }).getByRole("group", { name: "Remove the date?" });
+  await prompt.getByRole("button", { name: "Clear date" }).click();
+  await expect(prompt).toBeHidden();
+  await expect(back).toHaveValue("");
+
+  await reopened.getByRole("button", { name: "Close task" }).click();
+  const again = await openTask(page, RICH_TASK);
+  await expect(again.getByRole("complementary", { name: "Properties" }).getByLabel("Due date")).toHaveValue("");
+});
+
 test("no console errors or warnings across the panel's states", async ({ page }) => {
   const problems: string[] = [];
   const record = (m: ConsoleMessage) => {

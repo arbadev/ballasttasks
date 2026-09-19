@@ -1,9 +1,16 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { FakeTaskService } from "@/test/fakeServices";
 import { openTask, renderDetail, settle } from "./testing/renderDetail";
 
 const steps = () => within(screen.getByRole("region", { name: "Steps" }));
 const stepTexts = () => within(steps().getByRole("list", { name: "Steps" })).getAllByRole("listitem").map((li) => li.textContent);
+/** Rejects every add, recording the attempt, so a test can count what was actually sent. */
+const rejectAddStep = (service: FakeTaskService) => async (id: string, text: string) => {
+  service.calls.push(["addStep:rejected", id, text]);
+  throw new Error("offline");
+};
+
 const DRAFT = ["users table + Alembic migration", "Ports: PasswordHasher and TokenIssuer", "Use cases: register, login"];
 
 describe("steps checklist", () => {
@@ -68,9 +75,7 @@ describe("steps checklist", () => {
 
   it("puts a step back in the box when adding fails, and says so", async () => {
     const { taskService } = await renderDetail();
-    taskService.addStep = async () => {
-      throw new Error("offline");
-    };
+    taskService.addStep = rejectAddStep(taskService);
     openTask("t4");
     const input = steps().getByRole("textbox", { name: "Add a step" });
     fireEvent.change(input, { target: { value: "Pick the token lifetime" } });
@@ -107,6 +112,73 @@ describe("steps checklist", () => {
     expect(taskService.calls).toContainEqual(["addStep", "t4", "Pick the token lifetime"]);
     expect(input()).toHaveValue("Rotate the refresh token");
     expect(steps().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("clears the box on a Retry that lands, so the step is not added twice", async () => {
+    const { taskService } = await renderDetail();
+    const original = taskService.addStep.bind(taskService);
+    taskService.addStep = rejectAddStep(taskService);
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(input()).toHaveValue("Pick the token lifetime");
+
+    taskService.addStep = original;
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+    expect(input()).toHaveValue("");
+
+    // The natural next Enter on an empty box adds nothing, so there is no second copy.
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep")).toHaveLength(1);
+    expect(stepTexts()).toEqual(["Pick the token lifetime"]);
+  });
+
+  it("keeps the step that failed until it is retried or dismissed", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = rejectAddStep(taskService);
+    openTask("t4");
+    const input = () => steps().getByRole("textbox", { name: "Add a step" });
+
+    fireEvent.change(input(), { target: { value: "Pick the token lifetime" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+
+    // Another Enter does not quietly throw the held step away.
+    fireEvent.change(input(), { target: { value: "Rotate the refresh token" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addStep:rejected")).toHaveLength(1);
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+    expect(input()).toHaveValue("Rotate the refresh token");
+
+    fireEvent.click(within(steps().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(steps().queryByRole("alert")).not.toBeInTheDocument();
+    expect(input()).toHaveValue("Rotate the refresh token");
+  });
+
+  it("holds a failed step against its own task while another task's box stays clear", async () => {
+    const { taskService } = await renderDetail();
+    taskService.addStep = rejectAddStep(taskService);
+    openTask("t4");
+    fireEvent.change(steps().getByRole("textbox", { name: "Add a step" }), { target: { value: "Belongs to t4" } });
+    fireEvent.keyDown(steps().getByRole("textbox", { name: "Add a step" }), { key: "Enter" });
+    await settle();
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+
+    openTask("t6");
+    expect(steps().queryByRole("alert")).not.toBeInTheDocument();
+    expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("");
+
+    openTask("t4");
+    expect(steps().getByRole("alert")).toHaveTextContent("Could not add the step.");
+    expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("Belongs to t4");
   });
 
   it("keeps a half-typed step when the panel closes and reopens", async () => {

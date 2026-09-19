@@ -83,14 +83,24 @@ export function PropertySelect({ id, name, value, options, onChange, mono }: Pro
   );
 }
 
-/** The inline message under something that failed: what happened, and a way to try it again. */
-export function ActionError({ children, onRetry }: { children: ReactNode; onRetry: () => void }) {
+const ERROR_ACTION = "cursor-pointer rounded-bt-sm border-0 bg-transparent p-0 text-[12px] font-medium text-danger underline underline-offset-2 hover:text-fg";
+
+/**
+ * The inline message under something that failed: what happened, and a way to try it again.
+ * `onDismiss` is for a failure that is held until it is dealt with, such as an unsent step.
+ */
+export function ActionError({ children, onRetry, onDismiss }: { children: ReactNode; onRetry: () => void; onDismiss?: () => void }) {
   return (
     <p role="alert" className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-danger">
       <span>{children}</span>
-      <button type="button" onClick={onRetry} className="cursor-pointer rounded-bt-sm border-0 bg-transparent p-0 text-[12px] font-medium text-danger underline underline-offset-2 hover:text-fg">
+      <button type="button" onClick={onRetry} className={ERROR_ACTION}>
         Retry
       </button>
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} className={ERROR_ACTION}>
+          Dismiss
+        </button>
+      )}
     </p>
   );
 }

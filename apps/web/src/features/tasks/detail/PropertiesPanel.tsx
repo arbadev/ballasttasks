@@ -1,11 +1,11 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { STATUSES } from "../model/statuses";
 import { relativeTime } from "../model/time";
 import type { Priority, Task, TaskStatus } from "../model/types";
 import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
-import { BOX_INPUT, FieldLabel, PropertySelect, SaveError } from "./controls";
+import { BOX_INPUT, FieldLabel, PanelButton, PropertySelect, SaveError } from "./controls";
 import { useDetailSession } from "./DetailSession";
 import { AUTOSAVE_DELAY_MS, useAutosaveField } from "./useAutosaveField";
 
@@ -23,14 +23,16 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const { people, projects } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
+  const [clearingDue, setClearingDue] = useState(false);
 
   const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
   const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(task.id, commands.update(task.id, { assignee: v })) });
   // A date input reports an empty value while one of its segments is being retyped, so an
-  // empty date is only the user's word for "no due date" once they have left the field.
+  // empty box is never a date the task can hold: leaving the field puts the stored date back,
+  // and removing it is its own action below.
   const due = useAutosaveField({
     saved: task.due,
-    savable: (v: string | null, settling: boolean) => settling || v !== null,
+    savable: (v: string | null) => v !== null,
     save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })),
     delay: AUTOSAVE_DELAY_MS,
   });
@@ -72,10 +74,39 @@ export function PropertiesPanel({ task }: { task: Task }) {
           name="due"
           type="date"
           value={due.value ?? ""}
-          onChange={(e) => due.change(e.target.value || null)}
+          onChange={(e) => {
+            const value = e.target.value || null;
+            due.change(value);
+            setClearingDue(value === null && task.due !== null);
+          }}
           onBlur={due.flush}
           className={`${BOX_INPUT} h-[34px] px-2.5 font-mono text-[13px] pointer-coarse:h-11`}
         />
+        {clearingDue && (
+          <div role="group" aria-label="Remove the date?" className="flex animate-bt-fade flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-3">
+            <span>Emptying the box does not remove the date.</span>
+            <PanelButton
+              variant="confirm"
+              className="h-[26px] text-[12px]"
+              onClick={() => {
+                setClearingDue(false);
+                void track(task.id, commands.update(task.id, { due: null })).catch(() => {});
+              }}
+            >
+              Clear date
+            </PanelButton>
+            <PanelButton
+              variant="quiet"
+              className="h-[26px] text-[12px]"
+              onClick={() => {
+                setClearingDue(false);
+                due.flush();
+              }}
+            >
+              Keep
+            </PanelButton>
+          </div>
+        )}
         {due.failed && <SaveError what="due date" onRetry={due.retry} />}
       </div>
 

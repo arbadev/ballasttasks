@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export type SaveStatus = "idle" | "saving" | "failed";
 
@@ -16,6 +16,24 @@ class DraftStore {
   }
 }
 
+/** What one composer is waiting on: the text it sent, and whether that send came back failed. */
+export interface Submission {
+  text: string;
+  failed: boolean;
+}
+
+/** The one submission each step and comment box is waiting on, kept per task. */
+class SubmissionStore {
+  private readonly pending = new Map<string, Submission>();
+  get(key: string): Submission | null {
+    return this.pending.get(key) ?? null;
+  }
+  set(key: string, submission: Submission | null): void {
+    if (submission) this.pending.set(key, submission);
+    else this.pending.delete(key);
+  }
+}
+
 interface DetailSession {
   /** What the footer says about one task, and only that task. */
   saveStatus(taskId: string): SaveStatus;
@@ -27,6 +45,7 @@ interface DetailSession {
    */
   track<T>(taskId: string, save: Promise<T>): Promise<T>;
   drafts: DraftStore;
+  submissions: SubmissionStore;
   generationFailed(taskId: string): boolean;
   setGenerationFailed(taskId: string, failed: boolean): void;
 }
@@ -49,6 +68,7 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
   const [drafts] = useState(() => new DraftStore());
+  const [submissions] = useState(() => new SubmissionStore());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
 
   const record = useCallback((taskId: string, step: (current: TaskSaves) => TaskSaves) => {
@@ -97,10 +117,11 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       },
       track,
       drafts,
+      submissions,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [saves, track, drafts, failedGenerations, setGenerationFailed],
+    [saves, track, drafts, submissions, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;
@@ -112,20 +133,107 @@ export function useDetailSession(): DetailSession {
   return session;
 }
 
-/**
- * A text box whose unsent content survives the panel closing: [text, setText]. The setter
- * takes an updater too, so a late failure can read what the box holds now before writing.
- */
-export function useDraft(key: string): [string, (text: string | ((current: string) => string)) => void] {
+/** A text box whose unsent content survives the panel closing: [text, setText]. */
+export function useDraft(key: string): [string, (text: string) => void] {
   const { drafts } = useDetailSession();
   const [text, setText] = useState(() => drafts.get(key));
   const update = useCallback(
-    (next: string | ((current: string) => string)) => {
-      const value = typeof next === "function" ? next(drafts.get(key)) : next;
-      drafts.set(key, value);
-      setText(value);
+    (next: string) => {
+      drafts.set(key, next);
+      setText(next);
     },
     [drafts, key],
   );
   return [text, update];
+}
+
+export interface Composer {
+  /** What the box holds now. */
+  text: string;
+  setText(text: string): void;
+  /** The submission this box is waiting on: running, or failed and kept for a retry. */
+  pending: Submission | null;
+  /** Sends what is in the box. Ignored while this box is waiting on something. */
+  submit(): void;
+  retry(): void;
+  dismiss(): void;
+}
+
+/**
+ * A step or comment box and the one submission it is waiting on, both kept under the task's
+ * own key so they come back with the task. The box sends one thing at a time: a send that
+ * fails is held until it is retried or dismissed, and meanwhile the box stays the user's to
+ * type in. Text is only ever taken out of the box when this composer put it there and nothing
+ * has been typed since, so no send can erase what the user wrote or post the same thing twice.
+ */
+export function useComposer(key: string, send: (text: string) => Promise<unknown>): Composer {
+  const { drafts, submissions } = useDetailSession();
+  const [text, setStoredText] = useDraft(key);
+  const [pending, setPendingState] = useState(() => submissions.get(key));
+  const restored = useRef<string | null>(null);
+  const latest = useRef(send);
+
+  useEffect(() => {
+    latest.current = send;
+  });
+
+  const setPending = useCallback(
+    (next: Submission | null) => {
+      submissions.set(key, next);
+      setPendingState(next);
+    },
+    [submissions, key],
+  );
+
+  const run = useCallback(
+    (value: string) => {
+      setPending({ text: value, failed: false });
+      latest.current(value).then(
+        () => {
+          setPending(null);
+          if (restored.current === null) return;
+          restored.current = null;
+          setStoredText("");
+        },
+        () => {
+          setPending({ text: value, failed: true });
+          if (drafts.get(key)) return;
+          restored.current = value;
+          setStoredText(value);
+        },
+      );
+    },
+    [drafts, key, setPending, setStoredText],
+  );
+
+  const setText = useCallback(
+    (next: string) => {
+      restored.current = null;
+      setStoredText(next);
+    },
+    [setStoredText],
+  );
+
+  const submit = useCallback(() => {
+    if (submissions.get(key)) return;
+    const value = drafts.get(key).trim();
+    if (!value) return;
+    restored.current = null;
+    setStoredText("");
+    run(value);
+  }, [drafts, submissions, key, run, setStoredText]);
+
+  const retry = useCallback(() => {
+    const held = submissions.get(key);
+    if (!held?.failed) return;
+    run(held.text);
+  }, [submissions, key, run]);
+
+  const dismiss = useCallback(() => {
+    if (!submissions.get(key)?.failed) return;
+    restored.current = null;
+    setPending(null);
+  }, [submissions, key, setPending]);
+
+  return { text, setText, pending, submit, retry, dismiss };
 }

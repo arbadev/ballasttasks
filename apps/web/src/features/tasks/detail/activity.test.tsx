@@ -1,12 +1,19 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { NOW, makeTask } from "@/test/tasks";
+import type { FakeTaskService } from "@/test/fakeServices";
 import { openTask, renderDetail, settle } from "./testing/renderDetail";
 
 const HOUR = 36e5;
 const section = () => within(screen.getByRole("region", { name: "Activity" }));
 const entries = () => within(section().getByRole("list", { name: "Activity" })).getAllByRole("listitem");
 const box = () => section().getByRole("textbox", { name: "Write a comment" });
+
+/** Rejects every post, recording the attempt, so a test can count what was actually sent. */
+const rejectAddComment = (service: FakeTaskService) => async (id: string, text: string) => {
+  service.calls.push(["addComment:rejected", id, text]);
+  throw new Error("offline");
+};
 
 /** A request the test holds open, so it can reject it after the user has typed again. */
 function deferred() {
@@ -111,6 +118,49 @@ describe("activity", () => {
     await settle();
     expect(box()).toHaveValue("Will bounce");
     expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+  });
+
+  it("clears the box on a Retry that lands, so the comment is not posted twice", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    const original = taskService.addComment.bind(taskService);
+    taskService.addComment = rejectAddComment(taskService);
+    openTask("t1");
+
+    fireEvent.change(box(), { target: { value: "Will bounce" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(box()).toHaveValue("Will bounce");
+
+    taskService.addComment = original;
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(box()).toHaveValue("");
+
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment")).toHaveLength(1);
+  });
+
+  it("keeps the comment that failed until it is retried or dismissed", async () => {
+    const { taskService } = await renderDetail({ tasks: [TALKED_ABOUT] });
+    taskService.addComment = rejectAddComment(taskService);
+    openTask("t1");
+
+    fireEvent.change(box(), { target: { value: "Ping the vendor" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+
+    fireEvent.change(box(), { target: { value: "Following up separately" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await settle();
+    expect(taskService.calls.filter((c) => c[0] === "addComment:rejected")).toHaveLength(1);
+    expect(section().getByRole("alert")).toHaveTextContent("Could not post the comment.");
+    expect(box()).toHaveValue("Following up separately");
+
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(section().queryByRole("alert")).not.toBeInTheDocument();
+    expect(box()).toHaveValue("Following up separately");
   });
 
   it("keeps what was typed since, and Retry sends the comment that failed", async () => {

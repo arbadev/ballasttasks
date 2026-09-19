@@ -9,12 +9,8 @@ interface Options<T> {
   /** The value the task holds, as the service last confirmed it. */
   saved: T;
   save(value: T): Promise<unknown>;
-  /**
-   * Which values the field can store, asked again when the field settles (blur, unmount)
-   * rather than autosaving after a pause. An emptied number box is never storable; an emptied
-   * date is, but only once the user has left it, because a date reports empty mid-edit.
-   */
-  savable?(value: T, settling: boolean): boolean;
+  /** Which values the field can store. An emptied number or date box is not one of them. */
+  savable?(value: T): boolean;
   /** 0 saves on change (selects, dates); text fields pass AUTOSAVE_DELAY_MS. */
   delay?: number;
 }
@@ -60,8 +56,8 @@ interface Machine<T> {
  * 4. A successful save clears this field's failure, and a failure is recorded only when it is
  *    the last word: nothing newer typed or queued behind it.
  * 5. A value the field declares unsavable is not a save at all: it never runs and never clears
- *    the draft, so a half-typed value stays as typed. `flush` asks once more, as settling, and
- *    puts the control back on the confirmed value when the answer is still no.
+ *    the draft, so a half-typed value stays as typed. `flush` settles it instead, by putting
+ *    the control back on the confirmed value: leaving a field never writes through it.
  */
 export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options<T>): AutosaveField<T> {
   const [draft, setDraft] = useState<{ value: T } | null>(null);
@@ -105,13 +101,13 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
 
   /** Hands the pending edit to a save. False when the value is one the field cannot store. */
   const commit = useCallback(
-    (settling: boolean) => {
+    () => {
       const state = machine.current;
       const edit = state.pending;
       if (!edit) return true;
       if (edit.timer) clearTimeout(edit.timer);
 
-      if (latest.current.savable?.(edit.value, settling) === false) {
+      if (latest.current.savable?.(edit.value) === false) {
         state.pending = { value: edit.value, timer: null };
         return false;
       }
@@ -129,7 +125,7 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
   );
 
   const flush = useCallback(() => {
-    if (commit(true)) return;
+    if (commit()) return;
     machine.current.pending = null;
     setDraft(null);
   }, [commit]);
@@ -140,8 +136,8 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
       if (state.pending?.timer) clearTimeout(state.pending.timer);
       setFailed(null);
       setDraft({ value });
-      state.pending = { value, timer: delay > 0 ? setTimeout(() => commit(false), delay) : null };
-      if (delay === 0) commit(false);
+      state.pending = { value, timer: delay > 0 ? setTimeout(commit, delay) : null };
+      if (delay === 0) commit();
     },
     [delay, commit],
   );
@@ -151,7 +147,7 @@ export function useAutosaveField<T>({ saved, save, savable, delay = 0 }: Options
     setFailed(null);
     setDraft({ value: failed.value });
     machine.current.pending = { value: failed.value, timer: null };
-    commit(true);
+    commit();
   }, [failed, commit]);
 
   useEffect(() => flush, [flush]);

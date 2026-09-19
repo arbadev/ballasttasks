@@ -321,7 +321,7 @@ describe("property controls", () => {
     expect(assignee).toHaveValue("");
   });
 
-  it("due date saves the day, and clearing it saves null", async () => {
+  it("due date saves the day, and Clear date saves null", async () => {
     const { taskService } = await renderDetail();
     openTask("t1");
     const input = properties().getByLabelText("Due date");
@@ -329,7 +329,7 @@ describe("property controls", () => {
     fireEvent.blur(input);
     await settle();
     fireEvent.change(input, { target: { value: "" } });
-    fireEvent.blur(input);
+    fireEvent.click(properties().getByRole("button", { name: "Clear date" }));
     await settle();
     expect(updates(taskService)).toEqual([
       ["update", "t1", { due: due(9) }],
@@ -355,7 +355,7 @@ describe("property controls", () => {
     expect(input).toHaveValue(due(9));
   });
 
-  it("clears the due date once the emptied box is left", async () => {
+  it("puts the stored date back when the emptied box is left, and only Clear date removes it", async () => {
     const { taskService } = await renderDetail();
     openTask("t1");
     const input = properties().getByLabelText("Due date");
@@ -366,10 +366,44 @@ describe("property controls", () => {
     expect(updates(taskService)).toEqual([]);
     expect(input).toHaveValue("");
 
+    // Leaving the field is not the user's word for "no due date": the stored one comes back.
     fireEvent.blur(input);
+    await elapse(0);
+    expect(updates(taskService)).toEqual([]);
+    expect(input).toHaveValue(due(3));
+
+    fireEvent.click(properties().getByRole("button", { name: "Clear date" }));
     await elapse(0);
     expect(updates(taskService)).toEqual([["update", "t1", { due: null }]]);
     expect(input).toHaveValue("");
+    expect(properties().queryByRole("group", { name: "Remove the date?" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the stored date when the panel closes on an emptied box", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    expect(updates(taskService)).toEqual([]);
+
+    openTask("t1");
+    expect(properties().getByLabelText("Due date")).toHaveValue(due(3));
+  });
+
+  it("Keep leaves the stored date alone and takes the prompt away", async () => {
+    const { taskService } = await renderDetail();
+    openTask("t1");
+    const input = properties().getByLabelText("Due date");
+
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(properties().getByRole("button", { name: "Keep" }));
+    await settle();
+    expect(updates(taskService)).toEqual([]);
+    expect(input).toHaveValue(due(3));
+    expect(properties().queryByRole("group", { name: "Remove the date?" })).not.toBeInTheDocument();
   });
 
   it("priority and project save on change", async () => {
