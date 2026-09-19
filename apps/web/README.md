@@ -80,7 +80,7 @@ than `useTaskService()` directly.
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
 | `addAttachment(id, attachment)` | `addAttachment` | Detail attachments. |
-| `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task. |
+| `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
 **Step generation** (`useStepGenerationService()` from `@/app/providers`): `start(taskId)`,
