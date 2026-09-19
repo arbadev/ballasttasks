@@ -55,7 +55,7 @@ const steps = [
 ];
 const attachments = [
   { kind: "pdf" as const, name: "brief.pdf", meta: "PDF · 1 MB" },
-  { kind: "link" as const, name: "example.com", meta: "link" },
+  { kind: "link" as const, name: "example.com", meta: "link", url: "https://example.com/" },
 ];
 
 describe("task rows", () => {
