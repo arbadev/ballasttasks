@@ -41,6 +41,8 @@ export function QuickAdd({ onAdd, onLeaveDown, inputRef }: QuickAddProps) {
         <span aria-hidden="true" className="grid size-[18px] flex-none place-items-center rounded-bt-sm border-[1.5px] border-dashed border-line-2">
           <Plus size={11} strokeWidth={2.5} />
         </span>
+        {/* The placeholder is set in --fg-3 (5.29:1) on purpose: the design leaves it at the
+            browser default, #757575, which measures 3.90:1 on --bg and fails AA. */}
         <input
           ref={inputRef}
           type="text"
@@ -56,7 +58,7 @@ export function QuickAdd({ onAdd, onLeaveDown, inputRef }: QuickAddProps) {
           placeholder="Add a task and press Enter"
           enterKeyHint="done"
           autoComplete="off"
-          className="min-w-0 flex-1 border-0 bg-transparent py-1.5 text-sm text-fg placeholder:text-fg-3 placeholder:opacity-100"
+          className="min-w-0 flex-1 border-0 bg-transparent py-1.5 text-[14px] text-fg placeholder:text-fg-3 placeholder:opacity-100"
         />
       </div>
       {failed && (

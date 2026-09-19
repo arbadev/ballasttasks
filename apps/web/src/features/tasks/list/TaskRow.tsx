@@ -35,7 +35,7 @@ const DUE_ICONS: Record<DueIcon, { icon: typeof Clock; strokeWidth: number }> = 
 const RAILS: Record<Rail, string> = { danger: "bg-danger", warn: "bg-warn", none: "bg-transparent" };
 
 const PRIORITY_TONES: Record<PriorityTone, string> = {
-  // Dark text on the solid pill: the design's white on --danger is 2.9:1, this is 7.3:1.
+  // Dark text on the solid pill: the design's white on --danger measures 3.01:1 (fails AA), --acc-fg 6.13:1.
   hot: "bg-danger text-acc-fg",
   danger: "bg-danger-soft text-danger",
   accent: "bg-acc-soft text-acc",
@@ -122,7 +122,9 @@ export function TaskRow({ task, view, projectName, assignee, assigneeIsCurrentUs
           {task.title}
         </button>
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-fg-3 max-md:gap-x-2.5 max-md:gap-y-1">
+        {/* Sizes are arbitrary values on purpose: text-xs / text-sm would also set their own line
+            height, and the design's meta line inherits 1.5 (18px, 15px and 16.5px per size). */}
+        <div className="flex flex-wrap items-center gap-3 text-[12px] text-fg-3 max-md:gap-x-2.5 max-md:gap-y-1">
           <span className="font-mono text-[10px] tracking-[.08em] uppercase">{projectName}</span>
           <span data-testid="due" data-tone={view.dueTone} className={cn(CHIP, "transition-colors duration-200 ease-bt", DUE_TONES[view.dueTone])}>
             <DueIconGlyph.icon aria-hidden="true" size={12} strokeWidth={DueIconGlyph.strokeWidth} />
