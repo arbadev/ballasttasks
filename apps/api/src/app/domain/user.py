@@ -38,7 +38,8 @@ class User:
     id: uuid.UUID
     email: str
     full_name: str
-    hashed_password: str = field(repr=False)
+    # None: the user has no password (created by single sign-on) and cannot log in with one.
+    hashed_password: str | None = field(repr=False)
     is_active: bool
     created_at: datetime
 

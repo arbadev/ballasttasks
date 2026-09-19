@@ -5,5 +5,6 @@ New model = new module here plus one import line below (Alembic's env.py imports
 
 from app.infrastructure.db.models.task import TaskModel
 from app.infrastructure.db.models.user import UserModel
+from app.infrastructure.db.models.user_identity import UserIdentityModel
 
-__all__ = ["TaskModel", "UserModel"]
+__all__ = ["TaskModel", "UserIdentityModel", "UserModel"]

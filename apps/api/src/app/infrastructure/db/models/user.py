@@ -19,6 +19,7 @@ class UserModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(MAX_EMAIL_LENGTH))
     full_name: Mapped[str] = mapped_column(String(200))
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    # NULL: no password. The user signs in through an identity provider only.
+    hashed_password: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

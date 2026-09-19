@@ -8,11 +8,13 @@ Open/closed note: the set of valid AI providers is NOT listed here. ``load_setti
 receives it from its caller; the composition root (``app.bootstrap``) feeds it the keys
 of ``infrastructure/ai/registry.py``. Adding a provider is therefore a new adapter file
 plus one registry line, with no edit to this module, and configuration does not import
-any adapter.
+any adapter. The same goes for single sign-on: ``SSO__ENABLED_PROVIDERS`` is checked
+against the keys of ``infrastructure/identity/registry.py``.
 """
 
 from collections.abc import Collection
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,6 +86,60 @@ class AuthSettings(_Group):
         return self
 
 
+def _plain_http_url(value: str, variable: str) -> str:
+    """An absolute http(s) URL with nothing a redirect target should carry: no credentials,
+    no query, no fragment. The message names the variable and never the value."""
+    parts = urlsplit(value)
+    plain = (
+        parts.scheme in {"http", "https"}
+        and bool(parts.hostname)
+        and parts.username is None
+        and parts.password is None
+        and not parts.query
+        and not parts.fragment
+        and "?" not in value
+        and "#" not in value
+    )
+    if not plain:
+        raise ValueError(
+            f"{variable} must be an absolute http(s) URL without credentials, query or fragment"
+        )
+    return value
+
+
+class SsoSettings(_Group):
+    """Single sign-on. Disabled unless a provider is named in ``enabled_providers``.
+
+    Which names exist, and what each needs, is not known here: the identity provider
+    registry decides (``infrastructure/identity/registry.py``), so a new provider adds
+    fields to this group at most, never a rule.
+    """
+
+    enabled_providers: list[str] = []
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    # The only redirect targets single sign-on uses; no request can name another.
+    api_public_base_url: str = "http://localhost:8000"
+    web_callback_url: str = "http://localhost:3000/auth/callback"
+
+    @field_validator("enabled_providers")
+    @classmethod
+    def _no_provider_twice(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("SSO__ENABLED_PROVIDERS lists a provider more than once")
+        return value
+
+    @field_validator("api_public_base_url")
+    @classmethod
+    def _require_a_plain_api_base_url(cls, value: str) -> str:
+        return _plain_http_url(value, "SSO__API_PUBLIC_BASE_URL").rstrip("/")
+
+    @field_validator("web_callback_url")
+    @classmethod
+    def _require_a_plain_web_callback_url(cls, value: str) -> str:
+        return _plain_http_url(value, "SSO__WEB_CALLBACK_URL")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__", frozen=True, extra="ignore", hide_input_in_errors=True
@@ -95,11 +151,21 @@ class Settings(BaseSettings):
     ai: AiSettings = AiSettings()
     auth: AuthSettings
     cors: CorsSettings = CorsSettings()
+    sso: SsoSettings = SsoSettings()
 
 
-def load_settings(*, valid_ai_providers: Collection[str]) -> Settings:
+def load_settings(
+    *, valid_ai_providers: Collection[str], valid_sso_providers: Collection[str] = ()
+) -> Settings:
     """Read and validate the environment, failing fast on anything unusable."""
     settings = Settings()
+    unknown = [name for name in settings.sso.enabled_providers if name not in valid_sso_providers]
+    if unknown:
+        options = ", ".join(sorted(valid_sso_providers)) or "(none)"
+        raise ConfigurationError(
+            f"SSO__ENABLED_PROVIDERS names {', '.join(map(repr, unknown))}, which is not a "
+            f"registered provider. Valid options: {options}"
+        )
     if settings.ai.provider not in valid_ai_providers:
         options = ", ".join(sorted(valid_ai_providers))
         raise ConfigurationError(
