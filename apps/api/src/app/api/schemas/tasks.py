@@ -5,6 +5,7 @@ Lengths are repeated here only so they show up in OpenAPI; the rules themselves 
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Annotated, Literal, Self
 
@@ -18,7 +19,10 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+from app.api.schemas.attachments import AttachmentResponse
 from app.api.schemas.projects import ProjectResponse
+from app.api.schemas.steps import StepResponse
+from app.application.ports.task_tallies import TaskTally
 from app.application.task_query import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -34,7 +38,9 @@ from app.application.task_query import (
 )
 from app.application.use_cases.summarise_tasks import TaskSummary
 from app.application.use_cases.update_task import TaskChanges
+from app.domain.attachment import Attachment
 from app.domain.attention import Attention, AttentionReason
+from app.domain.step import MAX_STEPS_PER_TASK, Step
 from app.domain.task import (
     DEFAULT_IMPORTANCE,
     DEFAULT_PRIORITY,
@@ -189,14 +195,60 @@ class TaskResponse(BaseModel):
     priority: TaskPriority
     importance: int
     attention: AttentionResponse
+    attachments_count: int = Field(
+        ge=0, description="How many links and files are attached; the detail lists them."
+    )
+    steps_total: int = Field(description="How many steps the task has.")
+    steps_done: int = Field(description="How many of them are done: the row's `2/5`.")
+    comments_count: int = Field(description="How many comments its activity holds.")
 
     @classmethod
-    def of(cls, task: Task, attention: Attention) -> Self:
+    def of(cls, task: Task, attention: Attention, tally: TaskTally) -> Self:
+        return cls.model_validate(_task_fields(task, attention, tally), from_attributes=True)
+
+
+class TaskDetailResponse(TaskResponse):
+    """One task as the detail panel reads it: its steps and attachments, in order."""
+
+    attachments: list[AttachmentResponse] = Field(description="Oldest first.")
+    steps: list[StepResponse] = Field(
+        description=f"Every step of the task, in order: {MAX_STEPS_PER_TASK} of them at most."
+    )
+
+    @classmethod
+    def with_details(
+        cls,
+        task: Task,
+        attention: Attention,
+        tally: TaskTally,
+        steps: Sequence[Step],
+        attachments: Sequence[Attachment],
+    ) -> Self:
         return cls.model_validate(
-            {name: getattr(task, name) for name in cls.model_fields if name != "attention"}
-            | {"attention": attention},
+            _task_fields(task, attention, tally)
+            | {
+                "steps": list(steps),
+                "attachments_count": len(attachments),
+                "attachments": [AttachmentResponse.of(item) for item in attachments],
+            },
             from_attributes=True,
         )
+
+
+_COMPUTED = {"attention", "steps_total", "steps_done", "comments_count", "attachments_count"}
+
+
+def _task_fields(task: Task, attention: Attention, tally: TaskTally) -> dict[str, object]:
+    stored = {
+        name: getattr(task, name) for name in TaskResponse.model_fields if name not in _COMPUTED
+    }
+    return stored | {
+        "attention": attention,
+        "steps_total": tally.steps_total,
+        "steps_done": tally.steps_done,
+        "comments_count": tally.comments_count,
+        "attachments_count": tally.attachments_count,
+    }
 
 
 class TaskListResponse(BaseModel):

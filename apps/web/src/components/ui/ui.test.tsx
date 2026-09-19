@@ -46,9 +46,24 @@ describe("IconButton", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
+  it("uses label as the tooltip, and title instead when the name says more than the design shows", () => {
+    const { rerender } = render(<IconButton icon={Plus} label="Open navigation" onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Open navigation" })).toHaveAttribute("title", "Open navigation");
+
+    rerender(<IconButton icon={Plus} label="Dismiss: could not add a task to Testing" title="Dismiss" onClick={() => {}} />);
+    expect(screen.getByRole("button", { name: "Dismiss: could not add a task to Testing" })).toHaveAttribute("title", "Dismiss");
+  });
+
   it("renders a link when given an href", () => {
     render(<IconButton icon={Plus} label="System status" href="/status" />);
-    expect(screen.getByRole("link", { name: "System status" })).toHaveAttribute("href", "/status");
+    const link = screen.getByRole("link", { name: "System status" });
+    expect(link).toHaveAttribute("href", "/status");
+    expect(link).toHaveAttribute("title", "System status");
+  });
+
+  it("gives a link the same shorter tooltip", () => {
+    render(<IconButton icon={Plus} label="System status and health" title="Status" href="/status" />);
+    expect(screen.getByRole("link", { name: "System status and health" })).toHaveAttribute("title", "Status");
   });
 });
 

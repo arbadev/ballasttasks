@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
 import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
-import { selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
+import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
 import type { NewTask, TaskPatch } from "../services/types";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
@@ -23,6 +23,8 @@ export interface WorkspaceActions {
   clearSelection(): void;
   /** Fetches the tasks again, after a load error. */
   reload(): void;
+  /** Puts a project the directory just created into the sidebar and shows it with the filters and search reset; sort and view are kept. */
+  addProject(project: Project): void;
 }
 
 export interface Directory {
@@ -64,6 +66,9 @@ const EMPTY_DIRECTORY: Directory = { people: [], projects: [], currentUser: null
 /** How often "now" is sampled from the clock, so due labels roll over without a reload. */
 const NOW_REFRESH_MS = 60_000;
 
+/** What a failure that carried no message of its own is reported as: it says nothing a view does not already say. */
+export const LOAD_FAILED_WITHOUT_DETAIL = "Could not load the tasks.";
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const taskService = useTaskService();
   const directoryService = useDirectoryService();
@@ -83,7 +88,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : "Could not load the tasks." });
+        dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : LOAD_FAILED_WITHOUT_DETAIL });
       });
     return () => {
       cancelled = true;
@@ -112,6 +117,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       reload: () => {
         dispatch({ type: "loadStarted" });
         setAttempt((n) => n + 1);
+      },
+      addProject: (project) => {
+        setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
+        // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
+        dispatch({ type: "scopeSelected", scope: "all" });
+        dispatch({ type: "signalCleared" });
+        dispatch({ type: "statusFilterChanged", status: DEFAULT_QUERY.status });
+        dispatch({ type: "dueFilterChanged", due: DEFAULT_QUERY.due });
+        dispatch({ type: "priorityFilterChanged", priority: DEFAULT_QUERY.priority });
+        dispatch({ type: "searchChanged", search: DEFAULT_QUERY.search });
+        dispatch({ type: "projectToggled", project: project.id });
       },
     }),
     [],

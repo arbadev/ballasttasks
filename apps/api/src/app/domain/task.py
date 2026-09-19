@@ -164,6 +164,10 @@ class Task:
             self.completed_at = now
         self.status = status
 
+    def touch(self, now: datetime) -> None:
+        """A step, comment or attachment changed: the task counts as updated."""
+        self._touch(now)
+
     def _touch(self, now: datetime) -> None:
         _check_aware(now)
         self.updated_at = now

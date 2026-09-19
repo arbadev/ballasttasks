@@ -21,6 +21,7 @@ SETTINGS_ENV_PREFIXES = (
     "AUTH__",
     "RATE_LIMIT__",
     "SSO__",
+    "STORAGE__",
 )
 
 

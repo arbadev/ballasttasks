@@ -13,6 +13,7 @@ against the keys of ``infrastructure/identity/registry.py``.
 """
 
 from collections.abc import Collection
+from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
@@ -88,6 +89,12 @@ class AiSettings(_Group):
         if value is not None and not value.startswith(HTTP_SCHEMES):
             raise ValueError(f"AI__BASE_URL must start with one of {HTTP_SCHEMES}")
         return value
+
+
+class StorageSettings(_Group):
+    provider: str = "local"
+    local_directory: Path = Path("var/attachments")
+    max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
 
 
 class CorsSettings(_Group):
@@ -206,6 +213,7 @@ class Settings(BaseSettings):
     cors: CorsSettings = CorsSettings()
     sso: SsoSettings = SsoSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
+    storage: StorageSettings = StorageSettings()
 
 
 def load_settings(

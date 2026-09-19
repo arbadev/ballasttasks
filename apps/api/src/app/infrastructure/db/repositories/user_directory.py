@@ -11,8 +11,8 @@ from app.infrastructure.db.models.user import UserModel
 class SqlAlchemyUserDirectory:
     """UserDirectory and PeopleDirectory on PostgreSQL, both over the users table.
 
-    ``is_active_user`` is one ``SELECT EXISTS``; ``list_active`` selects three columns, so
-    an email or a password hash is never even read.
+    ``is_active_user`` is one ``SELECT EXISTS``; ``full_name_of`` selects one column and
+    ``list_active`` three, so an email or a password hash is never even read.
 
     It reads in the session it is given, so the answer belongs to the same transaction as
     the task that is about to be written. It loads no row: no email and no password hash
@@ -27,6 +27,12 @@ class SqlAlchemyUserDirectory:
             select(exists().where(UserModel.id == user_id, UserModel.is_active))
         )
         return bool(found)
+
+    async def full_name_of(self, user_id: uuid.UUID) -> str | None:
+        name: str | None = await self._session.scalar(
+            select(UserModel.full_name).where(UserModel.id == user_id)
+        )
+        return name
 
     async def list_active(self) -> Sequence[Person]:
         rows = await self._session.execute(
