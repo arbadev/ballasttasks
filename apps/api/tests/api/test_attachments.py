@@ -300,6 +300,8 @@ async def test_deleting_a_task_deletes_its_attachments(
 def _routes(task_id: object, attachment_id: object) -> list[tuple[str, str]]:
     return [
         ("POST", f"/tasks/{task_id}/attachments/links"),
+        ("POST", f"/tasks/{task_id}/attachments/files"),
+        ("GET", f"/tasks/{task_id}/attachments/{attachment_id}/content"),
         ("DELETE", f"/tasks/{task_id}/attachments/{attachment_id}"),
     ]
 
