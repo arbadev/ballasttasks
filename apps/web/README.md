@@ -50,6 +50,11 @@ Everything else (`model/`, `services/`, `workspace/`, `shell/`, `components/ui/`
 If a slice needs a change there, keep it additive (a new export, a new prop with a default)
 so the other two slices are unaffected.
 
+A view that replaces another hands the focus on: when the empty-project state saves its first
+task, its `onFirstTask` makes the shell set `ListView`'s `focusQuickAdd`, so the caret lands in
+the quick-add without the page scrolling. Only the list claims it today; the board slice wires
+the same prop for its own view.
+
 All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 
 **Reading**
@@ -77,7 +82,7 @@ than `useTaskService()` directly.
 
 | Command | Service method | Used by |
 | --- | --- | --- |
-| `create({ title, status? }, { open? })` | `create` | List quick-add (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
+| `create({ title, status? }, { open? })` | `create` | List quick-add and the empty project's first task (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
 | `toggleDone(id)` | `toggleDone` | List and board checkboxes; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board drop; detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
