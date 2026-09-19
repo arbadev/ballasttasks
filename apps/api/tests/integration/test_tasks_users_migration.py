@@ -157,7 +157,7 @@ def test_upgrade_keeps_every_existing_task_and_repairs_the_ids_that_match_no_use
         assert after[title] == before[title]
     for title in ("ghost assignee", "both ghosts"):
         assert after[title].assignee_id is None
-        assert after[title]._replace(assignee_id=ghost_assignee) == before[title]
+        assert after[title]._asdict() | {"assignee_id": ghost_assignee} == before[title]._asdict()
 
     with database.connect() as connection:
         users = {

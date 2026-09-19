@@ -15,6 +15,15 @@ from app.application.use_cases.update_task import TaskChanges
 from app.domain.task import DESCRIPTION_MAX_LENGTH, TITLE_MAX_LENGTH, TaskStatus
 
 Title = Annotated[str, Field(min_length=1, max_length=TITLE_MAX_LENGTH)]
+AssigneeId = Annotated[
+    uuid.UUID | None,
+    Field(
+        description=(
+            "Id of the active user the task is assigned to; `null` leaves it unassigned. "
+            "An id that is not an active user is rejected with `422`."
+        )
+    ),
+]
 
 
 class TaskCreate(BaseModel):
@@ -25,7 +34,7 @@ class TaskCreate(BaseModel):
     title: Title
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     due_date: date | None = None
-    assignee_id: uuid.UUID | None = None
+    assignee_id: AssigneeId = None
 
 
 class TaskUpdate(BaseModel):
@@ -41,7 +50,7 @@ class TaskUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=DESCRIPTION_MAX_LENGTH)
     status: TaskStatus | SkipJsonSchema[None] = None
     due_date: date | None = None
-    assignee_id: uuid.UUID | None = None
+    assignee_id: AssigneeId = None
 
     @model_validator(mode="after")
     def _required_fields_cannot_be_null(self) -> Self:

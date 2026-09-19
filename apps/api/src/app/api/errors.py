@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.application.errors import TaskNotFound
+from app.application.errors import InvalidAssigneeError, TaskNotFound
 from app.domain.task import InvalidTaskError
 
 
@@ -22,6 +22,19 @@ async def _invalid_task(_: Request, error: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={"detail": [{"type": "invalid_task", "loc": ["body"], "msg": str(error)}]},
+    )
+
+
+async def _invalid_assignee(_: Request, error: Exception) -> JSONResponse:
+    """The same body whether the use case's check or the foreign key refused the assignee,
+    and whether the id is unknown or belongs to a deactivated user."""
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "detail": [
+                {"type": "invalid_assignee", "loc": ["body", "assignee_id"], "msg": str(error)}
+            ]
+        },
     )
 
 
@@ -44,3 +57,4 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, _validation_error_without_input)
     app.add_exception_handler(TaskNotFound, _task_not_found)
     app.add_exception_handler(InvalidTaskError, _invalid_task)
+    app.add_exception_handler(InvalidAssigneeError, _invalid_assignee)

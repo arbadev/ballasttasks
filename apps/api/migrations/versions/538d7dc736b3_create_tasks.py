@@ -19,7 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Tasks. ``created_by`` and ``assignee_id`` get their foreign keys with the users table."""
+    """Tasks. ``created_by`` and ``assignee_id`` get their foreign keys in ``fa7b13ec7508``."""
     op.create_table(
         "tasks",
         sa.Column("id", sa.Uuid(), nullable=False),

@@ -236,7 +236,10 @@ export interface components {
             description?: string | null;
             /** Due Date */
             due_date?: string | null;
-            /** Assignee Id */
+            /**
+             * Assignee Id
+             * @description Id of the active user the task is assigned to; `null` leaves it unassigned. An id that is not an active user is rejected with `422`.
+             */
             assignee_id?: string | null;
         };
         /**
@@ -302,7 +305,10 @@ export interface components {
             status?: components["schemas"]["TaskStatus"];
             /** Due Date */
             due_date?: string | null;
-            /** Assignee Id */
+            /**
+             * Assignee Id
+             * @description Id of the active user the task is assigned to; `null` leaves it unassigned. An id that is not an active user is rejected with `422`.
+             */
             assignee_id?: string | null;
         };
         /** TokenResponse */
