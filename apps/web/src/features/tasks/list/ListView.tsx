@@ -1,32 +1,112 @@
 "use client";
 
-import { useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Task } from "../model/types";
+import { useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
+import { ListLoadError } from "./ListLoadError";
+import { ListSkeleton } from "./ListSkeleton";
+import { QuickAdd } from "./QuickAdd";
+import { TaskRow, type RowMove } from "./TaskRow";
+import { rowView } from "./rowView";
 
-/**
- * PLACEHOLDER, owned by the list-view worker. It renders the filtered, sorted titles so the
- * shell's filters are testable; the real rows and quick-add replace everything in here.
- */
+const ROW_TITLE = "[data-row-title]";
+const ROW_TOGGLE = "[role=checkbox]";
+
+/** The row control that had focus when its task was completed, so focus can follow the list. */
+interface PendingFocus {
+  index: number;
+  control: typeof ROW_TITLE | typeof ROW_TOGGLE;
+}
+
+/** The list view: quick-add, then the visible tasks in the workspace's order, one row each. */
 export function ListView() {
+  const { state, actions } = useWorkspace();
   const tasks = useVisibleTasks();
-  const { actions } = useWorkspace();
+  const { people, projects, currentUser } = useDirectory();
+  const commands = useTaskCommands();
+  const now = useNow();
 
-  if (tasks.length === 0) {
-    return <div className="px-6 py-14 text-[13px] text-fg-3 max-md:px-4">No tasks match these filters.</div>;
-  }
+  const listRef = useRef<HTMLUListElement>(null);
+  const quickAddRef = useRef<HTMLInputElement>(null);
+  const pendingFocus = useRef<PendingFocus | null>(null);
+  const [failedTitle, setFailedTitle] = useState<string | null>(null);
+
+  const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
+  const projectNames = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+
+  const controls = (selector: string) => Array.from(listRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
+
+  // A completed row usually leaves the list (the default filter hides done tasks) and takes
+  // the focus with it; hand the focus to the row that took its place, or to the quick-add.
+  useEffect(() => {
+    const pending = pendingFocus.current;
+    if (!pending) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    pendingFocus.current = null;
+    const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
+    (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
+  }, [tasks]);
+
+  const toggle = useCallback(
+    (task: Task, index: number) => {
+      const row = listRef.current?.children[index];
+      const focused = document.activeElement;
+      pendingFocus.current = row && focused && row.contains(focused) ? { index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE } : null;
+      setFailedTitle(null);
+      commands.toggleDone(task.id).catch(() => {
+        pendingFocus.current = null;
+        setFailedTitle(task.title);
+      });
+    },
+    [commands],
+  );
+
+  const move = (index: number, to: RowMove) => {
+    const titles = controls(ROW_TITLE);
+    if (to === "previous" && index === 0) {
+      quickAddRef.current?.focus();
+      return;
+    }
+    const target = { previous: index - 1, next: index + 1, first: 0, last: titles.length - 1 }[to];
+    titles[Math.min(target, titles.length - 1)]?.focus();
+  };
+
+  if (state.load.status === "loading") return <ListSkeleton />;
+  if (state.load.status === "error") return <ListLoadError message={state.load.message} onRetry={actions.reload} />;
 
   return (
-    <ul aria-label="Tasks" className="m-0 flex list-none flex-col p-0">
-      {tasks.map((task) => (
-        <li key={task.id} className="border-b border-line">
-          <button
-            type="button"
-            onClick={() => actions.selectTask(task.id)}
-            className="w-full cursor-pointer truncate px-6 py-[11px] text-left text-sm font-medium transition-colors duration-[160ms] ease-bt hover:bg-card max-md:px-4"
-          >
-            {task.title}
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col">
+      <QuickAdd inputRef={quickAddRef} onAdd={(title) => commands.create({ title }, { open: false })} onLeaveDown={() => controls(ROW_TITLE)[0]?.focus()} />
+
+      {failedTitle !== null && (
+        <p role="alert" className="m-0 animate-bt-fade border-b border-line bg-danger-soft px-6 py-2 text-[12.5px] text-danger max-md:px-4">
+          Could not update “{failedTitle}”. Try again.
+        </p>
+      )}
+
+      {tasks.length === 0 ? (
+        <p className="m-0 px-6 py-14 text-[13px] text-fg-3 max-md:px-4">No tasks match these filters.</p>
+      ) : (
+        <ul ref={listRef} aria-label="Tasks" className="m-0 flex list-none flex-col p-0">
+          {tasks.map((task, index) => {
+            const assignee = task.assignee ? (peopleById.get(task.assignee) ?? null) : null;
+            return (
+              <TaskRow
+                key={task.id}
+                task={task}
+                view={rowView(task, now, index)}
+                projectName={projectNames.get(task.project) ?? task.project}
+                assignee={assignee}
+                assigneeIsCurrentUser={assignee !== null && assignee.id === currentUser?.id}
+                selected={task.id === state.selectedId}
+                onOpen={() => actions.selectTask(task.id)}
+                onToggle={() => toggle(task, index)}
+                onMove={(to) => move(index, to)}
+              />
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

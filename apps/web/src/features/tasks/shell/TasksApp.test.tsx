@@ -13,7 +13,8 @@ async function renderApp(options?: Parameters<typeof renderWithServices>[1]) {
 }
 
 const sidebar = () => within(screen.getByRole("complementary", { name: "Workspace" }));
-const titles = () => within(screen.getByRole("list", { name: "Tasks" })).getAllByRole("listitem").map((li) => li.textContent);
+/** Each row's title is its one plain button; the rest of the row is marks and the complete checkbox. */
+const titles = () => within(screen.getByRole("list", { name: "Tasks" })).getAllByRole("listitem").map((li) => within(li).getByRole("button").textContent);
 const navButton = (name: RegExp) => sidebar().getByRole("button", { name });
 
 describe("sidebar", () => {
