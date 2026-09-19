@@ -7,7 +7,7 @@ Celery + Redis. PostgreSQL everywhere, including tests.
 
 | Package | Role | May import |
 | --- | --- | --- |
-| `app.domain` | entities (empty in the setup phase) | nothing |
+| `app.domain` | entities and their rules (`Task`) | nothing |
 | `app.application` | ports (`typing.Protocol`) and use cases | `domain` |
 | `app.infrastructure` | adapters + `config/settings.py` (the only env reader) | `application`, `domain` |
 | `app.api` | routes, Pydantic schemas (the HTTP contract), dependencies | `application` |
@@ -30,7 +30,7 @@ uv run mypy src tests
 uv run lint-imports
 
 uv run alembic upgrade head               # migrations are an explicit step, never run by the app
-uv run alembic revision -m "message"      # new revision (ruff-formatted by a post-write hook)
+uv run alembic revision --autogenerate -m "message"   # new revision from the ORM models; review it by hand
 uv run uvicorn app.main:create_app --factory --reload
 uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 ```
