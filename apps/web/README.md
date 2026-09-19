@@ -121,15 +121,21 @@ the card did not move and which column it is back in. A retry consequently recor
 status change rather than one per hop; that follows from coalescing and is intended.
 Feedback is kept against the card it belongs to, never against one latest attempt: a refused move
 always raises its own alert, whatever any other card did, and only that card's next attempt or a
-dismissal takes it away, so two refused cards show two alerts. Settlement tickets are kept per
-task as well, so answers batched with another task cannot erase the signal that restores keyboard
-focus. "Add a task" belongs to its column rather than to a card, and a column adds one task at a
-time: while its call is out, and once that call has been refused, the column's "Add a task" does
-nothing, so the refusal keeps its place until the user retries or dismisses it. Columns are
-independent of each other, and no add or move ever clears another's alert, so several refusals
-can be on screen at once, each with its own Retry. Retrying or dismissing an alert hands focus to
-what it was about — the card, its column's heading once the card is off the board, or that
-column's "Add a task" — so the keyboard is never left on the body.
+dismissal takes it away, so two refused cards show two alerts. A refusal is a failure only when
+the card is not already in the user's newest target: a hop refused on the way back to where the
+card started asked for nothing that did not happen, so it raises no alert and leaves no Retry
+with nothing to do. Settlement tickets are kept per task as well, so answers batched with another
+task cannot erase the signal that restores keyboard focus. "Add a task" belongs to its column
+rather than to a card, and a column adds one task at a time: while its call is out, and once that
+call has been refused, the column's "Add a task" reads as unavailable (`aria-disabled`, and
+`aria-busy` while the call is out) and does nothing, so the refusal keeps its place until the
+user retries or dismisses it. Columns are independent of each other, and no add or move ever
+clears another's alert, so several refusals can be on screen at once, each with its own Retry.
+Retrying or dismissing an alert hands focus to what it was about — the card, its column's heading
+once the card is off the board, or that column's "Add a task" — so the keyboard is never left on
+the body, which is why that button is never `disabled` and can still take focus while it is
+unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: could not add a task
+to Testing`) so that stacked alerts do not all read "Retry"; the visible labels are the design's.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.

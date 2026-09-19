@@ -72,6 +72,9 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
    */
   const calling = useRef(new Set<string>());
   const sequence = useRef(0);
+  /** The saved statuses as they are when an answer arrives, not as they were when it was asked. */
+  const saved = useRef(all);
+  saved.current = all;
 
   const shown = useMemo(() => tasks.map((t) => (inFlight[t.id] && inFlight[t.id] !== t.status ? { ...t, status: inFlight[t.id] } : t)), [tasks, inFlight]);
 
@@ -94,6 +97,9 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
         setInFlight((current) => without(current, taskId));
         setSettled((current) => ({ ...current, [taskId]: newest.move }));
         if (!refused) return;
+        // Nothing the user asked for is missing once the card already sits in its newest target,
+        // so a refused hop on the way there is not a failure and has nothing to retry.
+        if (saved.current.find((t) => t.id === taskId)?.status === newest.to) return;
         // The refusal takes back this card's own announcement, and only its own.
         setAnnounced((current) => (current?.taskId === taskId ? null : current));
         setFailed((current) => ({ ...current, [taskId]: { move: newest.move, title, to: newest.to } }));

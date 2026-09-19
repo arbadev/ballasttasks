@@ -143,6 +143,8 @@ function Board() {
         <BoardAlert
           key={failure.taskId}
           message={`Could not move "${failure.title}". It is back in ${statusName(failure.from)}.`}
+          retryLabel={`Retry moving "${failure.title}"`}
+          dismissLabel={`Dismiss: could not move "${failure.title}"`}
           onRetry={() => retryMove(failure)}
           onDismiss={() => dismissMove(failure)}
         />
@@ -151,6 +153,8 @@ function Board() {
         <BoardAlert
           key={status.id}
           message={`Could not add a task to ${status.name}.`}
+          retryLabel={`Retry adding a task to ${status.name}`}
+          dismissLabel={`Dismiss: could not add a task to ${status.name}`}
           onRetry={() => retryAdd(status.id)}
           onDismiss={() => dismissAdd(status.id)}
         />
@@ -177,6 +181,7 @@ function Board() {
                 if (id) moves.move(id, status.id);
                 endDrag();
               }}
+              adding={adding[status.id]}
               onAddTask={() => {
                 if (!adding[status.id]) addTask(status.id);
               }}

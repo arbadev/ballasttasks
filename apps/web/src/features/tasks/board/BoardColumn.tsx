@@ -13,13 +13,15 @@ interface BoardColumnProps {
   onDragOver(event: DragEvent<HTMLElement>): void;
   onDrop(event: DragEvent<HTMLElement>): void;
   onAddTask(): void;
+  /** This column's task creation: out and waiting, or refused and waiting for Retry or Dismiss. */
+  adding?: "pending" | "failed";
   /** The cards, one `<li>` each. */
   children: ReactNode;
 }
 
 const DOT = { muted: "bg-fg-3", accent: "bg-acc", warn: "bg-warn", ok: "bg-ok" };
 
-export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onAddTask, children }: BoardColumnProps) {
+export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onAddTask, adding, children }: BoardColumnProps) {
   const headingId = useId();
 
   return (
@@ -62,7 +64,12 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
         type="button"
         data-column-add=""
         onClick={onAddTask}
-        className="inline-flex h-[30px] cursor-pointer items-center gap-1.5 self-start rounded-bt-sm px-2 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card hover:text-fg"
+        aria-disabled={adding ? true : undefined}
+        aria-busy={adding === "pending" ? true : undefined}
+        className={cn(
+          "inline-flex h-[30px] cursor-pointer items-center gap-1.5 self-start rounded-bt-sm px-2 text-[12.5px] text-fg-3 transition-colors duration-[160ms] ease-bt hover:bg-card hover:text-fg",
+          "aria-disabled:cursor-not-allowed aria-disabled:opacity-60 aria-disabled:hover:bg-transparent aria-disabled:hover:text-fg-3",
+        )}
       >
         <Plus aria-hidden="true" size={13} />
         Add a task

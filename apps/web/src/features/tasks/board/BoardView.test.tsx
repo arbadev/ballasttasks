@@ -257,7 +257,7 @@ describe("drag and drop", () => {
     expect(titlesIn("To Do")).toContain(PRD);
     expect(titlesIn("Testing")).not.toContain(PRD);
 
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
     expect(moveCalls(service)).toHaveLength(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -273,7 +273,7 @@ describe("drag and drop", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "docker" } });
     expect(screen.queryByRole("article", { name: PRD })).not.toBeInTheDocument();
 
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(moveCalls(service)).toEqual([
       ["move", "t5", "testing"],
@@ -289,7 +289,7 @@ describe("drag and drop", () => {
     service.failNextMove = true;
     await renderBoard({ taskService: service });
     drag(PRD, "Testing").drop();
-    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: /^Dismiss/ }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
@@ -419,7 +419,7 @@ describe("moving without a drag", () => {
 
     openButton(PRD).focus();
     fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
-    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: /^Retry/ });
     retry.focus();
     fireEvent.click(retry);
 
@@ -553,6 +553,34 @@ describe("moving without a drag", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("says nothing when the refused move was on the way back to the column the card is in", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    const calls = vi.spyOn(service, "move");
+    service.refuses = "progress";
+    let release = () => {};
+    service.holds.set("progress", new Promise<void>((resolve) => (release = resolve)));
+    await renderBoard({ taskService: service });
+
+    openButton(PRD).focus();
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowLeft", shiftKey: true });
+    expect(titlesIn("To Do")).toContain(PRD);
+
+    await act(async () => release());
+    await waitFor(() => expect(moveCalls(service)).toEqual([["move", "t5", "progress"]]));
+    // The queued target was the card's own status, so nothing the user asked for is missing.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(calls.mock.calls).toEqual([["t5", "progress"]]);
+    expect((await service.get("t5"))?.status).toBe("todo");
+    expect(titlesIn("To Do")).toContain(PRD);
+    await waitFor(() => expect(openButton(PRD)).toHaveFocus());
+
+    // The card is not stuck: the next move still goes through.
+    service.refuses = null;
+    fireEvent.keyDown(openButton(PRD), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(titlesIn("In Progress")).toContain(PRD));
+  });
+
   it("cancels queued moves when the in-flight move fails and rolls back to its true starting status", async () => {
     const service = new ControlledTaskService(seedTasks(NOW));
     const calls = vi.spyOn(service, "move");
@@ -578,7 +606,7 @@ describe("moving without a drag", () => {
     await waitFor(() => expect(openButton(PRD)).toHaveFocus());
 
     service.refuses = null;
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
     expect(calls.mock.calls).toEqual([["t5", "progress"], ["t5", "testing"]]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -610,7 +638,7 @@ describe("concurrent board attempts", () => {
       expect.stringContaining("Could not add a task to Testing."),
     ]);
 
-    for (const alert of screen.getAllByRole("alert")) fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
+    for (const alert of screen.getAllByRole("alert")) fireEvent.click(within(alert).getByRole("button", { name: /^Dismiss/ }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -737,11 +765,11 @@ describe("concurrent board attempts", () => {
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
 
     const [prdAlert] = screen.getAllByRole("alert");
-    fireEvent.click(within(prdAlert).getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(within(prdAlert).getByRole("button", { name: /^Dismiss/ }));
     expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${JWT}".`);
 
     service.refuses = null;
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Retry/ }));
     await waitFor(() => expect(titlesIn("In Progress")).toContain(JWT));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -813,7 +841,7 @@ describe("add a task", () => {
     expect(alert).toHaveTextContent("Could not add a task to Testing.");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     await screen.findByRole("dialog", { name: "Untitled task" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(titlesIn("Testing")).toContain("Untitled task");
@@ -831,7 +859,7 @@ describe("add a task", () => {
     drag(PRD, "Testing").drop();
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
 
-    fireEvent.click(within(screen.getAllByRole("alert")[0]).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(screen.getAllByRole("alert")[0]).getByRole("button", { name: /^Retry/ }));
     await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
     expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
   });
@@ -884,7 +912,7 @@ describe("add a task", () => {
     expect(creates).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Could not add a task to Testing.");
 
-    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Dismiss/ }));
     fireEvent.click(addIn("Testing"));
     await screen.findByRole("dialog", { name: "Untitled task" });
     expect(creates).toHaveBeenCalledTimes(2);
@@ -896,13 +924,56 @@ describe("add a task", () => {
     await renderBoard({ taskService: service });
 
     fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
-    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: "Retry" });
+    const retry = within(await screen.findByRole("alert")).getByRole("button", { name: /^Retry/ });
     retry.focus();
     fireEvent.click(retry);
 
     expect(within(column("Testing")).getByRole("button", { name: "Add a task" })).toHaveFocus();
     await screen.findByRole("dialog", { name: "Untitled task" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says the column's Add a task is unavailable while it is busy, and keeps it focusable", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    let release = () => {};
+    service.holdCreate = new Promise<void>((resolve) => (release = resolve));
+    service.failNextCreate = true;
+    await renderBoard({ taskService: service });
+    const addIn = (name: string) => within(column(name)).getByRole("button", { name: "Add a task" });
+
+    addIn("Testing").focus();
+    fireEvent.click(addIn("Testing"));
+    expect(addIn("Testing")).toHaveAttribute("aria-disabled", "true");
+    expect(addIn("Testing")).toHaveAttribute("aria-busy", "true");
+    expect(addIn("Testing")).toHaveFocus();
+    expect(addIn("Done")).not.toHaveAttribute("aria-disabled");
+
+    await act(async () => release());
+    await screen.findByRole("alert");
+    expect(addIn("Testing")).toHaveAttribute("aria-disabled", "true");
+    expect(addIn("Testing")).not.toHaveAttribute("aria-busy");
+
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Dismiss/ }));
+    expect(addIn("Testing")).not.toHaveAttribute("aria-disabled");
+    expect(addIn("Testing")).toHaveFocus();
+  });
+
+  it("names each alert's buttons after what it is about, keeping the visible labels", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    await renderBoard({ taskService: service });
+    drag(PRD, "Testing").drop();
+    await screen.findByRole("alert");
+
+    service.failNextCreate = true;
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+
+    expect(screen.getByRole("button", { name: `Retry moving "${PRD}"` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Dismiss: could not move "${PRD}"` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry adding a task to Testing" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss: could not add a task to Testing" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Retry/ }).map((b) => b.textContent)).toEqual(["Retry", "Retry"]);
   });
 });
 
@@ -913,7 +984,7 @@ describe("dismissing an alert", () => {
     await renderBoard({ taskService: service });
 
     drag(PRD, "Testing").drop();
-    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: "Dismiss" });
+    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: /^Dismiss/ });
     dismiss.focus();
     fireEvent.click(dismiss);
 
@@ -931,7 +1002,7 @@ describe("dismissing an alert", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "docker" } });
     expect(screen.queryByRole("article", { name: PRD })).not.toBeInTheDocument();
 
-    const dismiss = within(alert).getByRole("button", { name: "Dismiss" });
+    const dismiss = within(alert).getByRole("button", { name: /^Dismiss/ });
     dismiss.focus();
     fireEvent.click(dismiss);
 
@@ -947,7 +1018,7 @@ describe("dismissing an alert", () => {
     drag(JWT, "In Progress").drop();
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
 
-    const dismiss = within(screen.getAllByRole("alert")[0]).getByRole("button", { name: "Dismiss" });
+    const dismiss = within(screen.getAllByRole("alert")[0]).getByRole("button", { name: /^Dismiss/ });
     dismiss.focus();
     fireEvent.click(dismiss);
 
@@ -961,7 +1032,7 @@ describe("dismissing an alert", () => {
     await renderBoard({ taskService: service });
 
     fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
-    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: "Dismiss" });
+    const dismiss = within(await screen.findByRole("alert")).getByRole("button", { name: /^Dismiss/ });
     dismiss.focus();
     fireEvent.click(dismiss);
 
@@ -1004,7 +1075,7 @@ describe("load states", () => {
     expect(alert).toHaveTextContent("The API is down.");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
 
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    fireEvent.click(within(alert).getByRole("button", { name: /^Retry/ }));
     expect(await screen.findByRole("article", { name: "Only task" })).toBeInTheDocument();
   });
 });
