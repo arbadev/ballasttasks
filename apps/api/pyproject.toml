@@ -58,9 +58,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration' --strict-markers"
+addopts = "-m 'not integration and not live' --strict-markers"
 markers = [
     "integration: needs real PostgreSQL and Redis (run with `uv run pytest -m integration`)",
+    "live: calls a real third party and needs its credentials; skipped without them (run with `uv run pytest -m live`)",
 ]
 
 [tool.coverage.run]
@@ -83,7 +84,7 @@ source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2",
+    "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]
@@ -93,7 +94,7 @@ source_modules = ["app.application"]
 forbidden_modules = [
     "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2",
+    "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]
@@ -102,7 +103,7 @@ type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
     "app.infrastructure", "app.bootstrap", "app.main",
-    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2",
+    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]

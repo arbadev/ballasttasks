@@ -60,7 +60,8 @@ def test_the_database_itself_refuses_a_duplicate_email(migrated_database_url: st
 
 
 def test_there_is_one_head_and_users_follow_tasks() -> None:
-    """One linear history: baseline -> create_tasks -> create_users -> wire_tasks_to_users."""
+    """One linear history: baseline -> create_tasks -> create_users -> wire_tasks_to_users
+    -> add_user_identities."""
     scripts = _script_directory()
 
     assert len(scripts.get_heads()) == 1
@@ -70,4 +71,5 @@ def test_there_is_one_head_and_users_follow_tasks() -> None:
         "create tasks",
         "create users",
         "wire tasks to users",
+        "add user identities",
     ]

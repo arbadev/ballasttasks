@@ -164,3 +164,34 @@ async def test_openapi_says_who_a_task_can_be_assigned_to(
     schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
 
     assert "active user" in schemas[model]["properties"]["assignee_id"]["description"]
+
+
+async def test_openapi_documents_the_single_sign_on_contract(client: httpx.AsyncClient) -> None:
+    schema = (await client.get("/openapi.json")).json()
+    components = schema["components"]["schemas"]
+
+    assert {"SsoProvidersResponse", "SsoProvider", "SsoExchangeRequest"} <= set(components)
+    assert set(components["SsoProvider"]["properties"]) == {"name"}
+    assert components["SsoExchangeRequest"]["properties"]["code"]["writeOnly"] is True
+    assert components["SsoExchangeRequest"]["additionalProperties"] is False
+
+    error = {"$ref": "#/components/schemas/ErrorResponse"}
+    token = {"$ref": "#/components/schemas/TokenResponse"}
+    providers = schema["paths"]["/auth/sso/providers"]["get"]["responses"]
+    start = schema["paths"]["/auth/sso/{provider}/start"]["get"]["responses"]
+    callback = schema["paths"]["/auth/sso/{provider}/callback"]["get"]["responses"]
+    exchange = schema["paths"]["/auth/sso/exchange"]["post"]["responses"]
+
+    assert set(providers) == {"200"}
+    assert set(start) == {"303", "404", "422"}
+    assert set(callback) == {"303", "404", "422"}
+    assert set(exchange) == {"200", "401", "422"}
+    for redirect in (start["303"], callback["303"]):
+        assert "Location" in redirect["headers"]
+        assert "content" not in redirect
+    assert start["404"]["content"]["application/json"]["schema"] == error
+    assert callback["404"]["content"]["application/json"]["schema"] == error
+    assert exchange["401"]["content"]["application/json"]["schema"] == error
+    assert exchange["200"]["content"]["application/json"]["schema"] == token
+    for path in ("/auth/sso/providers", "/auth/sso/exchange"):
+        assert "security" not in next(iter(schema["paths"][path].values()))

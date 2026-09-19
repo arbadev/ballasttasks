@@ -58,6 +58,7 @@ async def test_register_stores_a_hash_not_the_password(
 
     stored = await auth_fakes.users.get_by_email("ada@example.com")
     assert stored is not None
+    assert stored.hashed_password is not None
     assert stored.hashed_password != ADA["password"]
     assert auth_fakes.hasher.verify(ADA["password"], stored.hashed_password)
 
@@ -352,5 +353,6 @@ async def test_passwords_hashes_and_tokens_never_reach_the_logs(
     await auth_client.get("/auth/me", headers=_bearer(token))
     await _login(auth_client, password="a wrong password")
 
+    assert user.hashed_password is not None
     for secret in (ADA["password"], user.hashed_password, token, "a wrong password"):
         assert secret not in caplog.text
