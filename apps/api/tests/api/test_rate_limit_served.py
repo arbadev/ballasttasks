@@ -68,7 +68,7 @@ def served_api(minimal_env: pytest.MonkeyPatch) -> Iterator[str]:
     minimal_env.setenv("RATE_LIMIT__ANONYMOUS__LIMIT", str(ANONYMOUS_LIMIT))
     minimal_env.setenv("RATE_LIMIT__TRUST_PROXY", "false")
     port = _free_port()
-    server = subprocess.Popen(
+    server = subprocess.Popen(  # noqa: S603  (argv from the repo's own Dockerfile, no shell)
         _on_loopback(_image_command(), port),
         cwd=API_ROOT,
         stdout=subprocess.DEVNULL,

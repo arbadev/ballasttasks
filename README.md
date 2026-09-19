@@ -11,9 +11,9 @@ Every route except the health endpoints is **rate limited** (strict per-IP limit
 - **`apps/api`**: FastAPI + Celery, organised as ports and adapters. Use cases depend on small `typing.Protocol` ports; adapters are wired in one composition root, `bootstrap.py`. Layer rules are enforced by import-linter.
 - **`apps/web`**: Next.js. Components depend on service interfaces provided by one composition root, `providers.tsx`; only `client.ts` talks to the network.
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
-- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker.
+- **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and the shared rate limit counters.
 
-Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md).
+Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md).
 
 ## Prerequisites
 
