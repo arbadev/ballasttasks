@@ -4,16 +4,25 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
-from app.domain.user import MAX_EMAIL_LENGTH, User, normalise_email
+from app.domain.user import CONTROL_CHARACTERS, MAX_EMAIL_LENGTH, User, normalise_email
 
-FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+NO_CONTROL_CHARACTERS = rf"^[^{CONTROL_CHARACTERS}]*$"
+FullName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=200, pattern=NO_CONTROL_CHARACTERS
+    ),
+]
 
 
 class RegisterRequest(BaseModel):
     email: str = Field(max_length=MAX_EMAIL_LENGTH + 64, examples=["ada@example.com"])
     full_name: FullName = Field(examples=["Ada Lovelace"])
     password: str = Field(
-        min_length=8, max_length=128, json_schema_extra={"writeOnly": True, "format": "password"}
+        min_length=8,
+        max_length=128,
+        pattern=NO_CONTROL_CHARACTERS,
+        json_schema_extra={"writeOnly": True, "format": "password"},
     )
 
     @field_validator("email")

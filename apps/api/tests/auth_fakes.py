@@ -11,13 +11,23 @@ from app.application.errors import EmailAlreadyRegisteredError, InvalidTokenErro
 from app.domain.user import User
 
 
+def _refuse_nul(*values: str) -> None:
+    if any("\x00" in value for value in values):
+        raise ValueError("PostgreSQL text cannot contain NUL (0x00) characters")
+
+
 class InMemoryUserRepository:
-    """UserRepository double: a dict, with the same uniqueness rule as the real table."""
+    """UserRepository double: a dict, with the same uniqueness rule as the real table.
+
+    Like PostgreSQL text, it cannot hold or compare a NUL character: a caller that lets one
+    through fails here as it would against the real database.
+    """
 
     def __init__(self) -> None:
         self._users: dict[uuid.UUID, User] = {}
 
     async def add(self, user: User) -> None:
+        _refuse_nul(user.email, user.full_name, user.hashed_password)
         if any(existing.email == user.email for existing in self._users.values()):
             raise EmailAlreadyRegisteredError(user.email)
         self._users[user.id] = user
@@ -26,6 +36,7 @@ class InMemoryUserRepository:
         return self._users.get(user_id)
 
     async def get_by_email(self, email: str) -> User | None:
+        _refuse_nul(email)
         return next((user for user in self._users.values() if user.email == email), None)
 
 

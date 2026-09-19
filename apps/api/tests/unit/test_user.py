@@ -40,6 +40,31 @@ def test_a_malformed_email_is_rejected(raw: str) -> None:
         normalise_email(raw)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "a\x00@example.com",
+        "ada@exam\x00ple.com",
+        "ada@example.com\x00",
+        "\x00ada@example.com",
+        "a\x07da@example.com",
+        "a\x1bda@example.com",
+        "ada@exam\x7fple.com",
+        "ada@example.c\x9bom",
+    ],
+    ids=["nul-local", "nul-domain", "nul-last", "nul-first", "bell", "escape", "delete", "c1"],
+)
+def test_an_email_with_a_control_character_is_rejected(raw: str) -> None:
+    with pytest.raises(InvalidEmailError):
+        normalise_email(raw)
+
+
+@pytest.mark.parametrize("code_point", [*range(0x20), *range(0x7F, 0xA0)])
+def test_no_control_character_survives_normalisation(code_point: int) -> None:
+    with pytest.raises(InvalidEmailError):
+        normalise_email(f"a{chr(code_point)}da@example.com")
+
+
 def test_an_over_long_email_is_rejected() -> None:
     with pytest.raises(InvalidEmailError):
         normalise_email("a" * 320 + "@example.com")

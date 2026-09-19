@@ -94,6 +94,42 @@ async def test_register_rejects_invalid_input_with_422(
     assert ADA["password"] not in response.text
 
 
+@pytest.mark.parametrize("field", ["email", "full_name", "password"])
+@pytest.mark.parametrize(
+    "character",
+    ["\x00", "\x07", "\x1b", "\x7f", "\x9b"],
+    ids=["nul", "bell", "escape", "delete", "c1"],
+)
+async def test_register_rejects_a_control_character_with_422(
+    auth_client: httpx.AsyncClient, auth_fakes: AuthFakes, field: str, character: str
+) -> None:
+    value = ADA[field][:3] + character + ADA[field][3:]
+
+    response = await _register(auth_client, **{field: value})
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", field]]
+    assert ADA["password"] not in response.text
+    assert await auth_fakes.users.get_by_email(ADA["email"]) is None
+
+
+@pytest.mark.parametrize("field", ["full_name", "password"])
+async def test_register_rejects_a_line_break_inside_a_value_with_422(
+    auth_client: httpx.AsyncClient, field: str
+) -> None:
+    response = await _register(auth_client, **{field: f"{ADA[field]}\nsecond line"})
+
+    assert response.status_code == 422
+
+
+async def test_register_rejects_a_password_ending_in_a_line_break_with_422(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    response = await _register(auth_client, password=ADA["password"] + "\n")
+
+    assert response.status_code == 422
+
+
 async def test_register_never_echoes_a_rejected_password(auth_client: httpx.AsyncClient) -> None:
     response = await _register(auth_client, password="hunter2")
 
@@ -149,6 +185,35 @@ async def test_login_failures_are_indistinguishable(auth_client: httpx.AsyncClie
         assert response.status_code == 401
         assert response.json() == {"detail": "Incorrect email or password"}
         assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize(
+    "username",
+    ["a\x00da@example.com", "ada@example.com\x00", "a\x07da@example.com", "ada@exam\x7fple.com"],
+    ids=["nul-inside", "nul-last", "bell", "delete"],
+)
+async def test_login_with_a_control_character_in_the_username_is_the_same_401(
+    auth_client: httpx.AsyncClient, username: str
+) -> None:
+    await _register(auth_client)
+
+    response = await _login(auth_client, username=username)
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Incorrect email or password"}
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+async def test_login_with_a_control_character_in_the_password_is_the_same_401(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    await _register(auth_client)
+
+    response = await _login(auth_client, password="correct\x00 horse")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Incorrect email or password"}
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
 async def test_login_rejects_an_inactive_user_like_any_other_failure(

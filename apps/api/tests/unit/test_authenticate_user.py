@@ -84,6 +84,16 @@ async def test_unknown_email_and_wrong_password_raise_the_same_error(
     assert str(wrong_password.value) == str(unknown_email.value) == str(malformed_email.value)
 
 
+@pytest.mark.parametrize("email", ["a\x00da@example.com", "ada@example.com\x00", "a\x07da@x.co"])
+async def test_an_email_with_a_control_character_is_just_another_failed_login(
+    authenticate: AuthenticateUser, hasher: CountingHasher, ada: User, email: str
+) -> None:
+    with pytest.raises(InvalidCredentialsError):
+        await authenticate.execute(email=email, password="correct horse")
+
+    assert hasher.work == 1
+
+
 async def test_an_inactive_user_cannot_log_in(
     authenticate: AuthenticateUser, users: InMemoryUserRepository
 ) -> None:
