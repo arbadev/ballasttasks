@@ -127,16 +127,54 @@ class RateLimiter(Protocol):
 
 
 class UserDirectory(Protocol):
-    """The one thing the task use cases may ask about users."""
+    """The little the task use cases may ask about users: a yes or a no, and a name to log."""
 
     async def is_active_user(self, user_id: UUID) -> bool: ...  # unknown and inactive are both False
+    async def full_name_of(self, user_id: UUID) -> str | None: ...  # active or not; None when unknown
 
 
 class PeopleDirectory(Protocol):
     """Who a task can be given to, as other users may see them: a Person has no email."""
 
     async def list_active(self) -> Sequence[Person]: ...  # by full name, then id
+
+
+class ActivityRecorder(Protocol):
+    """Appends to a task's activity; the ONE way application code writes to the timeline."""
+
+    async def record(self, entry: ActivityEntry) -> None: ...  # same unit of work as the change
+
+
+class ActivityFeed(Protocol):
+    """Reads a task's activity."""
+
+    async def page(self, task_id: UUID, *, limit: int, offset: int) -> ActivityPage: ...  # newest first
+
+
+class StepRepository(Protocol):
+    """Stores the steps of tasks; positions are the use cases' job. Deleting a task deletes them."""
+
+    async def add(self, step: Step) -> None: ...
+    async def list_for_task(self, task_id: UUID) -> Sequence[Step]: ...  # by position
+    async def update(self, step: Step) -> None: ...    # raises StepNotFound
+    async def delete(self, step_id: UUID) -> None: ... # raises StepNotFound
+
+
+class TaskTallies(Protocol):
+    """steps_total, steps_done and comments_count of many tasks: one statement, never one per task."""
+
+    async def for_tasks(self, task_ids: Sequence[UUID]) -> Mapping[UUID, TaskTally]: ...
 ```
+
+**Recording activity from a new feature** (attachments, for instance) is three lines in its use case and no change to any existing module: take an `ActivityRecorder` in the constructor (`RequestScope.activity` in `bootstrap.py` is the one bound to the request's session), write the sentence as a function in `app/domain/activity_log.py` (the only module that spells a log line), and after the change is stored call
+
+```python
+await self._activity.record(
+    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attached(name), now=now)
+)
+```
+
+The entry commits or rolls back with the change, because the recorder never commits. A change that altered nothing records nothing. Why a port and not a trigger or the route: [ADR 0007](decisions/0007-steps-and-activity.md).
 
 `TaskRepository` has no clock: every question that depends on the date takes `today` from the use case (see [Time](#time)). `TaskQuery`, `TaskFilter`, `TaskPage` and the count types are plain values in `application/task_query.py`.
 
