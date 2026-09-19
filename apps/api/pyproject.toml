@@ -61,7 +61,7 @@ asyncio_mode = "auto"
 addopts = "-m 'not integration and not live' --strict-markers"
 markers = [
     "integration: needs real PostgreSQL and Redis (run with `uv run pytest -m integration`)",
-    "live: calls a real third party and needs its credentials; skipped without them (run with `uv run pytest -m live`)",
+    "live: calls a real third party and is skipped without its credentials: an AI provider (AI__PROVIDER and AI__API_KEY, spends tokens) or Google sign-in (SSO__GOOGLE_CLIENT_ID and SSO__GOOGLE_CLIENT_SECRET); run with `uv run pytest -m live`",
 ]
 
 [tool.coverage.run]

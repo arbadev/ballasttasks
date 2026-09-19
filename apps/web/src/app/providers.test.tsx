@@ -1,9 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { render, renderHook, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { server } from "@/test/server";
-import Home from "./page";
-import { Providers } from "./providers";
+import StatusPage from "./status/page";
+import {
+  Providers,
+  useClock,
+  useDirectoryService,
+  useStepGenerationService,
+  useTaskService,
+} from "./providers";
+import { FakeTaskService } from "@/test/fakeServices";
 
 // Matches NEXT_PUBLIC_API_URL in vitest.config.mts.
 const API_URL = "http://localhost:8000";
@@ -23,7 +30,7 @@ describe("Providers", () => {
 
     render(
       <Providers>
-        <Home />
+        <StatusPage />
       </Providers>,
     );
 
@@ -36,10 +43,63 @@ describe("Providers", () => {
 
     render(
       <Providers>
-        <Home />
+        <StatusPage />
       </Providers>,
     );
 
     expect(await screen.findByText(/api is unreachable/i)).toBeInTheDocument();
+  });
+
+  it("wires the in-memory task services by default, sharing one store", async () => {
+    const { result } = renderHook(
+      () => ({ tasks: useTaskService(), directory: useDirectoryService(), generation: useStepGenerationService(), clock: useClock() }),
+      { wrapper: Providers },
+    );
+
+    expect(await result.current.tasks.list()).toHaveLength(16);
+    expect((await result.current.directory.currentUser()).name).toBe("Andres Barradas");
+    expect(Math.abs(result.current.clock() - Date.now())).toBeLessThan(1000);
+
+    vi.useFakeTimers();
+    try {
+      await result.current.generation.start("t16");
+      vi.advanceTimersByTime(2200);
+      await result.current.generation.accept();
+    } finally {
+      vi.useRealTimers();
+    }
+    // Accepted through one service, visible through the other: they share a store.
+    expect((await result.current.tasks.get("t16"))?.steps).toHaveLength(3);
+  });
+
+  it("keeps the same services across re-renders", () => {
+    const { result, rerender } = renderHook(() => useTaskService(), { wrapper: Providers });
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+
+  it("lets a test replace a service and the clock", () => {
+    const fake = new FakeTaskService();
+    const { result } = renderHook(() => ({ tasks: useTaskService(), clock: useClock() }), {
+      wrapper: ({ children }) => (
+        <Providers taskService={fake} clock={() => 42}>
+          {children}
+        </Providers>
+      ),
+    });
+    expect(result.current.tasks).toBe(fake);
+    expect(result.current.clock()).toBe(42);
+  });
+
+  it.each([
+    ["useTaskService", useTaskService],
+    ["useDirectoryService", useDirectoryService],
+    ["useStepGenerationService", useStepGenerationService],
+    ["useClock", useClock],
+  ])("%s refuses to run outside <Providers>", (_name, hook) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => renderHook(() => hook())).toThrow(/Providers/);
+    spy.mockRestore();
   });
 });

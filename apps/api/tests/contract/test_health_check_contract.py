@@ -59,7 +59,7 @@ def redis_live() -> AbstractAsyncContextManager[HealthCheck]:
 
 @asynccontextmanager
 async def ai_fake() -> AsyncIterator[HealthCheck]:
-    yield LanguageModelHealthCheck(FakeLanguageModel(model="fake-1"))
+    yield LanguageModelHealthCheck(FakeLanguageModel(model="fake-1"), cache_seconds=30)
 
 
 ADAPTERS = [
@@ -101,4 +101,4 @@ async def test_ai_health_check_never_raises_when_the_model_does() -> None:
         async def check(self) -> bool:
             raise ConnectionError("provider unreachable")
 
-    assert await LanguageModelHealthCheck(BrokenModel(model="x")).check() is False
+    assert await LanguageModelHealthCheck(BrokenModel(model="x"), cache_seconds=30).check() is False
