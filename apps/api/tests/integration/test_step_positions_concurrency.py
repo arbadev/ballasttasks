@@ -16,7 +16,8 @@ from app.application.use_cases.add_step import AddStep
 from app.application.use_cases.add_steps import AddSteps
 from app.application.use_cases.delete_step import DeleteStep
 from app.application.use_cases.reorder_steps import ReorderSteps
-from app.domain.step import InvalidStepOrderError, Step
+from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE
+from app.domain.step import MAX_STEPS_PER_TASK, InvalidStepError, InvalidStepOrderError, Step
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
 from app.infrastructure.db.repositories.step import SqlAlchemyStepRepository
@@ -169,6 +170,42 @@ async def test_reorders_deletes_and_adds_at_once_keep_positions_dense_and_unique
     assert [step.position for step in steps] == list(range(8))
     assert {step.id for step in steps} >= set(ids) - {ids[2], ids[5]}
     assert {"late", "later"} <= {step.title for step in steps}
+
+
+async def fill_with_steps(
+    session_factory: SessionFactory, task_id: uuid.UUID, actor: uuid.UUID, count: int
+) -> None:
+    for first in range(0, count, MAX_STEPS_AT_ONCE):
+        titles = [f"step {n}" for n in range(first, min(first + MAX_STEPS_AT_ONCE, count))]
+        await add_steps(session_factory, task_id, actor, titles)
+
+
+async def test_no_writer_takes_a_task_past_the_steps_it_may_hold(
+    session_factory: SessionFactory, task_id: uuid.UUID, actor: uuid.UUID
+) -> None:
+    """More steps are asked for at once than the task has room for: whoever finds the list
+    full is refused, and a batch that does not fit whole adds nothing at all."""
+    await fill_with_steps(session_factory, task_id, actor, MAX_STEPS_PER_TASK - 25)
+    batches = {"bulk": [f"bulk {n}" for n in range(20)], "draft": [f"draft {n}" for n in range(20)]}
+
+    async with asyncio.timeout(60):
+        outcomes = await asyncio.gather(
+            *(add_step(session_factory, task_id, actor, f"late {n}") for n in range(12)),
+            *(add_steps(session_factory, task_id, actor, titles) for titles in batches.values()),
+            return_exceptions=True,
+        )
+
+    steps = await steps_of(session_factory, task_id)
+    assert len(steps) <= MAX_STEPS_PER_TASK
+    assert [step.position for step in steps] == list(range(len(steps)))
+    titles = {step.title for step in steps}
+    for batch in batches.values():
+        assert titles & set(batch) in (set(), set(batch))
+    refused = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+    assert refused, "the task had no room for all of them"
+    for error in refused:
+        assert isinstance(error, InvalidStepError)
+        assert f"at most {MAX_STEPS_PER_TASK} steps" in str(error)
 
 
 async def test_the_steps_of_another_task_do_not_wait(

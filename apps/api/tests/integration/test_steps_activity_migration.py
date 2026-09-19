@@ -59,9 +59,9 @@ def tables(engine: sqlalchemy.Engine) -> set[str]:
 def with_existing_tasks(engine: sqlalchemy.Engine) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """Two tasks by two people, one of whom has since been deactivated."""
     migrate(engine, "upgrade", PREVIOUS_HEAD)
-    ada, gone = user_row(), user_row(is_active=False)
-    # SSO-only users have no password hash; they can own tasks and activity too.
-    ada["hashed_password"] = None
+    # Ada signs in only through an identity provider: no password hash at all. She can own
+    # tasks and activity like anybody else.
+    ada, gone = user_row(hashed_password=None), user_row(is_active=False)
     open_task, done_task = uuid.uuid4(), uuid.uuid4()
     with engine.begin() as connection:
         connection.execute(INSERT_USER, ada)
@@ -82,6 +82,15 @@ def with_existing_tasks(engine: sqlalchemy.Engine) -> tuple[uuid.UUID, uuid.UUID
                 },
             )
     return open_task, done_task, gone["id"]
+
+
+def stored_password_of_ada(engine: sqlalchemy.Engine) -> list[sqlalchemy.Row[tuple[object, ...]]]:
+    """What is stored as the password of the creator of the open task: nothing, in her case."""
+    return rows(
+        engine,
+        "SELECT u.hashed_password FROM users u JOIN tasks t ON t.created_by = u.id "
+        "WHERE t.title = 'open'",
+    )
 
 
 def test_the_revision_follows_user_identities(database: sqlalchemy.Engine) -> None:
@@ -115,6 +124,22 @@ def test_existing_tasks_are_untouched_and_each_gets_its_created_entry(
         (gone,)
     ]
     assert len(rows(database, "SELECT DISTINCT id FROM task_activity")) == 2
+
+
+def test_a_user_with_no_password_gets_the_entry_of_the_task_they_created(
+    database: sqlalchemy.Engine,
+) -> None:
+    """Whoever signs in only through an identity provider owns their tasks and their
+    activity; the revision adds an entry for them and leaves their missing password alone."""
+    open_task, _, _ = with_existing_tasks(database)
+    assert stored_password_of_ada(database) == [(None,)]
+
+    migrate(database, "upgrade", "head")
+
+    assert stored_password_of_ada(database) == [(None,)]
+    assert rows(database, f"SELECT text FROM task_activity WHERE task_id = '{open_task}'") == [
+        (activity_log.CREATED,)
+    ]
 
 
 def test_upgrading_twice_from_the_previous_head_does_not_double_the_entries(

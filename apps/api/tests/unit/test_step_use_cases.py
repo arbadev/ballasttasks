@@ -19,7 +19,12 @@ from app.application.use_cases.list_steps import ListSteps
 from app.application.use_cases.reorder_steps import ReorderSteps
 from app.application.use_cases.tally_tasks import TallyTasks
 from app.application.use_cases.update_step import StepChanges, UpdateStep
-from app.domain.step import InvalidStepError, InvalidStepOrderError, Step
+from app.domain.step import (
+    MAX_STEPS_PER_TASK,
+    InvalidStepError,
+    InvalidStepOrderError,
+    Step,
+)
 from app.domain.task import Task
 from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
 from tests.auth_fakes import InMemoryUserDirectory, InMemoryUserRepository, a_user
@@ -215,6 +220,64 @@ async def test_the_most_steps_that_can_be_accepted_at_once_is_twenty(world: Worl
 async def test_steps_cannot_be_accepted_for_a_task_that_does_not_exist(world: World) -> None:
     with pytest.raises(TaskNotFound):
         await world.add_steps.execute(uuid.uuid4(), titles=["orphan"], actor_id=world.actor)
+
+
+# --- how many a task holds ------------------------------------------------------------------
+
+
+async def a_full_task(world: World) -> list[Step]:
+    return await world.with_steps(*(f"step {n}" for n in range(MAX_STEPS_PER_TASK)))
+
+
+async def test_a_task_holds_a_hundred_steps_and_refuses_the_next(world: World) -> None:
+    await a_full_task(world)
+
+    with pytest.raises(InvalidStepError, match="at most 100 steps"):
+        await world.add_step.execute(world.task.id, title="one too many", actor_id=world.actor)
+
+    assert MAX_STEPS_PER_TASK == 100
+    assert len(await world.listed()) == MAX_STEPS_PER_TASK
+    assert world.logged() == []
+    assert await world.task_updated_at() == NOW
+
+
+async def test_steps_accepted_together_are_refused_whole_when_they_would_not_all_fit(
+    world: World,
+) -> None:
+    await world.with_steps(*(f"step {n}" for n in range(MAX_STEPS_PER_TASK - 3)))
+
+    with pytest.raises(InvalidStepError, match="at most 100 steps"):
+        await world.add_steps.execute(
+            world.task.id, titles=["one", "two", "three", "four"], actor_id=world.actor
+        )
+
+    assert len(await world.listed()) == MAX_STEPS_PER_TASK - 3
+    assert world.logged() == []
+    assert await world.task_updated_at() == NOW
+
+
+async def test_steps_accepted_together_may_take_the_last_place_exactly(world: World) -> None:
+    await world.with_steps(*(f"step {n}" for n in range(MAX_STEPS_PER_TASK - 4)))
+
+    created = await world.add_steps.execute(
+        world.task.id, titles=["one", "two", "three", "four"], actor_id=world.actor
+    )
+
+    assert [step.position for step in created] == list(
+        range(MAX_STEPS_PER_TASK - 4, MAX_STEPS_PER_TASK)
+    )
+    assert len(await world.listed()) == MAX_STEPS_PER_TASK
+    assert world.logged() == ["Drafted 4 steps · added by Andres"]
+
+
+async def test_deleting_a_step_makes_room_for_another_one(world: World) -> None:
+    steps = await a_full_task(world)
+    await world.delete_step.execute(world.task.id, steps[0].id)
+
+    added = await world.add_step.execute(world.task.id, title="room again", actor_id=world.actor)
+
+    assert added.position == MAX_STEPS_PER_TASK - 1
+    assert len(await world.listed()) == MAX_STEPS_PER_TASK
 
 
 # --- rename and tick ------------------------------------------------------------------------

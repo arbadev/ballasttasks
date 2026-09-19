@@ -15,7 +15,9 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from app.application.use_cases.add_steps import MAX_STEPS_AT_ONCE
 from app.bootstrap import build_container, load_settings
+from app.domain.step import MAX_STEPS_PER_TASK
 from app.infrastructure.rate_limit.in_memory_rate_limiter import InMemoryRateLimiter
 from app.main import create_app
 from tests.api.conftest import ALL_HEALTHY, USER_ID, AuthFakes, RecordingRequestScopes
@@ -181,6 +183,49 @@ async def test_a_title_of_exactly_200_characters_after_trimming_is_accepted(
     step = await add_step(task_client, task, "  " + "x" * 200 + "  ")
 
     assert len(step["title"]) == 200
+
+
+async def fill_with_steps(client: httpx.AsyncClient, task: dict[str, Any], count: int) -> None:
+    """``count`` steps, in batches of the most that can be accepted at once."""
+    for first in range(0, count, MAX_STEPS_AT_ONCE):
+        titles = [f"step {n}" for n in range(first, min(first + MAX_STEPS_AT_ONCE, count))]
+        response = await client.post(f"/tasks/{task['id']}/steps/bulk", json={"titles": titles})
+        assert response.status_code == 201, response.text
+
+
+async def test_a_task_holds_a_hundred_steps_and_says_so_when_asked_for_more(
+    task_client: httpx.AsyncClient, task: dict[str, Any]
+) -> None:
+    await fill_with_steps(task_client, task, MAX_STEPS_PER_TASK)
+
+    one_more = await task_client.post(f"/tasks/{task['id']}/steps", json={"title": "one too many"})
+    together = await task_client.post(
+        f"/tasks/{task['id']}/steps/bulk", json={"titles": ["one too many"]}
+    )
+
+    assert (one_more.status_code, together.status_code) == (422, 422)
+    assert one_more.json() == invalid(
+        "invalid_step", ["body"], f"a task may hold at most {MAX_STEPS_PER_TASK} steps"
+    )
+    assert together.json() == one_more.json()
+    assert len(await steps_of(task_client, task)) == MAX_STEPS_PER_TASK
+
+
+async def test_steps_accepted_together_are_all_refused_when_they_would_not_all_fit(
+    task_client: httpx.AsyncClient, task: dict[str, Any], request_scopes: RecordingRequestScopes
+) -> None:
+    await fill_with_steps(task_client, task, MAX_STEPS_PER_TASK - 2)
+
+    response = await task_client.post(
+        f"/tasks/{task['id']}/steps/bulk", json={"titles": ["one", "two", "three"]}
+    )
+
+    assert response.status_code == 422
+    assert response.json() == invalid(
+        "invalid_step", ["body"], f"a task may hold at most {MAX_STEPS_PER_TASK} steps"
+    )
+    assert request_scopes.events[-1] == "rollback"
+    assert len(await steps_of(task_client, task)) == MAX_STEPS_PER_TASK - 2
 
 
 async def test_a_step_is_renamed_and_ticked(
