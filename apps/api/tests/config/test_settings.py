@@ -241,3 +241,129 @@ def test_a_rejected_redis_url_never_shows_its_password(
 
     assert "REDIS__URL" in str(error)
     _assert_never_shown("Redis-Passw0rd-xyz", error)
+
+
+TEST_AI_KEY = "sk-test-0123456789abcdef-never-a-real-key"
+
+
+def test_ai_defaults_need_no_key(minimal_env: pytest.MonkeyPatch) -> None:
+    ai = load_settings(valid_ai_providers=PROVIDERS).ai
+
+    assert ai.api_key is None
+    assert ai.base_url is None
+    assert ai.timeout_seconds == 30.0
+    assert ai.check_cache_seconds == 30.0
+
+
+def test_ai_variables_override_defaults(minimal_env: pytest.MonkeyPatch) -> None:
+    minimal_env.setenv("AI__PROVIDER", "other")
+    minimal_env.setenv("AI__API_KEY", TEST_AI_KEY)
+    minimal_env.setenv("AI__BASE_URL", "https://proxy.example/v1")
+    minimal_env.setenv("AI__TIMEOUT_SECONDS", "12.5")
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "5")
+
+    ai = load_settings(valid_ai_providers=("fake", "other")).ai
+
+    assert ai.api_key is not None
+    assert ai.api_key.get_secret_value() == TEST_AI_KEY
+    assert ai.base_url == "https://proxy.example/v1"
+    assert ai.timeout_seconds == 12.5
+    assert ai.check_cache_seconds == 5.0
+
+
+@pytest.mark.parametrize("key", [None, "", "   "])
+def test_settings_demand_no_api_key_of_any_provider(
+    minimal_env: pytest.MonkeyPatch, key: str | None
+) -> None:
+    """Whether a provider needs a key is its registry factory's rule (``test_bootstrap``):
+    a keyless provider must be addable with no edit to the settings module."""
+    minimal_env.setenv("AI__PROVIDER", "other")
+    if key is not None:
+        minimal_env.setenv("AI__API_KEY", key)
+
+    ai = load_settings(valid_ai_providers=("fake", "other")).ai
+
+    assert ai.provider == "other"
+    assert ai.api_key is None
+
+
+def test_an_unknown_provider_is_reported_before_its_missing_key(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    """A typo in AI__PROVIDER must not be answered with "set AI__API_KEY"."""
+    minimal_env.setenv("AI__PROVIDER", "skynet")
+
+    with pytest.raises(ConfigurationError, match="AI__PROVIDER"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_blank_optional_ai_variables_mean_unset(minimal_env: pytest.MonkeyPatch) -> None:
+    """``.env.example`` ships them empty; that must not stop the default stack."""
+    minimal_env.setenv("AI__API_KEY", "")
+    minimal_env.setenv("AI__BASE_URL", "")
+
+    ai = load_settings(valid_ai_providers=PROVIDERS).ai
+
+    assert ai.api_key is None
+    assert ai.base_url is None
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1"])
+def test_the_ai_timeout_must_be_positive(minimal_env: pytest.MonkeyPatch, timeout: str) -> None:
+    minimal_env.setenv("AI__TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValidationError, match="timeout_seconds"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_the_ai_check_cache_may_be_turned_off_but_not_negative(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "0")
+    assert load_settings(valid_ai_providers=PROVIDERS).ai.check_cache_seconds == 0
+
+    minimal_env.setenv("AI__CHECK_CACHE_SECONDS", "-1")
+    with pytest.raises(ValidationError, match="check_cache_seconds"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_the_ai_base_url_must_be_http(minimal_env: pytest.MonkeyPatch) -> None:
+    minimal_env.setenv("AI__BASE_URL", "ftp://proxy.example")
+
+    with pytest.raises(ValidationError, match="AI__BASE_URL"):
+        load_settings(valid_ai_providers=PROVIDERS)
+
+
+def test_the_ai_api_key_never_appears_in_a_repr_or_a_dump(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("AI__PROVIDER", "other")
+    minimal_env.setenv("AI__API_KEY", TEST_AI_KEY)
+
+    settings = load_settings(valid_ai_providers=("fake", "other"))
+
+    assert TEST_AI_KEY not in repr(settings)
+    assert TEST_AI_KEY not in str(settings.model_dump())
+    assert TEST_AI_KEY not in settings.model_dump_json()
+
+
+def test_the_ai_api_key_never_appears_in_a_startup_error(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("AI__API_KEY", TEST_AI_KEY)
+    minimal_env.setenv("AI__TIMEOUT_SECONDS", "-1")
+
+    _assert_never_shown(TEST_AI_KEY, _startup_error())
+
+
+def test_the_ai_api_key_never_appears_when_the_provider_is_unknown(
+    minimal_env: pytest.MonkeyPatch,
+) -> None:
+    minimal_env.setenv("AI__PROVIDER", "skynet")
+    minimal_env.setenv("AI__API_KEY", TEST_AI_KEY)
+
+    with pytest.raises(ConfigurationError) as error:
+        load_settings(valid_ai_providers=PROVIDERS)
+
+    assert TEST_AI_KEY not in str(error.value)
+    assert TEST_AI_KEY not in repr(error.value)
