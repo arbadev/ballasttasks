@@ -304,6 +304,41 @@ async def test_an_order_that_is_not_every_step_exactly_once_is_refused(
     assert await steps_of(task_client, task) == [("a", 0, False), ("b", 1, False)]
 
 
+async def test_a_task_with_every_step_it_may_hold_is_reordered_but_a_longer_order_is_refused(
+    task_client: httpx.AsyncClient, task: dict[str, Any]
+) -> None:
+    """The order names at most the steps a task may hold: one id more is refused by the
+    schema, before the task is read or anything moves."""
+    await fill_with_steps(task_client, task, MAX_STEPS_PER_TASK)
+    listed = (await task_client.get(f"/tasks/{task['id']}/steps")).json()["items"]
+    ids = [step["id"] for step in listed]
+    upside_down = list(reversed([step["title"] for step in listed]))
+
+    reordered = await task_client.put(
+        f"/tasks/{task['id']}/steps/order", json={"step_ids": list(reversed(ids))}
+    )
+    one_id_too_many = await task_client.put(
+        f"/tasks/{task['id']}/steps/order", json={"step_ids": [*ids, UNKNOWN]}
+    )
+
+    assert reordered.status_code == 200, reordered.text
+    assert [step["title"] for step in reordered.json()["items"]] == upside_down
+    assert one_id_too_many.status_code == 422
+    assert [error["type"] for error in one_id_too_many.json()["detail"]] == ["too_long"]
+    assert await steps_of(task_client, task) == [
+        (title, position, False) for position, title in enumerate(upside_down)
+    ]
+
+
+async def test_a_task_without_steps_accepts_the_only_order_there_is(
+    task_client: httpx.AsyncClient, task: dict[str, Any]
+) -> None:
+    response = await task_client.put(f"/tasks/{task['id']}/steps/order", json={"step_ids": []})
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
 async def test_a_deleted_step_is_gone_and_the_rest_close_up(
     task_client: httpx.AsyncClient, task: dict[str, Any]
 ) -> None:
