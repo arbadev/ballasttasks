@@ -13,7 +13,8 @@ class AuthenticateUser:
     Every failure is the same ``InvalidCredentialsError``, and an unknown email still pays
     for one hash, so neither the response nor its timing reveals which accounts exist.
     A password longer than any stored one is refused before any hashing, whoever it is
-    for.
+    for. A user without a password (created by single sign-on) is one more of the same
+    failure, at the same cost.
     """
 
     def __init__(self, users: UserRepository, hasher: PasswordHasher, tokens: TokenService) -> None:
@@ -28,7 +29,7 @@ class AuthenticateUser:
             user = await self._users.get_by_email(normalise_email(email))
         except InvalidEmailError:
             user = None
-        if user is None:
+        if user is None or user.hashed_password is None:
             await asyncio.to_thread(self._hasher.hash, password)
             raise InvalidCredentialsError
         verified = await asyncio.to_thread(self._hasher.verify, password, user.hashed_password)

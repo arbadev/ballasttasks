@@ -5,18 +5,21 @@ an adapter. ``AppContainer`` states the little the HTTP layer needs, so the API 
 not import the composition root or any infrastructure module.
 """
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
+from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
+from app.application.sso import SsoConfig
 from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
+from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
 from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
@@ -27,8 +30,10 @@ from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
+from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
@@ -61,6 +66,12 @@ class RequestScope(Protocol):
 
     @property
     def get_current_user(self) -> GetCurrentUser: ...
+
+    @property
+    def complete_sso_sign_in(self) -> CompleteSsoSignIn: ...
+
+    @property
+    def redeem_sso_code(self) -> RedeemSsoCode: ...
 
     @property
     def summarise_tasks(self) -> SummariseTasks: ...
@@ -129,6 +140,15 @@ class AppContainer(Protocol):
     def language_model(self) -> LanguageModel: ...
 
     @property
+    def identity_providers(self) -> Mapping[str, IdentityProvider]: ...
+
+    @property
+    def start_sso_sign_in(self) -> StartSsoSignIn: ...
+
+    @property
+    def sso(self) -> SsoConfig: ...
+
+    @property
     def rate_limiting(self) -> RateLimiting: ...
 
 
@@ -147,12 +167,27 @@ def get_language_model(container: ContainerDep) -> LanguageModel:
     return container.language_model
 
 
+def get_identity_providers(container: ContainerDep) -> Mapping[str, IdentityProvider]:
+    return container.identity_providers
+
+
+def get_start_sso_sign_in(container: ContainerDep) -> StartSsoSignIn:
+    return container.start_sso_sign_in
+
+
+def get_sso_config(container: ContainerDep) -> SsoConfig:
+    return container.sso
+
+
 def get_rate_limiting(container: ContainerDep) -> RateLimiting:
     return container.rate_limiting
 
 
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
 LanguageModelDep = Annotated[LanguageModel, Depends(get_language_model)]
+IdentityProvidersDep = Annotated[Mapping[str, IdentityProvider], Depends(get_identity_providers)]
+StartSsoSignInDep = Annotated[StartSsoSignIn, Depends(get_start_sso_sign_in)]
+SsoConfigDep = Annotated[SsoConfig, Depends(get_sso_config)]
 RateLimitingDep = Annotated[RateLimiting, Depends(get_rate_limiting)]
 
 
@@ -200,6 +235,14 @@ def get_get_current_user(scope: RequestScopeDep) -> GetCurrentUser:
     return scope.get_current_user
 
 
+def get_complete_sso_sign_in(scope: RequestScopeDep) -> CompleteSsoSignIn:
+    return scope.complete_sso_sign_in
+
+
+def get_redeem_sso_code(scope: RequestScopeDep) -> RedeemSsoCode:
+    return scope.redeem_sso_code
+
+
 CreateTaskDep = Annotated[CreateTask, Depends(get_create_task)]
 GetTaskDep = Annotated[GetTask, Depends(get_get_task)]
 ListTasksDep = Annotated[ListTasks, Depends(get_list_tasks)]
@@ -208,6 +251,8 @@ DeleteTaskDep = Annotated[DeleteTask, Depends(get_delete_task)]
 RegisterUserDep = Annotated[RegisterUser, Depends(get_register_user)]
 AuthenticateUserDep = Annotated[AuthenticateUser, Depends(get_authenticate_user)]
 GetCurrentUserDep = Annotated[GetCurrentUser, Depends(get_get_current_user)]
+CompleteSsoSignInDep = Annotated[CompleteSsoSignIn, Depends(get_complete_sso_sign_in)]
+RedeemSsoCodeDep = Annotated[RedeemSsoCode, Depends(get_redeem_sso_code)]
 
 
 def get_summarise_tasks(scope: RequestScopeDep) -> SummariseTasks:

@@ -7,5 +7,6 @@ from app.infrastructure.db.models.attachment import AttachmentModel
 from app.infrastructure.db.models.project import ProjectModel
 from app.infrastructure.db.models.task import TaskModel
 from app.infrastructure.db.models.user import UserModel
+from app.infrastructure.db.models.user_identity import UserIdentityModel
 
-__all__ = ["AttachmentModel", "ProjectModel", "TaskModel", "UserModel"]
+__all__ = ["AttachmentModel", "ProjectModel", "TaskModel", "UserIdentityModel", "UserModel"]

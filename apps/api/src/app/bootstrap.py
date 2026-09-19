@@ -8,7 +8,7 @@ change. No DI framework: the container is a plain frozen dataclass.
 here, so it never imports ``app.infrastructure`` itself.
 """
 
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -20,8 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.application.clock import Clock, utc_now
 from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.health_check import HealthCheck
+from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.job_queue import JobQueue
 from app.application.ports.language_model import LanguageModel
+from app.application.ports.one_time_store import OneTimeStore
 from app.application.ports.password_hasher import PasswordHasher
 from app.application.ports.people_directory import PeopleDirectory
 from app.application.ports.project_repository import ProjectRepository
@@ -29,11 +31,14 @@ from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.token_service import TokenService
 from app.application.ports.user_directory import UserDirectory
+from app.application.ports.user_identity_repository import UserIdentityRepository
 from app.application.ports.user_repository import UserRepository
+from app.application.sso import SsoConfig
 from app.application.use_cases.assess_attention import AssessAttention
 from app.application.use_cases.attach_link import AttachLink
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.check_readiness import CheckReadiness
+from app.application.use_cases.complete_sso_sign_in import CompleteSsoSignIn
 from app.application.use_cases.create_project import CreateProject
 from app.application.use_cases.create_task import CreateTask
 from app.application.use_cases.delete_task import DeleteTask
@@ -44,8 +49,11 @@ from app.application.use_cases.list_attachments import ListAttachments
 from app.application.use_cases.list_people import ListPeople
 from app.application.use_cases.list_projects import ListProjects
 from app.application.use_cases.list_tasks import ListTasks
+from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
+from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
+from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.summarise_tasks import SummariseTasks
 from app.application.use_cases.update_profile import UpdateProfile
 from app.application.use_cases.update_project import UpdateProject
@@ -55,6 +63,7 @@ from app.infrastructure.ai.http import create_http_client
 from app.infrastructure.ai.registry import AI_PROVIDERS, build_language_model
 from app.infrastructure.cache.client import create_redis_client
 from app.infrastructure.cache.health import RedisHealthCheck
+from app.infrastructure.cache.one_time_store import RedisOneTimeStore
 from app.infrastructure.config import settings as config
 from app.infrastructure.config.settings import RateLimitSettings, Settings
 from app.infrastructure.db.engine import create_engine
@@ -64,8 +73,10 @@ from app.infrastructure.db.repositories.project import SqlAlchemyProjectReposito
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from app.infrastructure.db.repositories.user_directory import SqlAlchemyUserDirectory
+from app.infrastructure.db.repositories.user_identity import SqlAlchemyUserIdentityRepository
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
+from app.infrastructure.identity.registry import IDENTITY_PROVIDERS, build_identity_providers
 from app.infrastructure.jobs.factory import create_celery_app
 from app.infrastructure.jobs.queue import CeleryJobQueue
 from app.infrastructure.rate_limit.fail_open_rate_limiter import FailOpenRateLimiter
@@ -99,6 +110,11 @@ class RequestScope:
     people: PeopleDirectory
     # The links and files of tasks; the rows go with their task.
     attachments: AttachmentRepository
+    # Single sign-on: the identities table shares the transaction; the enabled providers
+    # and the one-time store are shared by every scope, like the hasher and the tokens.
+    identities: UserIdentityRepository
+    identity_providers: Mapping[str, IdentityProvider]
+    one_time_store: OneTimeStore
     # Every rule that depends on "now" reads this clock; tests pin it.
     clock: Clock = utc_now
 
@@ -113,6 +129,18 @@ class RequestScope:
     @property
     def get_current_user(self) -> GetCurrentUser:
         return GetCurrentUser(self.users, self.token_service)
+
+    @property
+    def complete_sso_sign_in(self) -> CompleteSsoSignIn:
+        return CompleteSsoSignIn(
+            self.identity_providers,
+            self.one_time_store,
+            SignInWithIdentity(self.users, self.identities),
+        )
+
+    @property
+    def redeem_sso_code(self) -> RedeemSsoCode:
+        return RedeemSsoCode(self.one_time_store, self.users, self.token_service)
 
     @property
     def create_task(self) -> CreateTask:
@@ -186,6 +214,8 @@ def _request_scope_factory(
     session_factory: async_sessionmaker[AsyncSession],
     password_hasher: PasswordHasher,
     token_service: TokenService,
+    identity_providers: Mapping[str, IdentityProvider],
+    one_time_store: OneTimeStore,
 ) -> RequestScopeFactory:
     @asynccontextmanager
     async def request_scope() -> AsyncIterator[RequestScope]:
@@ -200,6 +230,9 @@ def _request_scope_factory(
                 attachments=SqlAlchemyAttachmentRepository(session),
                 password_hasher=password_hasher,
                 token_service=token_service,
+                identities=SqlAlchemyUserIdentityRepository(session),
+                identity_providers=identity_providers,
+                one_time_store=one_time_store,
             )
 
     return request_scope
@@ -247,6 +280,14 @@ class Container:
     redis: Redis
     rate_limiting: RateLimiting
     ai_http_client: AsyncClient
+    # Single sign-on. Empty mapping = disabled: the routes answer 404 and list nothing.
+    identity_providers: Mapping[str, IdentityProvider]
+    one_time_store: OneTimeStore
+    sso: SsoConfig
+
+    @property
+    def start_sso_sign_in(self) -> StartSsoSignIn:
+        return StartSsoSignIn(self.identity_providers, self.one_time_store)
 
     @property
     def check_readiness(self) -> CheckReadiness:
@@ -263,11 +304,17 @@ class Container:
 
 
 def load_settings() -> Settings:
-    """Validated settings; the valid AI providers are whatever the registry holds."""
-    return config.load_settings(valid_ai_providers=AI_PROVIDERS.keys())
+    """Validated settings; the valid AI and identity providers are whatever the registries
+    hold."""
+    return config.load_settings(
+        valid_ai_providers=AI_PROVIDERS.keys(), valid_sso_providers=IDENTITY_PROVIDERS.keys()
+    )
 
 
 def build_container(settings: Settings) -> Container:
+    # First, before any handle is opened: a provider that is enabled without what it needs
+    # stops the process here, with a message naming the variable.
+    identity_providers = build_identity_providers(settings)
     engine = create_engine(settings.database.url, echo=settings.app.debug)
     redis = create_redis_client(settings.redis.url)
     ai_http_client = create_http_client(timeout_seconds=settings.ai.timeout_seconds)
@@ -277,6 +324,7 @@ def build_container(settings: Settings) -> Container:
         broker_url=settings.redis.url,
         result_backend=settings.redis.url,
     )
+    one_time_store = RedisOneTimeStore(redis)
     return Container(
         settings=settings,
         # Order is the order reported by GET /health/ready. New check = one line.
@@ -297,8 +345,16 @@ def build_container(settings: Settings) -> Container:
                 algorithm=settings.auth.jwt_algorithm,
                 expires_in=timedelta(minutes=settings.auth.access_token_expire_minutes),
             ),
+            identity_providers,
+            one_time_store,
         ),
         redis=redis,
         rate_limiting=_rate_limiting(settings.rate_limit, redis),
         ai_http_client=ai_http_client,
+        identity_providers=identity_providers,
+        one_time_store=one_time_store,
+        sso=SsoConfig(
+            api_public_base_url=settings.sso.api_public_base_url,
+            web_callback_url=settings.sso.web_callback_url,
+        ),
     )

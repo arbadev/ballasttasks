@@ -20,6 +20,7 @@ SETTINGS_ENV_PREFIXES = (
     "CORS__",
     "AUTH__",
     "RATE_LIMIT__",
+    "SSO__",
 )
 
 

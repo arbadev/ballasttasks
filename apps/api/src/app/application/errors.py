@@ -124,3 +124,70 @@ class UserNotActiveError(AuthenticationError):
 
     def __init__(self) -> None:
         super().__init__("User is not active")
+
+
+class InvalidSsoCodeError(AuthenticationError):
+    """The one-time exchange code is unknown, already used or expired, or its user is gone."""
+
+    def __init__(self) -> None:
+        super().__init__("Invalid or expired code")
+
+
+class SsoError(Exception):
+    """A single sign-on attempt failed. Messages are constant: they never repeat a state, a
+    code, a nonce, a token or an email, so they are safe to log and to show."""
+
+
+class UnknownIdentityProviderError(SsoError):
+    """No such provider is enabled: unknown and disabled are deliberately one answer."""
+
+    def __init__(self) -> None:
+        super().__init__("Unknown single sign-on provider")
+
+
+class SsoStateInvalidError(SsoError):
+    """The callback does not belong to a sign-in this browser started: the state is unknown,
+    already used, expired, issued for another provider or bound to another browser."""
+
+    def __init__(self) -> None:
+        super().__init__("The sign-in state is not valid")
+
+
+class IdentityCodeRejectedError(SsoError):
+    """The provider did not vouch for this sign-in: it refused the authorization code, or
+    what it returned failed verification (signature, issuer, audience, expiry, nonce)."""
+
+    def __init__(self) -> None:
+        super().__init__("The identity provider rejected the sign-in")
+
+
+class IdentityProviderUnavailableError(SsoError):
+    """The provider could not be reached, did not answer as its protocol says, or refused
+    this application's own credentials: nothing the person signing in did, or can fix."""
+
+    def __init__(self) -> None:
+        super().__init__("The identity provider is unavailable")
+
+
+class EmailNotVerifiedError(SsoError):
+    """The provider has not verified the email address, so it proves nothing about who
+    owns it: no sign-in, and above all no link to an existing user."""
+
+    def __init__(self) -> None:
+        super().__init__("The identity provider has not verified this email address")
+
+
+class SsoSignInRefusedError(SsoError):
+    """The identity is genuine but must not be given this account: the user with that email
+    is already linked to a different subject of the same provider."""
+
+    def __init__(self) -> None:
+        super().__init__("This identity cannot be linked to the account with its email")
+
+
+class IdentityAlreadyLinkedError(Exception):
+    """The store refused a link: that (provider, subject) already belongs to a user, or the
+    user already has an identity at that provider."""
+
+    def __init__(self) -> None:
+        super().__init__("Identity already linked")

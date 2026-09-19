@@ -3,7 +3,7 @@
 The ``attachments`` table: the links and stored files of a task.
 
 Revision ID: c4a9e7d21b65
-Revises: 8b2f4c6d1a3e
+Revises: 0ecd0978f6fd
 Create Date: 2026-09-18 23:11:17.034705
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c4a9e7d21b65"
-down_revision: str | Sequence[str] | None = "8b2f4c6d1a3e"
+down_revision: str | Sequence[str] | None = "0ecd0978f6fd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

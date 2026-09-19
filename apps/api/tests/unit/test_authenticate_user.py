@@ -6,7 +6,12 @@ from app.application.errors import InvalidCredentialsError
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.register_user import RegisterUser
 from app.domain.user import MAX_PASSWORD_LENGTH, User
-from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
+from tests.auth_fakes import (
+    FakePasswordHasher,
+    FakeTokenService,
+    InMemoryUserRepository,
+    a_user,
+)
 
 
 class CountingHasher(FakePasswordHasher):
@@ -147,3 +152,23 @@ async def test_an_unknown_email_costs_as_much_hashing_as_a_wrong_password(
         await authenticate.execute(email="nobody@example.com", password="wrong")
 
     assert hasher.work == known_cost == 1
+
+
+@pytest.mark.parametrize("password", ["", "None", "correct horse", "!"])
+async def test_a_user_who_has_no_password_cannot_log_in_with_one_and_costs_one_hash(
+    authenticate: AuthenticateUser,
+    users: InMemoryUserRepository,
+    hasher: CountingHasher,
+    password: str,
+) -> None:
+    """Created by single sign-on: no password exists, so none matches, and the answer costs
+    what every other failed login costs."""
+    await users.add(
+        dataclasses.replace(a_user(), email="sso-only@example.com", hashed_password=None)
+    )
+
+    with pytest.raises(InvalidCredentialsError) as error:
+        await authenticate.execute(email="sso-only@example.com", password=password)
+
+    assert str(error.value) == "Incorrect email or password"
+    assert hasher.work == 1

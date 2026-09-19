@@ -11,7 +11,7 @@ dependencies = [
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
-    "pyjwt>=2.14.0",
+    "pyjwt[crypto]>=2.14.0",
     "python-multipart>=0.0.32",
     "redis>=6.4.0",
     "sqlalchemy[asyncio]>=2.0.54",
@@ -64,7 +64,7 @@ asyncio_mode = "auto"
 addopts = "-m 'not integration and not live' --strict-markers"
 markers = [
     "integration: needs real PostgreSQL and Redis (run with `uv run pytest -m integration`)",
-    "live: calls a real AI provider and spends tokens; needs AI__PROVIDER and AI__API_KEY (run with `uv run pytest -m live`)",
+    "live: calls a real third party and is skipped without its credentials: an AI provider (AI__PROVIDER and AI__API_KEY, spends tokens) or Google sign-in (SSO__GOOGLE_CLIENT_ID and SSO__GOOGLE_CLIENT_SECRET); run with `uv run pytest -m live`",
 ]
 
 [tool.coverage.run]
@@ -87,7 +87,7 @@ source_modules = ["app.domain"]
 forbidden_modules = [
     "app.application", "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx",
+    "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]
@@ -97,7 +97,7 @@ source_modules = ["app.application"]
 forbidden_modules = [
     "app.infrastructure", "app.api", "app.bootstrap", "app.main",
     "fastapi", "starlette", "pydantic", "pydantic_settings", "sqlalchemy", "celery", "redis",
-    "jwt", "argon2", "httpx",
+    "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]
@@ -106,7 +106,7 @@ type = "forbidden"
 source_modules = ["app.api"]
 forbidden_modules = [
     "app.infrastructure", "app.bootstrap", "app.main",
-    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx",
+    "pydantic_settings", "sqlalchemy", "celery", "redis", "jwt", "argon2", "httpx", "cryptography",
 ]
 
 [[tool.importlinter.contracts]]

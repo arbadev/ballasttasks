@@ -7,14 +7,15 @@ Ballast Tasks is a monorepo with two applications that share one HTTP contract:
 
 This document is the authority for the rules summarised in [`AGENTS.md`](../AGENTS.md).
 The reasons behind the two structural choices are recorded in
-[ADR 0001](decisions/0001-monorepo.md) and [ADR 0002](decisions/0002-ports-and-adapters.md).
+[ADR 0001](decisions/0001-monorepo.md) and [ADR 0002](decisions/0002-ports-and-adapters.md);
+single sign-on is [ADR 0006](decisions/0006-single-sign-on.md).
 
 ## System overview
 
 ```mermaid
 flowchart LR
     browser([Browser]) --> web[web<br/>Next.js :3000]
-    browser -->|/health, /health/ready, /auth/*, /tasks, /projects, /users| api[api<br/>FastAPI :8000]
+    browser -->|/health, /health/ready, /auth/*, /auth/sso/*, /tasks, /projects, /users| api[api<br/>FastAPI :8000]
     api --> db[(db<br/>PostgreSQL)]
     api --> redis[(redis)]
     worker[worker<br/>Celery] --> redis
@@ -136,6 +137,31 @@ class PeopleDirectory(Protocol):
     """Who a task can be given to, as other users may see them: a Person has no email."""
 
     async def list_active(self) -> Sequence[Person]: ...  # by full name, then id
+
+
+class IdentityProvider(Protocol):
+    """An external identity provider, driven with the authorization-code flow."""
+
+    @property
+    def name(self) -> str: ...          # "google" | "fake": the URL segment and the stored provider key
+
+    async def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str: ...
+    async def exchange(self, *, code: str, redirect_uri: str, nonce: str) -> VerifiedIdentity: ...
+    # VerifiedIdentity: provider, subject, email, email_verified, full_name
+    # raises IdentityCodeRejectedError, IdentityProviderUnavailableError
+
+
+class UserIdentityRepository(Protocol):
+    async def find_user_id(self, provider: str, subject: str) -> UUID | None: ...
+    async def link(self, user_id: UUID, provider: str, subject: str, *, linked_at: datetime) -> None: ...
+    # raises IdentityAlreadyLinkedError
+
+
+class OneTimeStore(Protocol):
+    """Short-lived values that can be read exactly once."""
+
+    async def put(self, key: str, value: str, *, ttl: timedelta) -> None: ...
+    async def take(self, key: str) -> str | None: ...   # atomic read-and-delete
 ```
 
 `TaskRepository` has no clock: every question that depends on the date takes `today` from the use case (see [Time](#time)). `TaskQuery`, `TaskFilter`, `TaskPage` and the count types are plain values in `application/task_query.py`.
@@ -157,6 +183,9 @@ Adapters in this setup:
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
 | `RateLimiter` | Redis (one Lua script per hit), in-memory, and `FailOpenRateLimiter`, which wraps the first with the second | All three pass `tests/contract/test_rate_limiter_contract.py`; the Redis run is under the `integration` marker. The in-memory adapter serves the tests and stands in while Redis is unreachable |
 | `TokenService` | JWT (`PyJWT`, HMAC), in-memory fake for tests | Tokens carry only `sub`, `iat`, `exp`; `decode` raises `InvalidTokenError` |
+| `IdentityProvider` | `google` (`httpx`, OpenID Connect with discovery, ID token verified with `PyJWT` against Google's cached keys), `fake` (no credentials; tests and local demos, refused when `APP__ENV=production`) | Both pass `tests/contract/test_identity_provider_contract.py`; Google runs against a stand-in Google (`httpx.MockTransport`, local signing keys). Registered in `infrastructure/identity/registry.py`, switched on by `SSO__ENABLED_PROVIDERS`; each factory names the variable it misses and stops startup |
+| `UserIdentityRepository` | SQLAlchemy on PostgreSQL, in-memory fake | Both pass `tests/contract/test_user_identity_repository_contract.py`. `link` raises `IdentityAlreadyLinkedError`, also when a concurrent transaction wins: the two unique constraints are the guarantee, in a savepoint |
+| `OneTimeStore` | Redis (`SET PX` / `GETDEL`), in-memory fake with a clock | Both pass `tests/contract/test_one_time_store_contract.py`. Holds the state of a sign-in and the one-time exchange code, keyed by SHA-256 digests |
 
 ## Composition roots
 
@@ -165,7 +194,7 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 ### Backend: `apps/api/src/app/bootstrap.py`
 
 - Loads settings once, builds the adapters, and hands them to the use cases and the FastAPI app.
-- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters.
+- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it.
 - An unknown `AI__PROVIDER` fails at startup with an explicit error, not at first use.
 - Tests build the app through the same function with fakes passed in, so no test patches a module global.
 
@@ -321,11 +350,29 @@ flowchart LR
 - **Settings**: the `auth` group (`AUTH__JWT_SECRET`, `AUTH__JWT_ALGORITHM`, `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES`). Startup fails when the secret is missing or shorter than the algorithm's digest (RFC 7518 section 3.2). Only HMAC algorithms are accepted, and decoding pins the configured one, which rules out `alg=none` and algorithm confusion.
 - Out of scope by decision: refresh tokens, password reset, email verification, roles.
 
+### Single sign-on
+
+A second way in, next to password login; the reasons, the flow diagram and the threats considered are in [ADR 0006](decisions/0006-single-sign-on.md). It ends in the same access token, so nothing behind `CurrentUserId` knows it exists.
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `GET /auth/sso/providers` | `200` `SsoProvidersResponse`: `{"providers": [{"name": "google"}]}`, empty while disabled | |
+| `GET /auth/sso/{provider}/start` | `303` to the provider, plus the `sso_binding` cookie (HttpOnly, SameSite=Lax, `Path=<path of SSO__API_PUBLIC_BASE_URL>/auth/sso`, 5 minutes) | `404` unknown or disabled provider |
+| `GET /auth/sso/{provider}/callback` | `303` to `SSO__WEB_CALLBACK_URL?code=<one-time code>` | `303` to `SSO__WEB_CALLBACK_URL?error=sso_failed` (or `provider_unavailable`) for every failure; `404` unknown or disabled provider |
+| `POST /auth/sso/exchange` `{"code": "..."}` | `200` `TokenResponse`, the body of `POST /auth/login` | `401` for every failure, `422` |
+
+- **Use cases**: `StartSsoSignIn` (state, nonce and browser binding into the `OneTimeStore`), `CompleteSsoSignIn` (spends the state, asks the `IdentityProvider`, runs `SignInWithIdentity`, issues the exchange code), `SignInWithIdentity` (find by `(provider, subject)`, else link by VERIFIED email, else create with no password; unverified emails and inactive users are refused), `RedeemSsoCode` (code -> access token, once).
+- **Rate limiting**: the callback and the exchange present a credential and spend the strict `auth` budget by client IP, like login; listing providers and starting a flow spend the general one. Every route declares the `429`.
+- **Redirect targets come from settings only**: `SSO__API_PUBLIC_BASE_URL` (the provider's `redirect_uri` is this plus the callback route's path) and `SSO__WEB_CALLBACK_URL`. Nothing in a request can name another.
+- **The access token never travels in a URL**: the callback redirects with a one-time code (single use, 60 seconds), and the web app swaps it with a `POST`.
+- **Users without a password**: `users.hashed_password` is nullable; a user created by single sign-on has none and password login answers them its uniform `401`. Identities live in `user_identities` (unique `(provider, subject)`, unique `(user_id, provider)`, `ON DELETE CASCADE`).
+- **Settings**: the `sso` group (`SSO__ENABLED_PROVIDERS`, `SSO__GOOGLE_CLIENT_ID`, `SSO__GOOGLE_CLIENT_SECRET` as a `SecretStr`, `SSO__API_PUBLIC_BASE_URL`, `SSO__WEB_CALLBACK_URL`). Disabled by default, so `docker compose up` needs no credentials.
+
 ## Rate limiting
 
 Decision, algorithm and limits of the protection: [ADR 0004](decisions/0004-rate-limiting.md).
 
-- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (`POST /auth/login` and `POST /auth/register`, the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
+- **Opt-in per router or route**, through one of two dependencies in `api/rate_limit.py`: `limit_auth_attempts` (the routes that take a credential: `POST /auth/login`, `POST /auth/register`, and the [single sign-on](#single-sign-on) callback and exchange; the strict `auth` policy, keyed by client IP) and `limit_requests` (everything else: the `authenticated` policy keyed by user id when the token resolves to a user, otherwise the `anonymous` policy keyed by client IP). A route without one is not limited: `GET /health` and `GET /health/ready`. A new router adds the dependency and `responses={**TOO_MANY_REQUESTS}`.
 - **Contract**: over the limit is `429` `ErrorResponse` with `Retry-After`; every response of a limited route (errors too) carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` (seconds from now). The limiter runs first, so `429` wins over `401` and `422`.
 - **Who is calling**: `get_optional_user_id` in `api/security.py` (same seam, same per-request resolution as `CurrentUserId`, but `None` instead of a `401`). Client IP is the connection's peer; `X-Forwarded-For` (last entry) only with `RATE_LIMIT__TRUST_PROXY=true`.
 - **Wiring**: `bootstrap.py` builds `Container.rate_limiting` (the limiter plus the three policies and flags from the `rate_limit` settings group); the API reads it through the `RateLimiting` Protocol in `api/dependencies.py`. API tests replace the limiter with the in-memory adapter on a clock they move.
@@ -348,7 +395,7 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 1. Write nothing in existing modules yet. Create the adapter's test module and add the new adapter to the port's contract suite parameters. Run the suite and confirm it fails.
 2. Implement the adapter in its own module under `infrastructure`. It imports the port's types, never the other way round.
 3. Run the port's contract suite until the new adapter passes every case the existing adapters pass.
-4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads; for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
+4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
 5. If it needs configuration, add a typed field to the matching group in `settings.py` and a documented line in `.env.example`.
 6. Run `make lint` and `make test`, then commit.
 
@@ -383,7 +430,7 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected, a rejected secret never echoed in the error | Environment variables only |
-| Live | The real AI provider accepts the key and generates text | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`; deselected by default, skipped without a key |
-| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
+| Live | A real third party answers as the adapter expects: the AI provider accepts the key and generates text; Google's discovery and token endpoints have the shape the sign-in adapter reads | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`, or `SSO__GOOGLE_CLIENT_ID` and `SSO__GOOGLE_CLIENT_SECRET`; deselected by default, skipped without credentials |
+| Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`); the single sign-on browser flow over real HTTP against a uvicorn server, with the fake provider (`tests/integration/test_sso_flow.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.

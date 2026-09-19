@@ -99,6 +99,22 @@ describe("SegmentedControl", () => {
   });
 });
 
+describe("form field identity", () => {
+  // Chrome's Issues panel flags any form field with neither an id nor a name.
+  it("every Select and TextInput renders an id, unique per instance", () => {
+    render(
+      <>
+        <Select label="Status" value="open" options={[{ value: "open", label: "All open" }]} onChange={() => {}} />
+        <Select label="Due" value="open" options={[{ value: "open", label: "Any date" }]} onChange={() => {}} />
+        <TextInput label="Search tasks" value="" onChange={() => {}} />
+      </>,
+    );
+    const ids = [screen.getByRole("combobox", { name: "Status" }), screen.getByRole("combobox", { name: "Due" }), screen.getByRole("textbox", { name: "Search tasks" })].map((el) => el.id);
+    ids.forEach((id) => expect(id).not.toBe(""));
+    expect(new Set(ids).size).toBe(3);
+  });
+});
+
 describe("TextInput", () => {
   it("is labelled, controlled and reports text", () => {
     const onChange = vi.fn();
