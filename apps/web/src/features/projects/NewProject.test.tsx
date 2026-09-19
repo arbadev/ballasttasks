@@ -1,9 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import type { Task } from "@/features/tasks/model/types";
+import { seedTasks } from "@/features/tasks/services/seed";
 import { TasksApp } from "@/features/tasks/shell/TasksApp";
 import { ProjectRejectedError } from "@/features/tasks/services/types";
-import { FakeDirectoryService } from "@/test/fakeServices";
+import { FakeDirectoryService, FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
+import { NOW } from "@/test/tasks";
 
 async function renderApp(directoryService = new FakeDirectoryService()) {
   const view = renderWithServices(<TasksApp />, { directoryService });
@@ -18,6 +21,7 @@ const field = (name: string) => within(dialog()).getByRole("textbox", { name });
 const submit = () => fireEvent.submit(within(dialog()).getByRole("form", { name: "New project" }));
 const type = (name: string, value: string) => fireEvent.change(field(name), { target: { value } });
 const backdrop = () => screen.getByTestId("new-project-backdrop");
+const firstTaskField = () => within(screen.getByRole("region", { name: "Marketing has no tasks yet" })).getByRole("textbox", { name: "Name the first task" });
 
 function clickBackdrop() {
   fireEvent.mouseDown(backdrop());
@@ -323,6 +327,72 @@ describe("a created project", () => {
     fireEvent.change(input, { target: { value: "Draft the launch post" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(await within(await screen.findByRole("list", { name: "Tasks" })).findByText("Draft the launch post")).toBeInTheDocument();
+  });
+
+  it("ignores the Enter that confirms an input-method composition", async () => {
+    const { taskService } = await renderApp();
+    await createMarketing();
+
+    const input = firstTaskField();
+    fireEvent.change(input, { target: { value: "にほん" } });
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    await act(async () => {});
+
+    expect(taskService.calls.filter(([name]) => name === "create")).toEqual([]);
+    expect(input).toHaveValue("にほん");
+    expect(screen.getByRole("region", { name: "Marketing has no tasks yet" })).toBeInTheDocument();
+  });
+
+  it("keeps the typed first task and says so when creating it fails, without creating it twice", async () => {
+    class Broken extends FakeTaskService {
+      override async create(): Promise<Task> {
+        this.calls.push(["create"]);
+        throw new Error("offline");
+      }
+    }
+    const taskService = new Broken(seedTasks(NOW));
+    renderWithServices(<TasksApp />, { taskService });
+    await screen.findByText("13 tasks");
+    await createMarketing();
+
+    const input = firstTaskField();
+    fireEvent.change(input, { target: { value: "Draft the launch post" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not add the task. Press Enter to try again.");
+    expect(input).toHaveValue("Draft the launch post");
+    expect(input).toHaveAccessibleDescription("Could not add the task. Press Enter to try again.");
+    expect(taskService.calls.filter(([name]) => name === "create")).toHaveLength(1);
+
+    fireEvent.change(input, { target: { value: "Draft the launch post!" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("hands the focus to the list's quick-add when the first task replaces the empty state", async () => {
+    await renderApp();
+    await createMarketing();
+
+    const input = firstTaskField();
+    act(() => input.focus());
+    fireEvent.change(input, { target: { value: "Draft the launch post" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const quickAdd = await screen.findByRole("textbox", { name: "Add a task" });
+    await waitFor(() => expect(quickAdd).toHaveFocus());
+  });
+
+  it("leaves the focus alone when the list mounts for any other reason", async () => {
+    await renderApp();
+    await createMarketing();
+    expect(screen.getByRole("region", { name: "Marketing has no tasks yet" })).toBeInTheDocument();
+
+    // Switching to a project that has tasks mounts the same list, without a claim on the focus.
+    fireEvent.click(sidebar().getByRole("button", { name: /^Inbox/ }));
+    const quickAdd = await screen.findByRole("textbox", { name: "Add a task" });
+    await act(async () => {});
+    expect(quickAdd).not.toHaveFocus();
   });
 
   it("is where New task creates its tasks", async () => {

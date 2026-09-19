@@ -27,6 +27,9 @@ function Shell() {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const closeNavigation = useCallback(() => setNavigationOpen(false), []);
   const emptyProject = useEmptyProject();
+  /** Set only when the empty-project state saved the first task: the list it becomes takes the focus. */
+  const [focusQuickAdd, setFocusQuickAdd] = useState(false);
+  const quickAddFocused = useCallback(() => setFocusQuickAdd(false), []);
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -50,9 +53,9 @@ function Shell() {
         {/* A project with no tasks invites the first one. Otherwise the list draws its own loading
             and error states; the board still uses the shell's. */}
         {emptyProject ? (
-          <EmptyProject project={emptyProject} />
+          <EmptyProject project={emptyProject} onFirstTask={() => setFocusQuickAdd(state.view === "list")} />
         ) : state.view === "list" ? (
-          <ListView />
+          <ListView focusQuickAdd={focusQuickAdd} onQuickAddFocused={quickAddFocused} />
         ) : (
           <>
             {state.load.status === "loading" && (

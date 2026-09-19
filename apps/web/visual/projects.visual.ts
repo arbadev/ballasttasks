@@ -116,11 +116,16 @@ for (const viewport of VIEWPORTS) {
     if (narrow) await page.keyboard.press("Escape");
 
     // The first task goes into the project and the ordinary list takes over.
+    const scrolled = () => page.evaluate(() => window.scrollY);
     await empty.getByRole("textbox", { name: "Name the first task" }).fill("Draft the launch post");
+    const before = await scrolled();
     await page.keyboard.press("Enter");
     await expect(empty).toBeHidden();
     await expect(page.getByRole("list", { name: "Tasks" }).getByText("Draft the launch post")).toBeVisible();
     await expect(page.getByText("1 task", { exact: true })).toBeVisible();
+    // The list takes the focus over from the empty state, so the next task can be typed straight away.
+    await expect(page.getByRole("textbox", { name: "Add a task" })).toBeFocused();
+    expect(await scrolled(), "the page scrolled when the focus moved").toBe(before);
 
     expect(problems, "console errors or warnings").toEqual([]);
     await context.close();
