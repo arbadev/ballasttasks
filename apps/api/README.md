@@ -24,7 +24,7 @@ Swapping or adding an adapter = a new adapter file, one registration line
 ```sh
 uv sync                                   # install (locked)
 uv run pytest --cov                       # default suite: needs NO PostgreSQL/Redis, coverage >= 80%
-uv run pytest -m integration              # needs DATABASE__URL and REDIS__URL pointing at live services
+uv run pytest -m integration              # needs DATABASE__URL, REDIS__URL (live services) and AUTH__JWT_SECRET
 uv run ruff check . && uv run ruff format --check .
 uv run mypy src tests
 uv run lint-imports
@@ -35,7 +35,7 @@ uv run uvicorn app.main:create_app --factory --reload
 uv run celery -A app.infrastructure.jobs.celery_app worker --loglevel=INFO
 ```
 
-Configuration is environment-only (`APP__*`, `DATABASE__URL`, `REDIS__URL`, `AI__*`, `CORS__*`);
+Configuration is environment-only (`APP__*`, `DATABASE__URL`, `REDIS__URL`, `AI__*`, `AUTH__*`, `CORS__*`);
 for local runs load the repo-root file with `uv run --env-file ../../.env <command>`.
 
 ## Docker
