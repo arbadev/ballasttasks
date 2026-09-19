@@ -10,6 +10,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **Composition roots**: only `apps/api/src/app/bootstrap.py` and `apps/web/src/app/providers.tsx` name concrete classes. No DI framework. A new provider = new adapter + one registry line (`infrastructure/ai/registry.py`), no edits to existing code.
 - **Env readers**: only `infrastructure/config/settings.py` (API) and `src/lib/config.ts` (web) read the environment. Variable names are in `.env.example`; a new variable is added there in the same commit.
 - **Network**: `client.ts` is the only `fetch` caller. Components depend on service interfaces from context, never on the client.
+- **Web UI**: colours, radii, shadows, fonts and animations come from the design tokens in `apps/web/src/app/globals.css` through their Tailwind names, never raw values. Time comes from `useNow()` (the injected clock), never `Date.now()`. Task mutations go through `useTaskCommands()`, which keeps service and workspace state in step. Folder ownership and the hook/action/service contract: "Building on the shell" in `apps/web/README.md`.
 - **Generated files** (`schema.d.ts`, lockfiles) are never edited by hand.
 - **Contract change in one commit**: update the Pydantic model, run `npm run gen:api`, fix frontend types, commit together.
 - **PostgreSQL only**, including tests. No SQLite. A table = an ORM model in `infrastructure/db/models/` plus one Alembic revision (`--autogenerate`, then reviewed by hand).
@@ -33,12 +34,13 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
+| `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
 | `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
 
 ## Repo map
 
 - `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `api`, `bootstrap.py`, `main.py`).
-- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
+- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root; `src/features/tasks/` is the tasks app, `src/components/ui/` the shared primitives). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
 - `docs/`: `PRD.md`, `architecture.md`, `ai-usage.md`, `decisions/` (ADRs).
 - Root: `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, `.env.example`.
 
