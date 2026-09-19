@@ -345,6 +345,30 @@ describe("add a task", () => {
     expect(taskService.calls).toContainEqual(["create", { title: "Untitled task", status: "testing", project: "inbox" }]);
     expect(titlesIn("Testing")).toContain("Untitled task");
   });
+
+  it("says so when the task cannot be added, and Retry adds it", async () => {
+    class FailsFirstCreate extends FakeTaskService {
+      private failed = false;
+      override async create(input: Parameters<FakeTaskService["create"]>[0]) {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error("The server said no.");
+        }
+        return super.create(input);
+      }
+    }
+    await renderBoard({ taskService: new FailsFirstCreate(seedTasks(NOW)) });
+
+    fireEvent.click(within(column("Testing")).getByRole("button", { name: "Add a task" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not add a task to Testing.");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await screen.findByRole("dialog", { name: "Untitled task" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(titlesIn("Testing")).toContain("Untitled task");
+  });
 });
 
 describe("load states", () => {

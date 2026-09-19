@@ -1,12 +1,11 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { IconButton } from "@/components/ui/IconButton";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
 import { useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
+import { BoardAlert } from "./BoardAlert";
 import { BoardColumn } from "./BoardColumn";
 import { BoardSkeleton } from "./BoardSkeleton";
 import { cardView } from "./cardView";
@@ -47,6 +46,8 @@ function Board() {
   const moves = useBoardMoves(useVisibleTasks({ applyStatus: false }));
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
+  /** The column whose "Add a task" was refused. */
+  const [addFailedIn, setAddFailedIn] = useState<TaskStatus | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   /** A card moved without a drag is remounted in its new column; focus follows it there. */
   const focusAfterMove = useRef<string | null>(null);
@@ -63,6 +64,11 @@ function Board() {
     setOverStatus(null);
   };
 
+  const addTask = (status: TaskStatus) => {
+    setAddFailedIn(null);
+    commands.create({ title: "Untitled task", status }, { open: true }).catch(() => setAddFailedIn(status));
+  };
+
   const moveWithoutDrag = (taskId: string, to: TaskStatus) => {
     focusAfterMove.current = taskId;
     moves.move(taskId, to);
@@ -75,15 +81,14 @@ function Board() {
       </p>
 
       {moves.failure && (
-        <div role="alert" className="mx-8 mt-4 flex animate-bt-in items-center gap-3 rounded-bt border border-line bg-danger-soft py-2 pr-2 pl-3.5 text-[12.5px] text-fg max-md:mx-4">
-          <p className="m-0 min-w-0 flex-1">
-            Could not move &quot;{moves.failure.title}&quot; to {statusName(moves.failure.to)}. It is back in {statusName(moves.failure.from)}.
-          </p>
-          <Button variant="ghost" onClick={moves.retry} className="border border-line bg-card text-fg-2">
-            Retry
-          </Button>
-          <IconButton icon={X} label="Dismiss" onClick={moves.dismissFailure} />
-        </div>
+        <BoardAlert
+          message={`Could not move "${moves.failure.title}" to ${statusName(moves.failure.to)}. It is back in ${statusName(moves.failure.from)}.`}
+          onRetry={moves.retry}
+          onDismiss={moves.dismissFailure}
+        />
+      )}
+      {addFailedIn && !moves.failure && (
+        <BoardAlert message={`Could not add a task to ${statusName(addFailedIn)}.`} onRetry={() => addTask(addFailedIn)} onDismiss={() => setAddFailedIn(null)} />
       )}
 
       <div ref={grid} className={BOARD_GRID}>
@@ -105,7 +110,7 @@ function Board() {
                 if (id) moves.move(id, status.id);
                 endDrag();
               }}
-              onAddTask={() => void commands.create({ title: "Untitled task", status: status.id }, { open: true })}
+              onAddTask={() => addTask(status.id)}
             >
               {tasks.map((task, index) => (
                 <li key={task.id}>
