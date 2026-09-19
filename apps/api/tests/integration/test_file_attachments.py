@@ -6,6 +6,8 @@ import os
 import socket
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -17,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import QueuePool
 
-from app.bootstrap import Container, build_container, load_settings
+from app.bootstrap import Container, RequestScope, build_container, load_settings
+from app.domain.activity import ActivityEntry
 from app.infrastructure.db import engine as engine_module
 from app.infrastructure.db.models.attachment import AttachmentModel
 from app.main import create_app
@@ -181,6 +184,101 @@ async def test_commit_failure_after_file_write_compensates_storage(container: Co
     assert not [p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()]
     async with container.request_scope() as scope:
         assert await scope.attachments.list_for_task(task.id) == []
+        await scope.delete_task.execute(task.id)
+
+
+async def test_attachment_activity_over_http_names_the_actor_and_sanitised_file(
+    http: httpx.AsyncClient,
+) -> None:
+    owner = await register_and_log_in(http, "Owner")
+    caller = await register_and_log_in(http, "Caller")
+    task = (await http.post("/tasks", json={"title": "Activity"}, headers=owner.headers)).json()
+    base = f"/tasks/{task['id']}"
+    link = await http.post(
+        base + "/attachments/links", json={"url": "https://example.com"}, headers=owner.headers
+    )
+    file = await http.post(
+        base + "/attachments/files",
+        files={"file": ("../../report.pdf", PDF)},
+        headers=caller.headers,
+    )
+    assert (link.status_code, file.status_code) == (201, 201)
+    for item in (link.json(), file.json()):
+        removed = await http.delete(base + f"/attachments/{item['id']}", headers=caller.headers)
+        assert removed.status_code == 204
+    rejected = await http.post(
+        base + "/attachments/files", files={"file": ("empty.pdf", b"")}, headers=caller.headers
+    )
+    assert rejected.status_code == 422
+    feed = (await http.get(base + "/activity", headers=owner.headers)).json()
+    assert [(item["text"], item["actor"]["id"]) for item in reversed(feed["items"])] == [
+        ("Created the task", owner.id),
+        ("Attached example.com", owner.id),
+        ("Attached report.pdf", caller.id),
+        ("Removed example.com", caller.id),
+        ("Removed report.pdf", caller.id),
+    ]
+    detail = (await http.get(base, headers=owner.headers)).json()
+    assert (detail["attachments"], detail["attachments_count"], detail["comments_count"]) == (
+        [],
+        0,
+        0,
+    )
+    assert (await http.delete(base, headers=owner.headers)).status_code == 204
+
+
+@pytest.mark.parametrize("operation", ["link", "file", "remove"])
+async def test_activity_failure_rolls_back_attachment_metadata_and_file_changes(
+    container: Container,
+    operation: str,
+) -> None:
+    async with container.request_scope() as scope:
+        user = await scope.register_user.execute(
+            email=f"{uuid.uuid4().hex}@example.com",
+            full_name="Tester",
+            password="correct horse battery",
+        )
+        task = await scope.create_task.execute(title="Atomic activity", created_by=user.id)
+    stored = await container.attach_file.execute(
+        task.id, file=UploadedFile(PDF, name="seed.pdf"), created_by=user.id
+    )
+    async with container.request_scope() as scope:
+        before = await scope.get_task.execute(task.id)
+        assert (await scope.activity_feed.page(task.id, limit=50, offset=0)).total == 2
+
+    class RefusingRecorder:
+        async def record(self, entry: ActivityEntry) -> None:
+            raise RuntimeError("activity unavailable")
+
+    @asynccontextmanager
+    async def refusing_scope() -> AsyncIterator[RequestScope]:
+        async with container.request_scope() as scope:
+            yield replace(scope, activity=RefusingRecorder())
+
+    refused = replace(container, request_scope=refusing_scope)
+    with pytest.raises(RuntimeError, match="activity unavailable"):
+        if operation == "file":
+            await refused.attach_file.execute(
+                task.id, file=UploadedFile(PDF, name="new.pdf"), created_by=user.id
+            )
+        else:
+            async with refused.request_scope() as scope:
+                if operation == "link":
+                    await scope.attach_link.execute(
+                        task.id, url="https://example.com", name=None, created_by=user.id
+                    )
+                else:
+                    await scope.remove_attachment.execute(task.id, stored.id, actor_id=user.id)
+    async with container.request_scope() as scope:
+        assert list(await scope.attachments.list_for_task(task.id)) == [stored]
+        assert await scope.get_task.execute(task.id) == before
+        assert (await scope.activity_feed.page(task.id, limit=50, offset=0)).total == 2
+        stream = await scope.file_storage.open(stored.storage_key or "")
+        assert b"".join([chunk async for chunk in stream]) == PDF
+        assert (
+            len([p for p in container.settings.storage.local_directory.rglob("*") if p.is_file()])
+            == 1
+        )
         await scope.delete_task.execute(task.id)
 
 

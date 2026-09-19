@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.activity_feed import ActivityFeed
 from app.application.ports.activity_recorder import ActivityRecorder
+from app.application.ports.attachment_repository import AttachmentRepository
 from app.application.ports.step_repository import StepRepository
 from app.application.ports.task_repository import TaskRepository
 from app.application.ports.task_tallies import TaskTallies
@@ -22,6 +23,7 @@ from app.domain.task import Task
 from app.domain.user import User
 from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.activity import SqlAlchemyActivityLog
+from app.infrastructure.db.repositories.attachment import SqlAlchemyAttachmentRepository
 from app.infrastructure.db.repositories.step import SqlAlchemyStepRepository
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.repositories.task_tallies import SqlAlchemyTaskTallies
@@ -29,7 +31,11 @@ from app.infrastructure.db.repositories.user import SqlAlchemyUserRepository
 from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
 from tests.auth_fakes import InMemoryUserRepository, a_user
 from tests.builders import a_task
-from tests.fakes import InMemoryProjectRepository, InMemoryTaskRepository
+from tests.fakes import (
+    InMemoryAttachmentRepository,
+    InMemoryProjectRepository,
+    InMemoryTaskRepository,
+)
 
 TASK_SIDE_ADAPTERS = [
     pytest.param("in-memory"),
@@ -45,6 +51,7 @@ class TaskSideStore:
     recorder: ActivityRecorder
     feed: ActivityFeed
     tallies: TaskTallies
+    attachments: AttachmentRepository
 
     async def a_stored_user(self, **overrides: object) -> User:
         user = a_user(**overrides)  # type: ignore[arg-type]
@@ -63,7 +70,10 @@ async def task_side(request: pytest.FixtureRequest) -> AsyncIterator[TaskSideSto
         users = InMemoryUserRepository()
         tasks = InMemoryTaskRepository(users, InMemoryProjectRepository())
         steps, log = InMemoryStepRepository(tasks), InMemoryActivityLog(tasks)
-        yield TaskSideStore(users, tasks, steps, log, log, InMemoryTaskTallies(steps, log))
+        attachments = InMemoryAttachmentRepository(tasks)
+        yield TaskSideStore(
+            users, tasks, steps, log, log, InMemoryTaskTallies(steps, log), attachments
+        )
         return
 
     engine = create_engine(request.getfixturevalue("pristine_database_url"))
@@ -80,6 +90,7 @@ async def task_side(request: pytest.FixtureRequest) -> AsyncIterator[TaskSideSto
                 sql_log,
                 sql_log,
                 SqlAlchemyTaskTallies(session),
+                SqlAlchemyAttachmentRepository(session),
             )
         await transaction.rollback()
     await engine.dispose()

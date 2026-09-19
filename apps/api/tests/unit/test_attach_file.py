@@ -29,6 +29,7 @@ from app.application.use_cases.open_attachment_content import OpenAttachmentCont
 from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.domain.attachment import Attachment, AttachmentKind
 from app.domain.task import Task
+from tests.activity_fakes import InMemoryActivityLog
 from tests.auth_fakes import InMemoryUserRepository
 from tests.builders import a_file, a_link, a_task
 from tests.fakes import (
@@ -88,6 +89,7 @@ class Scopes:
     ) -> None:
         self.tasks = tasks
         self.attachments = attachments
+        self.activity = InMemoryActivityLog(tasks)
         self.file_storage = storage
         self.max_file_bytes = max_bytes
         self.clock: Clock = lambda: LATER
@@ -109,6 +111,25 @@ class Scopes:
             self.events.append("rollback")
             raise
         self.events.append("commit")
+
+
+async def test_upload_records_the_sanitised_name_in_the_metadata_transaction(
+    tasks: InMemoryTaskRepository,
+    attachments: InMemoryAttachmentRepository,
+    storage: RecordingFileStorage,
+    task: Task,
+) -> None:
+    scopes = Scopes(tasks, attachments, storage)
+    attached = await AttachFile(scopes).execute(
+        task.id, file=UploadedFile(PDF, name="../../report.pdf"), created_by=CALLER
+    )
+    (entry,) = scopes.activity.entries
+    assert (entry.text, entry.actor_id, entry.task_id, entry.created_at) == (
+        "Attached report.pdf",
+        CALLER,
+        task.id,
+        attached.created_at,
+    )
 
 
 class WatchingStorage(RecordingFileStorage):
