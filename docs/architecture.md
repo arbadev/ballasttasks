@@ -33,7 +33,7 @@ Source code dependencies point inward only. An inner layer never imports an oute
 flowchart TB
     subgraph outer [Outer: frameworks and drivers]
         presentation[api, the presentation layer<br/>FastAPI routes, Pydantic response models]
-        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, AI providers]
+        infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, AI providers, file storage]
     end
     application[application<br/>use cases and ports]
     domain[domain<br/>entities and rules, no framework imports]
@@ -120,6 +120,25 @@ class ProjectRepository(Protocol):
     async def allocate_task_key(self, project_id: UUID) -> TaskKey: ...  # no duplicates, no gaps; raises UnknownProjectError
 
 
+class AttachmentRepository(Protocol):
+    """The attachments of a task: added or deleted, never changed. The bytes are FileStorage's."""
+
+    async def add(self, attachment: Attachment) -> None: ...        # raises TaskNotFound
+    async def get(self, attachment_id: UUID) -> Attachment | None: ...
+    async def list_for_task(self, task_id: UUID) -> Sequence[Attachment]: ...             # oldest first
+    async def count_by_task(self, task_ids: Collection[UUID]) -> Mapping[UUID, int]: ...  # one statement
+    async def delete(self, attachment_id: UUID) -> None: ...        # raises AttachmentNotFound
+
+
+class FileStorage(Protocol):
+    """The bytes behind a file attachment, under a server-generated key. No paths, no URLs."""
+
+    async def save(self, key: str, chunks: AsyncIterator[bytes]) -> StoredFile: ...
+    # exclusive (StorageKeyTakenError), streams, removes what a failed or cancelled write left
+    async def open(self, key: str) -> AsyncIterator[bytes]: ...  # StoredFileNotFound before the stream
+    async def delete(self, key: str) -> None: ...                # idempotent
+
+
 class RateLimiter(Protocol):
     """Counts hits per key; atomic, so concurrent hits never exceed the policy's limit."""
 
@@ -196,8 +215,8 @@ There are exactly two places where concrete classes are chosen. No DI framework 
 ### Backend: `apps/api/src/app/bootstrap.py`
 
 - Loads settings once, builds the adapters, and hands them to the use cases and the FastAPI app.
-- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it.
-- An unknown `AI__PROVIDER` fails at startup with an explicit error, not at first use.
+- Reads the provider registry (`AI__PROVIDER` value -> `LanguageModel` factory, in `infrastructure/ai/registry.py`) and holds the ordered list of `HealthCheck` adapters. The identity provider registry (name -> `IdentityProvider` factory, in `infrastructure/identity/registry.py`) is read the same way; `SSO__ENABLED_PROVIDERS` picks from it, and `STORAGE__PROVIDER` picks the `FileStorage` factory in `infrastructure/storage/registry.py`.
+- An unknown `AI__PROVIDER` or `STORAGE__PROVIDER` fails at startup with an explicit error, not at first use.
 - Tests build the app through the same function with fakes passed in, so no test patches a module global.
 
 ### Unit of work: one transaction per request
@@ -432,7 +451,7 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 1. Write nothing in existing modules yet. Create the adapter's test module and add the new adapter to the port's contract suite parameters. Run the suite and confirm it fails.
 2. Implement the adapter in its own module under `infrastructure`. It imports the port's types, never the other way round.
 3. Run the port's contract suite until the new adapter passes every case the existing adapters pass.
-4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
+4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads (an identity provider: the name -> factory mapping in `infrastructure/identity/registry.py`; a file storage backend: `STORAGE__PROVIDER` -> factory in `infrastructure/storage/registry.py`); for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
 5. If it needs configuration, add a typed field to the matching group in `settings.py` and a documented line in `.env.example`.
 6. Run `make lint` and `make test`, then commit.
 
