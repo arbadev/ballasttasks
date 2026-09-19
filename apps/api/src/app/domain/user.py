@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 MAX_EMAIL_LENGTH = 320
+MAX_PASSWORD_LENGTH = 128
 # The C0 and C1 control characters and DEL, as a regex character-class body. No stored text
 # may carry one: PostgreSQL cannot hold NUL at all, and the rest only ever hide in a value.
 CONTROL_CHARACTERS = r"\x00-\x1f\x7f-\x9f"

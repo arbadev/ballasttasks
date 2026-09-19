@@ -5,7 +5,7 @@ import pytest
 from app.application.errors import InvalidCredentialsError
 from app.application.use_cases.authenticate_user import AuthenticateUser
 from app.application.use_cases.register_user import RegisterUser
-from app.domain.user import User
+from app.domain.user import MAX_PASSWORD_LENGTH, User
 from tests.auth_fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
 
 
@@ -92,6 +92,34 @@ async def test_an_email_with_a_control_character_is_just_another_failed_login(
         await authenticate.execute(email=email, password="correct horse")
 
     assert hasher.work == 1
+
+
+@pytest.mark.parametrize("email", ["ada@example.com", "nobody@example.com"])
+async def test_a_password_longer_than_any_stored_one_fails_before_any_hashing(
+    authenticate: AuthenticateUser, hasher: CountingHasher, ada: User, email: str
+) -> None:
+    with pytest.raises(InvalidCredentialsError) as too_long:
+        await authenticate.execute(email=email, password="x" * (MAX_PASSWORD_LENGTH + 1))
+    with pytest.raises(InvalidCredentialsError) as wrong_password:
+        await authenticate.execute(email="ada@example.com", password="wrong")
+
+    assert str(too_long.value) == str(wrong_password.value)
+    assert hasher.work == 1
+
+
+async def test_a_password_of_the_maximum_length_still_logs_in(
+    users: InMemoryUserRepository, hasher: CountingHasher, tokens: FakeTokenService
+) -> None:
+    password = "x" * MAX_PASSWORD_LENGTH
+    user = await RegisterUser(users, hasher).execute(
+        email="ada@example.com", full_name="Ada Lovelace", password=password
+    )
+
+    token = await AuthenticateUser(users, hasher, tokens).execute(
+        email="ada@example.com", password=password
+    )
+
+    assert tokens.decode(token) == user.id
 
 
 async def test_an_inactive_user_cannot_log_in(

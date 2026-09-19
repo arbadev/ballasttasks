@@ -4,7 +4,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
-from app.domain.user import CONTROL_CHARACTERS, MAX_EMAIL_LENGTH, User, normalise_email
+from app.domain.user import (
+    CONTROL_CHARACTERS,
+    MAX_EMAIL_LENGTH,
+    MAX_PASSWORD_LENGTH,
+    User,
+    normalise_email,
+)
 
 NO_CONTROL_CHARACTERS = rf"^[^{CONTROL_CHARACTERS}]*$"
 FullName = Annotated[
@@ -20,7 +26,7 @@ class RegisterRequest(BaseModel):
     full_name: FullName = Field(examples=["Ada Lovelace"])
     password: str = Field(
         min_length=8,
-        max_length=128,
+        max_length=MAX_PASSWORD_LENGTH,
         pattern=NO_CONTROL_CHARACTERS,
         json_schema_extra={"writeOnly": True, "format": "password"},
     )

@@ -6,7 +6,7 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from app.domain.user import User
+from app.domain.user import MAX_PASSWORD_LENGTH, User
 from tests.api.conftest import AuthFakes
 from tests.auth_fakes import FakeTokenService
 
@@ -213,6 +213,19 @@ async def test_login_with_a_control_character_in_the_password_is_the_same_401(
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Incorrect email or password"}
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+async def test_login_with_an_oversized_password_is_the_same_401(
+    auth_client: httpx.AsyncClient,
+) -> None:
+    await _register(auth_client)
+
+    wrong_password = await _login(auth_client, password="wrong password")
+    response = await _login(auth_client, password="x" * (MAX_PASSWORD_LENGTH + 1))
+
+    assert response.status_code == wrong_password.status_code == 401
+    assert response.json() == wrong_password.json() == {"detail": "Incorrect email or password"}
     assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
