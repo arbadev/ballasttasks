@@ -5,10 +5,10 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 
 ## Rules that must never be broken
 
-- **Layers** (`apps/api`): `domain` <- `application` <- `infrastructure` / `presentation`. Imports point inward only; `infrastructure` and `presentation` never import each other. Enforced by `uv run lint-imports`.
+- **Layers** (`apps/api`): `domain` <- `application` <- `infrastructure` / `api` (the presentation package). Imports point inward only; `infrastructure` and `api` never import each other. Enforced by `uv run lint-imports`.
 - **Ports** are `typing.Protocol` classes in `apps/api/src/app/application/ports/`. Keep them small; every adapter must pass its port's contract suite before it is registered.
-- **Composition roots**: only `apps/api/src/app/bootstrap.py` and `apps/web/src/app/providers.tsx` name concrete classes. No DI framework. A new provider = new adapter + one registry line, no edits to existing code.
-- **Env readers**: only `settings.py` (API) and `config.ts` (web) read the environment. Variable names are in `.env.example`; a new variable is added there in the same commit.
+- **Composition roots**: only `apps/api/src/app/bootstrap.py` and `apps/web/src/app/providers.tsx` name concrete classes. No DI framework. A new provider = new adapter + one registry line (`infrastructure/ai/registry.py`), no edits to existing code.
+- **Env readers**: only `infrastructure/config/settings.py` (API) and `src/lib/config.ts` (web) read the environment. Variable names are in `.env.example`; a new variable is added there in the same commit.
 - **Network**: `client.ts` is the only `fetch` caller. Components depend on service interfaces from context, never on the client.
 - **Generated files** (`schema.d.ts`, lockfiles) are never edited by hand.
 - **Contract change in one commit**: update the Pydantic model, run `npm run gen:api`, fix frontend types, commit together.
@@ -24,6 +24,8 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | --- | --- | --- |
 | `make up` / `make down` | root | Start / stop all five services with docker compose |
 | `make test` | root | Both test suites with coverage |
+| `make test-integration` | root | API integration tests (`pytest -m integration`) against the running compose stack |
+| `pre-commit run --all-files` | root | ruff, ruff-format, lint-imports, web lint, web typecheck |
 | `make lint` | root | ruff, ruff format, mypy, lint-imports, web lint, `tsc --noEmit` |
 | `uv run pytest --cov` | `apps/api` | API tests |
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
@@ -32,8 +34,8 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 
 ## Repo map
 
-- `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `presentation`, `settings.py`, `bootstrap.py`).
-- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root).
+- `apps/api/`: FastAPI service and Celery worker (`src/app/`: `domain`, `application`, `infrastructure`, `api`, `bootstrap.py`, `main.py`).
+- `apps/web/`: Next.js frontend (`src/app/providers.tsx` is the composition root). Before using a Next.js API, read the version-matched docs in `apps/web/node_modules/next/dist/docs/`.
 - `docs/`: `PRD.md`, `architecture.md`, `ai-usage.md`, `decisions/` (ADRs).
 - Root: `docker-compose.yml`, `.pre-commit-config.yaml`, `Makefile`, `.env.example`.
 

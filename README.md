@@ -41,7 +41,9 @@ That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no ot
 | Liveness | <http://localhost:8000/health> |
 | Readiness (database, redis, ai) | <http://localhost:8000/health/ready> |
 
-Stop with `Ctrl+C`, then `make down`.
+Stop with `Ctrl+C`, then `make down` (`docker compose down`; add `-v` to also drop the database volume).
+
+Only the web app (3000) and the API (8000) are published to the host, so those two ports must be free. PostgreSQL and Redis stay inside the compose network, where the services reach them as `db` and `redis`; the browser reaches the API at `NEXT_PUBLIC_API_URL`, which is baked into the web image at build time.
 
 ## Tests and linters
 
@@ -60,9 +62,15 @@ make lint   # ruff check, ruff format --check, mypy, lint-imports, web lint, tsc
 make help   # list every target
 ```
 
-API integration tests need PostgreSQL and Redis; see [docs/architecture.md](docs/architecture.md#testing-strategy).
+API integration tests need PostgreSQL and Redis. With the system running (`make up`), run them against that stack:
 
-To run the same checks on every commit: `pre-commit install`.
+```sh
+make test-integration   # pytest -m integration in a one-off container on the compose network
+```
+
+See [docs/architecture.md](docs/architecture.md#testing-strategy).
+
+To run the same checks on every commit: `pre-commit install` (or once, by hand: `pre-commit run --all-files`). The hooks use each app's installed dependencies, so do the two installs above first.
 
 ## How the API contract reaches the frontend
 
@@ -81,8 +89,9 @@ Pydantic response model -> OpenAPI schema -> npm run gen:api (openapi-typescript
 .
 ├── apps/
 │   ├── api/                  FastAPI service and Celery worker (uv, pytest, ruff, mypy, import-linter)
-│   │   └── src/app/          domain, application (ports, use cases), infrastructure, presentation,
-│   │                         settings.py (only env reader), bootstrap.py (composition root)
+│   │   └── src/app/          domain, application (ports, use cases), infrastructure (adapters and
+│   │                         config/settings.py, the only env reader), api (presentation),
+│   │                         bootstrap.py (composition root)
 │   └── web/                  Next.js frontend (npm)
 │       └── src/app/          providers.tsx (composition root)
 ├── docs/
@@ -93,7 +102,7 @@ Pydantic response model -> OpenAPI schema -> npm run gen:api (openapi-typescript
 ├── docker-compose.yml        the whole system
 ├── .pre-commit-config.yaml   one guard for the whole repo
 ├── .env.example              copy to .env; works as is
-├── Makefile                  up, down, test, lint
+├── Makefile                  up, down, test, test-integration, lint
 ├── AGENTS.md                 rules for coding agents (CLAUDE.md imports it)
 └── README.md
 ```

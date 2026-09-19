@@ -13,11 +13,11 @@ Those dependencies must be replaceable in tests and extensible without editing w
 
 Backend (`apps/api`):
 
-- Layers `domain`, `application`, `infrastructure`, `presentation`, with dependencies pointing inward only.
+- Layers `domain`, `application`, `infrastructure`, `presentation` (the `app.api` package), with dependencies pointing inward only.
 - Ports are small `typing.Protocol` classes in `application/ports/` (`HealthCheck`, `JobQueue`, `LanguageModel`). Use cases depend on ports, never on adapters.
 - Adapters live in `infrastructure` and conform structurally; they do not inherit from the port.
-- `bootstrap.py` is the only composition root. It holds the registries (for example `AI__PROVIDER` value -> factory), so a new provider is a new adapter plus one registry line.
-- `settings.py` is the only module that reads the environment.
+- `bootstrap.py` is the only composition root. It reads the registries (for example `AI__PROVIDER` value -> factory in `infrastructure/ai/registry.py`), so a new provider is a new adapter plus one registry line.
+- `infrastructure/config/settings.py` is the only module that reads the environment.
 - No DI framework or container library. Wiring is plain constructor calls.
 - The dependency rule is enforced by import-linter contracts; substitutability is enforced by one contract test suite per port that every adapter must pass before it is registered.
 

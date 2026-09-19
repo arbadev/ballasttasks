@@ -31,7 +31,7 @@ Source code dependencies point inward only. An inner layer never imports an oute
 ```mermaid
 flowchart TB
     subgraph outer [Outer: frameworks and drivers]
-        presentation[presentation<br/>FastAPI routes, Pydantic response models]
+        presentation[api, the presentation layer<br/>FastAPI routes, Pydantic response models]
         infrastructure[infrastructure<br/>adapters: PostgreSQL, Redis, Celery, fake AI]
     end
     application[application<br/>use cases and ports]
@@ -50,13 +50,13 @@ flowchart TB
 | `domain` | Entities, value objects, domain rules | Standard library only |
 | `application` | Use cases and the ports in `application/ports/` | `domain` |
 | `infrastructure` | Adapters that implement ports | `application`, `domain`, third-party drivers |
-| `presentation` | Routes and Pydantic request/response models | `application`, `domain`, FastAPI |
+| `api` (presentation) | Routes and Pydantic request/response models | `application`, `domain`, FastAPI |
 | `bootstrap.py` | Composition root | Everything; nothing imports it except the entry points |
 
 Two more rules sit across the layers:
 
-- `apps/api/src/app/settings.py` is the only module that reads environment variables (pydantic-settings, nested groups with `env_nested_delimiter="__"`). Everything else receives typed settings objects.
-- `presentation` and `infrastructure` never import each other. They meet only through a port, wired in `bootstrap.py`.
+- `apps/api/src/app/infrastructure/config/settings.py` is the only module that reads environment variables (pydantic-settings, nested groups with `env_nested_delimiter="__"`). Everything else receives typed settings objects.
+- `api` (the presentation package) and `infrastructure` never import each other. They meet only through a port, wired in `bootstrap.py`.
 
 The rule is not a convention: it is an import-linter contract in `apps/api`, checked by `uv run lint-imports` (part of `make lint` and of pre-commit). A forbidden import fails the build.
 
@@ -184,7 +184,7 @@ Example: a new `LanguageModel` provider. The same steps apply to any port.
 1. Write nothing in existing modules yet. Create the adapter's test module and add the new adapter to the port's contract suite parameters. Run the suite and confirm it fails.
 2. Implement the adapter in its own module under `infrastructure`. It imports the port's types, never the other way round.
 3. Run the port's contract suite until the new adapter passes every case the existing adapters pass.
-4. Register it: one line in the registry in `bootstrap.py` (for a provider, the `AI__PROVIDER` value -> factory).
+4. Register it: one line. For a provider that is the `AI__PROVIDER` value -> factory mapping in `infrastructure/ai/registry.py`, which `bootstrap.py` reads; for a health check it is the list in `bootstrap.py`; for a job it is `infrastructure/jobs/tasks.py`.
 5. If it needs configuration, add a typed field to the matching group in `settings.py` and a documented line in `.env.example`.
 6. Run `make lint` and `make test`, then commit.
 
@@ -200,6 +200,6 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Contract | Every adapter of a port behaves the same (Liskov) | Fakes run anywhere; real adapters need their service |
 | API | Routes, status codes and response shapes (`200`/`503` with the same body), OpenAPI component names | The app built through `bootstrap.py` with fakes |
 | Config | `settings.py` parsing: required variables, defaults, nested groups, unknown `AI__PROVIDER` rejected | Environment variables only |
-| Integration | Real adapters against real PostgreSQL and Redis | Containers of the official images; never SQLite |
+| Integration | Real adapters against real PostgreSQL and Redis | The running compose stack: `make test-integration`; never SQLite |
 
 Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.
