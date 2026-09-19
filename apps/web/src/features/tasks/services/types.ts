@@ -1,4 +1,4 @@
-import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
+import type { Attachment, Person, Project, ProjectTone, Task, TaskStatus } from "../model/types";
 
 /** Returns the current time in epoch milliseconds. Injected so tests and screenshots are deterministic. */
 export type Clock = () => number;
@@ -51,10 +51,33 @@ export interface TaskService {
   remove(id: string): Promise<void>;
 }
 
+export interface NewProject {
+  name: string;
+  /** 2 to 4 uppercase letters, unique among the projects. */
+  key: string;
+  tone: ProjectTone;
+}
+
+/** A message per field that was refused; the UI shows each next to its input. */
+export type ProjectFieldErrors = Partial<Record<"name" | "key", string>>;
+
+/** The directory refused a new project because of what was entered, not because it failed. */
+export class ProjectRejectedError extends Error {
+  constructor(readonly errors: ProjectFieldErrors) {
+    super(Object.values(errors).join(" "));
+    this.name = "ProjectRejectedError";
+  }
+}
+
 export interface DirectoryService {
   people(): Promise<Person[]>;
   projects(): Promise<Project[]>;
   currentUser(): Promise<Person>;
+  /**
+   * Resolves to the stored project, which `projects()` lists from then on. Rejects with
+   * ProjectRejectedError when the name or key breaks a rule (see features/projects/model).
+   */
+  createProject(input: NewProject): Promise<Project>;
 }
 
 export interface ProposedStep {
