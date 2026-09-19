@@ -98,7 +98,8 @@ class IdentityCodeRejectedError(SsoError):
 
 
 class IdentityProviderUnavailableError(SsoError):
-    """The provider could not be reached, or did not answer as its protocol says."""
+    """The provider could not be reached, did not answer as its protocol says, or refused
+    this application's own credentials: nothing the person signing in did, or can fix."""
 
     def __init__(self) -> None:
         super().__init__("The identity provider is unavailable")

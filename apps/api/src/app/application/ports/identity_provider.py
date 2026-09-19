@@ -42,7 +42,8 @@ class IdentityProvider(Protocol):
 
         Raises ``IdentityCodeRejectedError`` when the provider refuses the code or its answer
         fails verification (including a nonce other than ``nonce``), and
-        ``IdentityProviderUnavailableError`` when the provider cannot be reached. Neither
-        error ever carries the code, the nonce or a token.
+        ``IdentityProviderUnavailableError`` when the provider cannot be reached or refuses
+        this application's own credentials. Neither error ever carries the code, the nonce
+        or a token.
         """
         ...

@@ -9,7 +9,7 @@ Two rules hold for every line below:
   ``POST /auth/sso/exchange`` swaps it for the token in a response body.
 
 Every failure of the callback is the same redirect, ``<web callback>?error=sso_failed``
-(``provider_unavailable`` when the provider could not be reached, so the screen can offer
+(``provider_unavailable`` for ``IdentityProviderUnavailableError``, so the screen can offer
 "try again"): it says nothing about which check failed. Reasons are logged by error class
 only; no state, code, cookie, token or email is ever logged.
 
