@@ -276,37 +276,38 @@ describe("footer", () => {
   });
 });
 
+const threeTasks = [makeTask({ id: "t1", title: "Alpha" }), makeTask({ id: "t2", title: "Beta" }), makeTask({ id: "t3", title: "Gamma" })];
+
+const rowTitles = () =>
+  within(screen.getByRole("list", { name: "Tasks" }))
+    .getAllByRole("listitem")
+    .map((row) => row.querySelector<HTMLElement>("[data-row-title]")!);
+
+/** Renders the list beside the panel and opens the first row the way a user does. */
+async function openFirstRow(tasks: Task[]) {
+  renderWithServices(
+    <WorkspaceProvider>
+      <ListView />
+      <TaskDetail />
+    </WorkspaceProvider>,
+    { tasks },
+  );
+  await screen.findByRole("textbox", { name: "Add a task" });
+  const row = rowTitles()[0];
+  row.focus();
+  fireEvent.click(row);
+  await settle();
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+}
+
+async function deleteOpenTask() {
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
+  await settle();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+}
+
 describe("delete, from a list row", () => {
-  const threeTasks = [makeTask({ id: "t1", title: "Alpha" }), makeTask({ id: "t2", title: "Beta" }), makeTask({ id: "t3", title: "Gamma" })];
-
-  const rowTitles = () =>
-    within(screen.getByRole("list", { name: "Tasks" }))
-      .getAllByRole("listitem")
-      .map((row) => row.querySelector<HTMLElement>("[data-row-title]")!);
-
-  async function openFirstRow(tasks: Task[]) {
-    renderWithServices(
-      <WorkspaceProvider>
-        <ListView />
-        <TaskDetail />
-      </WorkspaceProvider>,
-      { tasks },
-    );
-    await screen.findByRole("textbox", { name: "Add a task" });
-    const row = rowTitles()[0];
-    row.focus();
-    fireEvent.click(row);
-    await settle();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  }
-
-  async function deleteOpenTask() {
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
-    await settle();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  }
-
   it("hands focus to the row that took the deleted row's place", async () => {
     await openFirstRow(threeTasks);
     await deleteOpenTask();
@@ -344,6 +345,50 @@ describe("delete, from a list row", () => {
     await deleteOpenTask();
     expect(rowTitles()).toHaveLength(2);
     expect(rowTitles()[0]).toHaveFocus();
+  });
+});
+
+describe("closing the panel, from a list row", () => {
+  const CLOSERS: [string, () => void][] = [
+    ["Escape", () => fireEvent.keyDown(window, { key: "Escape" })],
+    ["the Close control", () => fireEvent.click(screen.getByRole("button", { name: "Close task" }))],
+    ["the Back control", () => fireEvent.click(screen.getByRole("button", { name: "Back to tasks" }))],
+    ["the backdrop", () => fireEvent.click(screen.getByTestId("detail-backdrop"))],
+  ];
+
+  it.each(CLOSERS)("hands focus on when %s closes a panel whose row has left the list", async (_name, close) => {
+    await openFirstRow(threeTasks);
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+    // Done tasks are hidden by the default filter, so there is no row left to go back to.
+    expect(rowTitles()).toHaveLength(2);
+
+    close();
+    await settle();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(rowTitles()[0]).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("falls back to the quick-add when completing the only row empties the list", async () => {
+    await openFirstRow([threeTasks[0]]);
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    await screen.findByText("No tasks match these filters.");
+    expect(screen.getByRole("textbox", { name: "Add a task" })).toHaveFocus();
+  });
+
+  it("leaves the focus on the row it was opened from when that row is still there", async () => {
+    await openFirstRow(threeTasks);
+    const opened = rowTitles()[0];
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    expect(opened).toHaveFocus();
+    expect(rowTitles()).toHaveLength(3);
   });
 });
 

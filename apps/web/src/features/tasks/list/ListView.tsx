@@ -55,9 +55,10 @@ export function ListView() {
   }, []);
 
   // A completed row usually leaves the list (the default filter hides done tasks), and a row
-  // opened in the panel can be deleted there; either way it takes the focus with it, so hand
-  // the focus to the row that took its place, or to the quick-add. A row that stays keeps its
-  // own focus, so a toggle spends its entry as soon as it lands.
+  // opened in the panel can be deleted or edited out of the filter there; either way it takes
+  // the focus with it, so hand the focus to the row that took its place, or to the quick-add.
+  // A row that stays keeps its own focus, so a toggle spends its entry as soon as it lands.
+  // The panel closing is the other moment focus comes loose, and it changes no task at all.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
@@ -71,7 +72,7 @@ export function ListView() {
     pendingFocus.current = null;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
     (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
-  }, [tasks]);
+  }, [tasks, state.selectedId]);
 
   const toggle = useCallback(
     (task: Task, index: number) => {
