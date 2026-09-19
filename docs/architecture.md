@@ -95,7 +95,7 @@ class LanguageModel(Protocol):
 class TaskRepository(Protocol):
     """Stores tasks. Returned tasks are detached: a change is stored only by update."""
 
-    async def add(self, task: Task) -> None: ...
+    async def add(self, task: Task) -> None: ...       # raises InvalidAssigneeError
     async def get(self, task_id: UUID) -> Task | None: ...
     async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
     async def list(self) -> Sequence[Task]: ...        # newest first
