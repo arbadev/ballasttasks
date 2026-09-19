@@ -5,21 +5,25 @@ They pass the same contract suites as the real adapters (``tests/contract``).
 
 import itertools
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from app.application.errors import EmailAlreadyRegisteredError, InvalidTokenError
-from app.domain.user import User
+from app.application.errors import EmailAlreadyRegisteredError, InvalidTokenError, UserNotFound
+from app.domain.user import Person, User
 
 
-def a_user(*, is_active: bool = True) -> User:
+def a_user(
+    *, is_active: bool = True, full_name: str = "Grace Hopper", role_label: str | None = None
+) -> User:
     """A user nobody logs in as: someone to create tasks or to be assigned them."""
     return User(
         id=uuid.uuid4(),
         email=f"{uuid.uuid4().hex}@example.com",
-        full_name="Grace Hopper",
+        full_name=full_name,
         hashed_password="not-a-real-hash",
         is_active=is_active,
         created_at=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
+        role_label=role_label,
     )
 
 
@@ -51,6 +55,16 @@ class InMemoryUserRepository:
         _refuse_nul(email)
         return next((user for user in self._users.values() if user.email == email), None)
 
+    async def update(self, user: User) -> None:
+        _refuse_nul(user.full_name, user.role_label or "")
+        if user.id not in self._users:
+            raise UserNotFound(user.id)
+        self._users[user.id] = user
+
+    def all(self) -> Sequence[User]:
+        """Not part of the port: how the directory fake reads the same store."""
+        return list(self._users.values())
+
 
 class InMemoryUserDirectory:
     """UserDirectory double: reads the users fake, so whoever registered can be assigned."""
@@ -61,6 +75,10 @@ class InMemoryUserDirectory:
     async def is_active_user(self, user_id: uuid.UUID) -> bool:
         user = await self._users.get_by_id(user_id)
         return user is not None and user.is_active
+
+    async def list_active(self) -> Sequence[Person]:
+        active = [Person.of(user) for user in self._users.all() if user.is_active]
+        return sorted(active, key=lambda person: (person.full_name.lower(), person.id))
 
 
 class FakePasswordHasher:

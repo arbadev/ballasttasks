@@ -12,6 +12,7 @@ from app.infrastructure.db.engine import create_engine
 from app.infrastructure.db.repositories.task import SqlAlchemyTaskRepository
 from app.infrastructure.db.session import create_session_factory
 from app.infrastructure.db.unit_of_work import transactional_session
+from tests import builders
 from tests.postgres import INSERT_USER, user_row
 
 pytestmark = pytest.mark.integration
@@ -36,11 +37,9 @@ async def creator(session_factory: SessionFactory) -> uuid.UUID:
 
 
 def a_task(created_by: uuid.UUID) -> Task:
-    return Task.create(
-        task_id=uuid.uuid4(),
-        title="Write the report",
-        created_by=created_by,
-        now=datetime.now(UTC),
+    # The shared database keeps what other modules committed, so the key must be one of a kind.
+    return builders.a_task(
+        created_by, key=f"UW-{uuid.uuid4().int % 900_000_000 + 1}", now=datetime.now(UTC)
     )
 
 

@@ -43,7 +43,8 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "PT", "RUF", "ASYNC", "S", "T20"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+# S608: test SQL is assembled from constants in tests/postgres.py, never from input.
+"tests/**" = ["S101", "S105", "S106", "S608"]
 
 [tool.mypy]
 strict = true

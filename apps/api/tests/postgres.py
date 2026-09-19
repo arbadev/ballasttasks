@@ -67,3 +67,13 @@ def user_row(*, is_active: bool = True) -> UserRow:
     row by hand needs somebody to have created it."""
     user_id = uuid.uuid4()
     return {"id": user_id, "email": f"{user_id.hex}@example.com", "is_active": is_active}
+
+
+# Since projects exist a task row needs a project and a key of its own. These two fragments
+# let a test that writes a task row by hand at ``head`` say only what it is about: the row
+# goes to the Inbox (created by the migration) under a key nobody else has.
+TASK_PROJECT_COLUMNS = "project_id, key"
+TASK_PROJECT_VALUES = (
+    "'00000000-0000-4000-8000-000000000001', "
+    "'RW-' || (floor(random() * 900000000) + 1)::bigint::text"
+)
