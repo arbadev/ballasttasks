@@ -34,13 +34,14 @@ and labels as the design, but serialisable and the shape an API date column has.
 
 ## Building on the shell
 
-The shell already mounts three placeholders. Each is owned by one follow-up slice, which
-replaces the file's contents and adds whatever else it needs **inside its own folder**:
+The shell mounts three views. Each is owned by one slice, which keeps whatever it needs
+**inside its own folder**. The board is built (see "The board" below); the list and the
+detail panel are still placeholders, replaced by their slices:
 
-| Folder (owner) | Mounted as | Replace the placeholder with |
+| Folder (owner) | Mounted as | Contents |
 | --- | --- | --- |
-| `src/features/tasks/list/` | `<ListView />` when the view is `list` | The task rows and the quick-add input. |
-| `src/features/tasks/board/` | `<BoardView />` when the view is `board` | The four status columns with drag between them. |
+| `src/features/tasks/list/` | `<ListView />` when the view is `list`, once the tasks have loaded; the shell shows the list's loading and error states | The task rows and the quick-add input. |
+| `src/features/tasks/board/` | `<BoardView />` when the view is `board`, in every load state; it shows its own loading skeleton and load error | The four status columns with drag between them. |
 | `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
 
 Everything else (`model/`, `services/`, `workspace/`, `shell/`, `components/ui/`) is shared.
@@ -75,7 +76,7 @@ than `useTaskService()` directly.
 | --- | --- | --- |
 | `create({ title, status? }, { open? })` | `create` | List quick-add (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
 | `toggleDone(id)` | `toggleDone` | List and board checkboxes; detail "Mark complete" / "Reopen". |
-| `move(id, status)` | `move` | Board drop; detail status select. |
+| `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
