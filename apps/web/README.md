@@ -101,9 +101,12 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 | File | Responsibility |
 | --- | --- |
 | `BoardView.tsx` | The view: its own loading skeleton and load error, then the four columns. Holds the drag state and puts focus back on a card moved from the keyboard. |
-| `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once, a rejected move puts it back and is reported with a retry, and an older answer never undoes a newer move. |
+| `useBoardMoves.ts` | Optimistic moves over `useTaskCommands().move`: the card changes column at once; a rejected move cancels queued moves, restores the last saved status and offers a retry of the newest target. |
 | `cardView.ts` | Pure: everything a card shows (due chip tone and mark, rail, priority tone, step and attachment labels), from `urgency` and `dueInfo`. |
 | `TaskCard.tsx`, `BoardColumn.tsx`, `BoardSkeleton.tsx`, `BoardAlert.tsx` | Presentation only. `layout.ts` is the grid the board and its skeleton share. |
+
+Calls for the same task never overlap. The newest queued target wins, so intermediate queued
+targets are never sent; serialization prevents stale answers without a shared workspace guard.
 
 The board passes `applyStatus: false`, so every status is a column whatever the Status filter
 says; the header count keeps describing the list's filters. Both are the design's behaviour.

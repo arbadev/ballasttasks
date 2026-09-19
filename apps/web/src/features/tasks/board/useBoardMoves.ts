@@ -32,7 +32,9 @@ export interface BoardMoves {
 /**
  * Optimistic moves: the card changes column at once, the service is called, and a rejected
  * call puts the card back and reports the failure. The workspace stays the source of truth;
- * this only holds the statuses that are still in flight.
+ * this only holds the statuses that are still in flight. Calls for the same task never overlap:
+ * the newest queued target wins and superseded queued targets are never sent. A refusal cancels
+ * that queue and restores the last saved status; Retry explicitly retries the newest target.
  */
 export function useBoardMoves(tasks: Task[]): BoardMoves {
   const commands = useTaskCommands();
@@ -62,17 +64,19 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
 
       const answered = (refused: boolean) => {
         calling.current.delete(taskId);
-        // The user asked for another column while this call was out: that move is the live one.
-        if (target.current.get(taskId)?.move !== asked.move) {
+        const newest = target.current.get(taskId) ?? asked;
+        // A successful answer releases the newest queued target, but a refusal cancels it:
+        // no intermediate optimistic column becomes the rollback destination.
+        if (!refused && newest.move !== asked.move) {
           issue(taskId, title);
           return;
         }
         target.current.delete(taskId);
         setInFlight((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== taskId)));
-        setSettled({ move: asked.move, taskId });
+        setSettled({ move: newest.move, taskId });
         if (!refused) return;
         setAnnouncement("");
-        setFailed({ taskId, title, to: asked.to });
+        setFailed({ taskId, title, to: newest.to });
       };
 
       commands.move(taskId, asked.to).then(
