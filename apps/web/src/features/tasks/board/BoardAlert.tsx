@@ -19,7 +19,7 @@ export function BoardAlert({ message, retryLabel, dismissLabel, onRetry, onDismi
       <Button variant="ghost" aria-label={retryLabel} onClick={onRetry} className="border border-line bg-card text-fg-2">
         Retry
       </Button>
-      <IconButton icon={X} label={dismissLabel} onClick={onDismiss} />
+      <IconButton icon={X} label={dismissLabel} title="Dismiss" onClick={onDismiss} />
     </div>
   );
 }

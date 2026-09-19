@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { statusName } from "../model/statuses";
 import type { Task, TaskStatus } from "../model/types";
 import { useTaskCommands, useWorkspace } from "../workspace/WorkspaceProvider";
@@ -38,6 +38,11 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
   return key in record ? Object.fromEntries(Object.entries(record).filter(([id]) => id !== key)) : record;
 }
 
+/** The card is where that move wanted it: there is nothing left to report and nothing to retry. */
+function reached(tasks: Task[], taskId: string, to: TaskStatus): boolean {
+  return tasks.find((t) => t.id === taskId)?.status === to;
+}
+
 /**
  * Optimistic moves: the card changes column at once, the service is called, and a rejected
  * call puts the card back and reports the failure. The workspace stays the source of truth;
@@ -51,7 +56,8 @@ function without<T>(record: Record<string, T>, key: string): Record<string, T> {
  * - a refused move always reports a failure for its own card, whatever any other card did;
  * - a card's answer only ever touches its own failure and its own announcement, so one card's
  *   success or settlement can neither silence nor outrank another card's pending answer;
- * - only that card's own next attempt, or a dismissal, clears its failure;
+ * - a card's failure is cleared only by its own next attempt, by a dismissal, or by the workspace
+ *   reporting that the card reached that target, so no failure is ever hidden and revived;
  * - within one card the coalescing contract is unchanged: a newer target supersedes a queued one.
  */
 export function useBoardMoves(tasks: Task[]): BoardMoves {
@@ -99,7 +105,7 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
         if (!refused) return;
         // Nothing the user asked for is missing once the card already sits in its newest target,
         // so a refused hop on the way there is not a failure and has nothing to retry.
-        if (saved.current.find((t) => t.id === taskId)?.status === newest.to) return;
+        if (reached(saved.current, taskId, newest.to)) return;
         // The refusal takes back this card's own announcement, and only its own.
         setAnnounced((current) => (current?.taskId === taskId ? null : current));
         setFailed((current) => ({ ...current, [taskId]: { move: newest.move, title, to: newest.to } }));
@@ -128,6 +134,15 @@ export function useBoardMoves(tasks: Task[]): BoardMoves {
     },
     [all, call],
   );
+
+  // Whatever moved the card there, and whenever: the failure is dropped rather than hidden, so a
+  // later status change cannot bring it back and no Retry is ever left with nothing to do.
+  useEffect(() => {
+    setFailed((current) => {
+      const kept = Object.entries(current).filter(([taskId, refusal]) => !reached(all, taskId, refusal.to));
+      return kept.length === Object.keys(current).length ? current : Object.fromEntries(kept);
+    });
+  }, [all]);
 
   const failures = useMemo(
     () =>

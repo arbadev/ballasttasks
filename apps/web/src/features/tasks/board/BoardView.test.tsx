@@ -6,6 +6,8 @@ import { NOW, due, makeTask } from "@/test/tasks";
 import type { Task, TaskStatus } from "../model/types";
 import { seedTasks } from "../services/seed";
 import { TasksApp } from "../shell/TasksApp";
+import { WorkspaceProvider, useTaskCommands } from "../workspace/WorkspaceProvider";
+import { BoardView } from "./BoardView";
 
 const PRD = "Write PRD.md: overview, user stories, scope";
 const JWT = "JWT authentication";
@@ -74,6 +76,23 @@ class ControlledTaskService extends FakeTaskService {
     }
     return super.create(input);
   }
+}
+
+/** Status changes made outside the board, the way the detail panel's status select will make them. */
+function Elsewhere() {
+  const commands = useTaskCommands();
+  const move = (id: string, status: TaskStatus, label: string) => (
+    <button type="button" key={label} onClick={() => void commands.move(id, status).catch(() => {})}>
+      {label}
+    </button>
+  );
+  return (
+    <>
+      {move("t5", "testing", "Elsewhere: PRD to Testing")}
+      {move("t5", "todo", "Elsewhere: PRD to To Do")}
+      {move("t4", "testing", "Elsewhere: JWT to Testing")}
+    </>
+  );
 }
 
 describe("columns", () => {
@@ -974,6 +993,39 @@ describe("add a task", () => {
     expect(screen.getByRole("button", { name: "Retry adding a task to Testing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dismiss: could not add a task to Testing" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Retry/ }).map((b) => b.textContent)).toEqual(["Retry", "Retry"]);
+    // The tooltip is what the design shows; the longer wording is for assistive tech only.
+    expect(screen.getByRole("button", { name: `Dismiss: could not move "${PRD}"` })).toHaveAttribute("title", "Dismiss");
+    expect(screen.getByRole("button", { name: "Dismiss: could not add a task to Testing" })).toHaveAttribute("title", "Dismiss");
+  });
+
+  it("drops a move failure for good once the card reaches that target some other way", async () => {
+    const service = new ControlledTaskService(seedTasks(NOW));
+    service.failNextMove = true;
+    renderWithServices(
+      <WorkspaceProvider>
+        <BoardView />
+        <Elsewhere />
+      </WorkspaceProvider>,
+      { taskService: service },
+    );
+    await screen.findByRole("region", { name: "To Do" });
+
+    drag(PRD, "Testing").drop();
+    expect(await screen.findByRole("alert")).toHaveTextContent(`Could not move "${PRD}". It is back in To Do.`);
+
+    // Another card reaching that column is not this card's target.
+    fireEvent.click(screen.getByRole("button", { name: "Elsewhere: JWT to Testing" }));
+    await waitFor(() => expect(titlesIn("Testing")).toContain(JWT));
+    expect(screen.getByRole("alert")).toHaveTextContent(`Could not move "${PRD}".`);
+
+    fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to Testing" }));
+    await waitFor(() => expect(titlesIn("Testing")).toContain(PRD));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Moving away again must not bring the alert back.
+    fireEvent.click(screen.getByRole("button", { name: "Elsewhere: PRD to To Do" }));
+    await waitFor(() => expect(titlesIn("To Do")).toContain(PRD));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
