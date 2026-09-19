@@ -14,6 +14,7 @@ from app.application.ports.identity_provider import IdentityProvider
 from app.bootstrap import RequestScope, build_container, load_settings
 from app.infrastructure.identity.fake import FakeIdentityProvider
 from app.main import create_app
+from tests.activity_fakes import InMemoryActivityLog, InMemoryStepRepository, InMemoryTaskTallies
 from tests.auth_fakes import (
     FakePasswordHasher,
     FakeTokenService,
@@ -91,6 +92,8 @@ class RecordingRequestScopes:
     def __init__(self, tasks: InMemoryTaskRepository, auth: AuthFakes, sso: SsoFakes) -> None:
         self.tasks = tasks
         self.auth = auth
+        self.steps = InMemoryStepRepository(tasks)
+        self.activity = InMemoryActivityLog(tasks)
         self.sso = sso
         self.events: list[str] = []
         # The real clock unless a test pins it: ``request_scopes.clock = lambda: NOW``.
@@ -106,6 +109,10 @@ class RecordingRequestScopes:
                 user_directory=InMemoryUserDirectory(self.auth.users),
                 projects=self.tasks.projects,
                 people=InMemoryUserDirectory(self.auth.users),
+                steps=self.steps,
+                activity=self.activity,
+                activity_feed=self.activity,
+                tallies=InMemoryTaskTallies(self.steps, self.activity),
                 clock=lambda: self.clock(),
                 password_hasher=self.auth.hasher,
                 token_service=self.auth.tokens,

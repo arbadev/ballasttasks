@@ -127,7 +127,7 @@ async def test_the_workspace_end_to_end(client: httpx.AsyncClient) -> None:
     }
 
     # By key, in any case; a key stays when the task moves to another project.
-    assert (await client.get("/tasks/bt-2", headers=grace)).json() == at_risk
+    assert (await client.get("/tasks/bt-2", headers=grace)).json() == at_risk | {"steps": []}
     moved = await client.patch("/tasks/BT-02", json={"project_id": INBOX}, headers=grace)
     assert (moved.json()["project_id"], moved.json()["key"]) == (INBOX, "BT-02")
     assert (await client.get("/tasks/BT-99", headers=ada)).status_code == 404
@@ -178,9 +178,9 @@ async def test_the_workspace_end_to_end(client: httpx.AsyncClient) -> None:
 @pytest.mark.parametrize(
     ("path", "statements"),
     [
-        # One to authenticate the caller, then: the page and its total; the three counts of
-        # the summary; every project with its count.
-        ("/tasks?status=all&limit=200", 3),
+        # One to authenticate the caller, then: the page, its total and the tallies of its
+        # steps and comments; the three counts of the summary; every project with its count.
+        ("/tasks?status=all&limit=200", 4),
         ("/tasks/summary", 4),
         ("/projects", 2),
     ],

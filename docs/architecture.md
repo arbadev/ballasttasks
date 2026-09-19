@@ -128,15 +128,43 @@ class RateLimiter(Protocol):
 
 
 class UserDirectory(Protocol):
-    """The one thing the task use cases may ask about users."""
+    """The little the task use cases may ask about users: a yes or a no, and a name to log."""
 
     async def is_active_user(self, user_id: UUID) -> bool: ...  # unknown and inactive are both False
+    async def full_name_of(self, user_id: UUID) -> str | None: ...  # active or not; None when unknown
 
 
 class PeopleDirectory(Protocol):
     """Who a task can be given to, as other users may see them: a Person has no email."""
 
     async def list_active(self) -> Sequence[Person]: ...  # by full name, then id
+
+
+class ActivityRecorder(Protocol):
+    """Appends to a task's activity; the ONE way application code writes to the timeline."""
+
+    async def record(self, entry: ActivityEntry) -> None: ...  # same unit of work as the change
+
+
+class ActivityFeed(Protocol):
+    """Reads a task's activity."""
+
+    async def page(self, task_id: UUID, *, limit: int, offset: int) -> ActivityPage: ...  # newest first
+
+
+class StepRepository(Protocol):
+    """Stores the steps of tasks; positions are the use cases' job. Deleting a task deletes them."""
+
+    async def add(self, step: Step) -> None: ...
+    async def list_for_task(self, task_id: UUID) -> Sequence[Step]: ...  # by position
+    async def update(self, step: Step) -> None: ...    # raises StepNotFound
+    async def delete(self, step_id: UUID) -> None: ... # raises StepNotFound
+
+
+class TaskTallies(Protocol):
+    """steps_total, steps_done and comments_count of many tasks: one statement, never one per task."""
+
+    async def for_tasks(self, task_ids: Sequence[UUID]) -> Mapping[UUID, TaskTally]: ...
 
 
 class IdentityProvider(Protocol):
@@ -164,6 +192,16 @@ class OneTimeStore(Protocol):
     async def take(self, key: str) -> str | None: ...   # atomic read-and-delete
 ```
 
+**Recording activity from a new feature** (attachments, for instance) is three lines in its use case and no change to any existing module: take an `ActivityRecorder` in the constructor (`RequestScope.activity` in `bootstrap.py` is the one bound to the request's session), write the sentence as a function in `app/domain/activity_log.py` (the only module that spells a log line), and after the change is stored call
+
+```python
+await self._activity.record(
+    ActivityEntry.log(entry_id=uuid.uuid4(), task_id=task.id, actor_id=actor_id, text=activity_log.attached(name), now=now)
+)
+```
+
+The entry commits or rolls back with the change, because the recorder never commits. A change that altered nothing records nothing. Why a port and not a trigger or the route: [ADR 0007](decisions/0007-steps-and-activity.md).
+
 `TaskRepository` has no clock: every question that depends on the date takes `today` from the use case (see [Time](#time)). `TaskQuery`, `TaskFilter`, `TaskPage` and the count types are plain values in `application/task_query.py`.
 
 The Protocol files are the source of truth for exact signatures; if this section and the code disagree, the code wins and this section is corrected in the same commit.
@@ -177,8 +215,11 @@ Adapters in this setup:
 | `LanguageModel` | `fake` (default, offline), `openrouter`, `gemini` | The real ones are plain `httpx`, no vendor SDK ([ADR 0003](decisions/0003-llm-adapters-over-http.md)). All three pass `tests/contract/test_language_model_contract.py`; the real ones run it against a stubbed transport |
 | `TaskRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_task_repository_contract.py`; the PostgreSQL run is under the `integration` marker. Filters, sorts, paging and counts run in SQL (`infrastructure/db/repositories/task_queries.py`); the fake answers the same cases with the domain's rules, and both are held to literal expectations and to the design's urgency function. An unknown project is refused like an unknown assignee (`UnknownProjectError`). `add` and `update` raise `InvalidAssigneeError` when the assignee is not a stored user: the foreign key is the guarantee, and the write runs in a savepoint so the rest of the unit of work survives the rejection |
 | `ProjectRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_project_repository_contract.py`. `add` raises `ProjectKeyTakenError` from the unique constraint, inside a savepoint. `allocate_task_key` is one `UPDATE ... RETURNING` on the project row; what needs two transactions at once is in `tests/integration/test_task_key_allocation.py` ([ADR 0005](decisions/0005-task-keys-and-urgency.md)) |
+| `StepRepository` | SQLAlchemy on PostgreSQL, in-memory fake | Both pass `tests/contract/test_step_repository_contract.py`, paired there with the task and user stores their rows point at (`tests/contract/conftest.py`); the PostgreSQL run is under the `integration` marker |
+| `ActivityRecorder`, `ActivityFeed` | One SQLAlchemy class over `task_activity` (`SqlAlchemyActivityLog`), one in-memory fake | Two ports, one suite: `tests/contract/test_activity_log_contract.py` checks that what one records the other reads back, newest first, naming the actor even when that user has been deactivated; no port exposes an email |
+| `TaskTallies` | SQLAlchemy on PostgreSQL (one statement for a whole page), in-memory fake | Both pass `tests/contract/test_task_tallies_contract.py`; that the SQL one costs a single statement is asserted where statements are counted, `tests/integration/test_steps_activity_api.py` |
 | `PeopleDirectory` | The same SQLAlchemy class as `UserDirectory` (it selects three columns, never the email or the hash), in-memory fake | Both pass `tests/contract/test_people_directory_contract.py`. A separate port so a double of one does not have to implement the other |
-| `UserDirectory` | SQLAlchemy on PostgreSQL (`SELECT EXISTS`, no row loaded), in-memory fake over the users fake | Both pass `tests/contract/test_user_directory_contract.py`. It is how `CreateTask` and `UpdateTask` validate an assignee without importing an auth use case or the `UserRepository` |
+| `UserDirectory` | SQLAlchemy on PostgreSQL (`SELECT EXISTS` for the yes-or-no, one column for the name; no row loaded), in-memory fake over the users fake | Both pass `tests/contract/test_user_directory_contract.py`. It is how `CreateTask` and `UpdateTask` validate an assignee without importing an auth use case or the `UserRepository`, and how a use case gets the name a log line needs |
 | `UserRepository` | SQLAlchemy on PostgreSQL, in-memory fake for unit and API tests | Both pass `tests/contract/test_user_repository_contract.py`. `add` raises `EmailAlreadyRegisteredError`, also when a concurrent transaction wins: the unique constraint is the guarantee, and the insert runs in a savepoint so the rest of the unit of work survives the rejection |
 | `PasswordHasher` | Argon2id (`argon2-cffi`), reversible fake for tests | Synchronous and CPU-bound; use cases call it through `asyncio.to_thread` |
 | `RateLimiter` | Redis (one Lua script per hit), in-memory, and `FailOpenRateLimiter`, which wraps the first with the second | All three pass `tests/contract/test_rate_limiter_contract.py`; the Redis run is under the `integration` marker. The in-memory adapter serves the tests and stands in while Redis is unreachable |
@@ -271,14 +312,14 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 | `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user, project does not exist) |
 | `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset"}` | `401`, `422` (a parameter it does not understand) |
 | `GET /tasks/summary` | `200` `TaskSummaryResponse`: `counts`, `projects`, `signals` | `401`, `422` |
-| `GET /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (neither an id nor a key) |
+| `GET /tasks/{id_or_key}` | `200` `TaskDetailResponse` (includes ordered `steps`) | `401`, `404`, `422` (neither an id nor a key) |
 | `PATCH /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user, the project changes to one that does not exist) |
 | `DELETE /tasks/{id_or_key}` | `204`, no body | `401`, `404`, `422` |
 
-- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`.
+- `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50) and `attention`, plus `steps_total`, `steps_done` and `comments_count`.
 - **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
 - **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
-- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues three statements whatever it returns (the caller, the page, the total).
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a nonempty list request issues four statements whatever it returns (the caller, the page, the total, and one set-based tally of steps/comments); an empty page skips the tally statement.
 - **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
 - `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
@@ -289,6 +330,30 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
 - Concurrent `PATCH`es of one task are serialised: `UpdateTask` loads it with `get_for_update` (`SELECT ... FOR UPDATE`), so the second writer waits and works from what the first one stored. The `tasks` table backs the rule with `CHECK ((status = 'done') = (completed_at IS NOT NULL))`, so `testing` is open work like `todo` and `in_progress`.
+
+### Steps and activity
+
+All routes below accept a task UUID or key, use the same `CurrentUserId` seam and rate limiter as tasks, and declare `401`, `404`, `422` and `429`.
+
+| Route | Success |
+| --- | --- |
+| `GET /tasks/{id_or_key}/steps` | `200`, `{items: [StepResponse, ...]}` in position order |
+| `POST /tasks/{id_or_key}/steps` | `201`, appended step; body `{title}` |
+| `POST /tasks/{id_or_key}/steps/bulk` | `201`, `{items}`; body `{titles}` with 1–20 titles, all or none |
+| `PATCH /tasks/{id_or_key}/steps/{step_id}` | `200`, renamed/ticked/unticked step; body `{title?, done?}` |
+| `PUT /tasks/{id_or_key}/steps/order` | `200`, `{items}`; body `{step_ids}` must be an exact permutation |
+| `DELETE /tasks/{id_or_key}/steps/{step_id}` | `204`, following positions compacted |
+| `POST /tasks/{id_or_key}/comments` | `201`, immutable activity entry; body `{text}` |
+| `GET /tasks/{id_or_key}/activity` | `200`, `{items, total, limit, offset}`, newest first; default limit 50, max 200 |
+
+A task holds at most 100 steps ([ADR 0007](decisions/0007-steps-and-activity.md)): an add that would cross the ceiling is a `422` and adds nothing, not even part of a batch, and `step_ids` is bounded by the same number. Step titles are trimmed, 1–200 characters; comments are trimmed, 1–2000. Both reject NUL. An entry exposes `id`, `task_id`, `kind` (`log` or `comment`), `text`, `created_at` and `actor: {id, full_name, initials}`—never email. Only the detail task response contains ordered steps; all task representations contain the three tallies.
+
+| Table | Stored columns and invariants |
+| --- | --- |
+| `task_steps` | UUID `id`, `task_id` (FK tasks, cascade), `title`, `done`, nonnegative `position`, `created_at`; `(task_id, position)` unique, deferred until commit |
+| `task_activity` | UUID `id`, private bigint identity `seq`, `task_id` (FK tasks, cascade), `kind` constrained to log/comment, `text`, `actor_id` (FK users, restrict), `created_at`; feed index `(task_id, created_at, seq)` and partial comment-count index |
+
+Every step writer locks its task before reading positions. Activity is recorded in application use cases through `ActivityRecorder.record(entry)` in the same transaction as the change, never in controllers or triggers. Equal timestamps are ordered by recording sequence. Both tables arrive in revision `a1c5e7f90b24`, whose `upgrade` docstring is the authority for what happens to a database that already holds tasks: they gain only a creation log at their original timestamp, and no task is modified. See [ADR 0007](decisions/0007-steps-and-activity.md) for exact wording, ordering, migration and downgrade policy. Contract suites exercise the fake and PostgreSQL adapters; `test_steps_activity_api.py` asserts constant list query count and rollback, and `test_step_positions_concurrency.py` exercises concurrent writers.
 
 ### Tasks reference users
 
