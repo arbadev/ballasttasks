@@ -234,9 +234,9 @@ Any change to an API response model is followed by `npm run gen:api` in the same
 - `filters.visual.ts` needs no design: it measures each filter control's focus-ring geometry
   (the ring encloses the whole `Select`, label included) at 1440px and 375px, immediately under
   normal and reduced motion. It drives pointer focus, Tab, native type-ahead and Enter, plus
-  `selectOption` for the application-level change contract, and asserts values,
-  filtered rows and accessible names. It does not claim to automate the operating system's
-  native popup: macOS popup arrows/Escape may not receive browser-automation input.
+  `selectOption` for the application-level change contract, and asserts values, filtered rows
+  and accessible names. It does not claim to automate the operating system's native popup:
+  macOS popup arrows/Escape may not receive browser-automation input.
 - `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
   and a keyboard pass over the list's states raises no console error or warning.
 
