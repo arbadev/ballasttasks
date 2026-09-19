@@ -5,31 +5,47 @@ interface ApiErrorOptions {
   status: number | null;
   body?: unknown;
   cause?: unknown;
+  retryAfterSeconds?: number | null;
 }
 
-/**
- * The single error type the HTTP layer throws. `body` is kept because some endpoints
- * answer a non-2xx status with a meaningful JSON payload (e.g. /health/ready on 503).
- */
+/** A safe transport failure. Credential endpoint response bodies are never retained. */
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
-  /** HTTP status, or null when no response was received. */
   readonly status: number | null;
-  /** Parsed JSON body of the response, when there was one. */
   readonly body: unknown;
+  /** The API's delta-seconds Retry-After, or null when missing/invalid. */
+  readonly retryAfterSeconds: number | null;
 
-  constructor(message: string, { kind, status, body, cause }: ApiErrorOptions) {
+  constructor(message: string, { kind, status, body, cause, retryAfterSeconds }: ApiErrorOptions) {
     super(message, { cause });
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
     this.body = body;
+    this.retryAfterSeconds = retryAfterSeconds ?? null;
   }
 }
 
-/** What features depend on, so they never see fetch or a concrete client. */
+/** Read-only consumers such as health do not depend on mutation capabilities. */
 export interface HttpClient {
   get<T>(path: string): Promise<T>;
+}
+
+export interface RequestOptions {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  body?: object;
+  /** Login, registration and SSO exchange must not send a previous session's token. */
+  authenticated?: boolean;
+}
+
+export interface HttpTransport extends HttpClient {
+  request<T>(path: string, options?: RequestOptions): Promise<T>;
+  download(path: string): Promise<Blob>;
+}
+
+interface Credentials {
+  token(): string | null;
+  unauthorized?(): void;
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -40,39 +56,73 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-/** The only module in the app allowed to call fetch. */
-export class ApiClient implements HttpClient {
-  constructor(private readonly baseUrl: string) {}
+function retryAfter(response: Response): number | null {
+  const value = response.headers.get("Retry-After");
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) ? seconds : null;
+}
 
-  async get<T>(path: string): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+/**
+ * The only fetch caller. No automatic retries: repeating a mutation can duplicate it.
+ * Credential ownership/persistence belongs to the injected session, not this transport.
+ */
+export class ApiClient implements HttpTransport {
+  constructor(private readonly baseUrl: string, private readonly credentials?: Credentials) {}
 
-    let response: Response;
-    try {
-      response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
-    } catch (cause) {
-      throw new ApiError(`Network request to ${url} failed`, {
-        kind: "network",
-        status: null,
-        cause,
-      });
-    }
+  get<T>(path: string): Promise<T> {
+    return this.request<T>(path);
+  }
 
+  async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const response = await this.send(path, options);
+    if (response.status === 204) return undefined as T;
     const body = await readJson(response);
-
-    if (!response.ok) {
-      throw new ApiError(`GET ${url} responded with ${response.status}`, {
-        kind: "http",
-        status: response.status,
-        body,
-      });
-    }
     if (body === undefined) {
-      throw new ApiError(`GET ${url} did not return valid JSON`, {
-        kind: "http",
-        status: response.status,
+      throw new ApiError("The API returned an invalid response.", {
+        kind: "http", status: response.status,
       });
     }
     return body as T;
+  }
+
+  async download(path: string): Promise<Blob> {
+    const response = await this.send(path, {}, "application/octet-stream");
+    return response.blob();
+  }
+
+  private async send(path: string, options: RequestOptions, accept = "application/json"): Promise<Response> {
+    const token = options.authenticated === false ? null : this.credentials?.token();
+    const headers: Record<string, string> = { Accept: accept };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let body: BodyInit | undefined;
+    if (options.body instanceof FormData || options.body instanceof URLSearchParams) {
+      body = options.body; // The browser supplies multipart boundaries / form content type.
+    } else if (options.body !== undefined) {
+      body = JSON.stringify(options.body);
+      headers["Content-Type"] = "application/json";
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: options.method ?? "GET", headers, body,
+        cache: "no-store", credentials: "omit", redirect: "error",
+      });
+    } catch {
+      // A native error can contain a sensitive URL. Do not retain it as a cause.
+      throw new ApiError("Could not reach the API. Try again.", { kind: "network", status: null });
+    }
+    if (!response.ok) {
+      const errorBody = path.startsWith("/auth/") ? undefined : await readJson(response);
+      // A delayed 401 from the previous session must not sign out a new one.
+      if (response.status === 401 && token && token === this.credentials?.token()) {
+        this.credentials.unauthorized?.();
+      }
+      throw new ApiError(`The API request failed (${response.status}).`, {
+        kind: "http", status: response.status, body: errorBody,
+        retryAfterSeconds: retryAfter(response),
+      });
+    }
+    return response;
   }
 }
