@@ -40,9 +40,11 @@ const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason:
 /**
  * Only these three sentences supersede the design's unsupported attachment-reading claim.
  * The reference stays the reference: it is rendered, this one sentence is replaced in the
- * rendered DOM (the file on disk is never touched, nothing else is), and the whole region is
- * then held to the same 1% and 2-per-channel contract as every other region. The design's
- * original sentence is still diffed unmasked and reported, only without a ceiling of its own.
+ * rendered DOM (the file on disk is never touched, nothing else is), and the whole region —
+ * its pixels, and its geometry, styles and controls — is then held to the same 1% and
+ * 2-per-channel contract as every other region, against a reference reading the same words.
+ * What the reference said beforehand is measured and diffed as well, but only ever as
+ * evidence about the reference: it carries no ceiling, and no vote on whether the suite passes.
  */
 const REVISED_COPY: Record<string, { region: Region; text: string; original: string }> = {
   "new-task": {
@@ -82,7 +84,7 @@ async function supersedeCopy(page: Page, state: string) {
 }
 
 /** Compare corresponding visible controls and copy, not differing DOM tags or hidden pickers. */
-async function copyLayout(page: Page, state: string, side: "design" | "app") {
+async function copyLayout(page: Page, state: string, says: "original" | "revised") {
   const copy = REVISED_COPY[state];
   const controls = await page.locator(REGIONS[copy.region]).first().evaluate((section) => {
     const origin = section.getBoundingClientRect();
@@ -98,7 +100,7 @@ async function copyLayout(page: Page, state: string, side: "design" | "app") {
       };
     });
   });
-  const message = page.getByText(side === "app" ? copy.text : copy.original, { exact: true });
+  const message = page.getByText(says === "revised" ? copy.text : copy.original, { exact: true });
   await expect(message).toBeVisible();
   const text = await message.evaluate((node, inline) => {
     // The reference templates dynamic text inside an extra inline wrapper. Measure the
@@ -109,9 +111,7 @@ async function copyLayout(page: Page, state: string, side: "design" | "app") {
     const section = item.closest("section")!.getBoundingClientRect();
     const style = getComputedStyle(item);
     return {
-      // An inline span's width follows the deliberately changed glyphs; its origin/height,
-      // section and surrounding controls still must match. Block text keeps its width too.
-      box: [box.x - section.x, box.y - section.y, ...(inline ? [] : [box.width]), box.height].map((n) => Math.round(n)),
+      box: [box.x - section.x, box.y - section.y, box.width, box.height].map((n) => Math.round(n)),
       fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
       color: style.color, background: style.backgroundColor, radius: style.borderRadius,
       padding: style.padding, borderWidth: style.borderWidth,
@@ -282,7 +282,11 @@ for (const state of STATES.filter((state) => REVISED_COPY[state.name])) {
       // for new copy drift. Neither reference source nor CSS is modified.
       await page.setViewportSize({ width: side === "design" ? 392 : 375, height: 812 });
       await parkPointer(page);
-      layouts[side] = await copyLayout(page, state.name, side);
+      if (side === "design") {
+        layouts["design-before-copy"] = await copyLayout(page, state.name, "original");
+        await supersedeCopy(page, state.name);
+      }
+      layouts[side] = await copyLayout(page, state.name, "revised");
       const region = page.locator(REGIONS[REVISED_COPY[state.name].region]).first();
       expect.soft(await region.evaluate((el) => el.scrollWidth <= el.clientWidth), `${side}: copy and controls fit without horizontal scrolling`).toBe(true);
       writeFileSync(join(RESULTS, `${state.name}-375-${side}.png`), await shoot(page, REGIONS[REVISED_COPY[state.name].region]));
@@ -292,7 +296,7 @@ for (const state of STATES.filter((state) => REVISED_COPY[state.name])) {
     }
     writeFileSync(join(RESULTS, `${state.name}-mobile-layout.json`), JSON.stringify(layouts, null, 2));
     await context.close();
-    expect.soft(layouts.app, "original reference geometry/styles/controls at equal 343px content width").toEqual(layouts.design);
+    expect.soft(layouts.app, "the reference's geometry/styles/controls, same words, at equal 343px content width").toEqual(layouts.design);
   });
 }
 
@@ -343,17 +347,18 @@ for (const viewport of VIEWPORTS) {
       const structure = new Map<Region, Pair>();
       const revised = REVISED_COPY[state.name];
       const layouts: Record<string, Awaited<ReturnType<typeof copyLayout>>> = {};
-      /** The reference as it ships, before its sentence is superseded: evidence, never a limit. */
+      /** The reference as it ships, before its sentence is superseded: evidence, never a gate. */
       let originalCopy: Buffer | undefined;
       for (const [side, page] of [["design", design], ["app", app]] as const) {
         await state.reach(page);
         await parkPointer(page);
         if (revised) {
-          layouts[side] = await copyLayout(page, state.name, side);
           if (side === "design") {
+            layouts["design-before-copy"] = await copyLayout(page, state.name, "original");
             originalCopy = await shoot(page, REGIONS[revised.region]);
             await supersedeCopy(page, state.name);
           }
+          layouts[side] = await copyLayout(page, state.name, "revised");
         }
         const capture = async (into: Map<Region, Pair>, regions: Region[]) => {
           for (const region of regions) {
@@ -395,7 +400,7 @@ for (const viewport of VIEWPORTS) {
       if (supersededEvidence.length) console.log(`${size} ${state.name}, superseded sentence: ${supersededEvidence.join("; ")}`);
       if (revised) {
         writeFileSync(join(RESULTS, `${size}-${state.name}-layout.json`), JSON.stringify(layouts, null, 2));
-        expect.soft(layouts.app, `${size} ${state.name}: unchanged reference geometry, styles and controls`).toEqual(layouts.design);
+        expect.soft(layouts.app, `${size} ${state.name}: the reference's geometry, styles and controls, same words on both sides`).toEqual(layouts.design);
       }
       expect(failures, failures.join("\n")).toEqual([]);
     });

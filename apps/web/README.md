@@ -405,10 +405,12 @@ in the same commit; the schema source is always given, the command has no defaul
   an unrelated wrong surface in the same region is still rejected, and the design's original
   sentence keeps its own unmasked `-original-copy` diff in the report — evidence about the
   reference, with no ceiling and no vote on whether the suite passes, since a longer approved
-  sentence moves that region's size as well as its pixels. Their
-  geometry, styles and controls are also compared with the reference, at both desktop widths
-  and at 375px against equal-width reference content (the reference has wider fixed gutters and
-  a panel border). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+  sentence moves that region's size as well as its pixels — and so does the reference's own
+  layout before the replacement, which is measured and written to the run's `*-layout.json`
+  as evidence beside it. What is enforced is the reference carrying the same words: geometry,
+  styles and controls are compared after the replacement, at both desktop widths and at 375px
+  against equal-width reference content (the reference has wider fixed gutters and a panel
+  border). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
