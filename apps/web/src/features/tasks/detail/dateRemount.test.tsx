@@ -318,6 +318,55 @@ describe("date save ownership across panel mounts", () => {
     }
   });
 
+  const removePrompt = () => properties().queryByRole("group", { name: "Remove the date?" });
+
+  it("takes the Remove the date? prompt away when the banner fills the box", async () => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    expect(removePrompt()).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    expect(dateInput()).toHaveValue(due(1));
+    expect(removePrompt()).not.toBeInTheDocument();
+    expect(written(service)).toEqual([[{ due: due(1) }, "Due date moved to tomorrow"]]);
+
+    await service.finish(0, true);
+    expect((await service.get("t1"))?.due).toBe(due(1));
+    expect(removePrompt()).not.toBeInTheDocument();
+    expect(written(service)).toEqual([[{ due: due(1) }, "Due date moved to tomorrow"]]);
+  });
+
+  it("takes the prompt away when Retry puts the refused date back in the box", async () => {
+    const service = await refuseADateWrite();
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    expect(removePrompt()).toBeInTheDocument();
+
+    retryClear();
+    expect(dateInput()).toHaveValue(due(9));
+    expect(removePrompt()).not.toBeInTheDocument();
+    await service.finish(1, true);
+    expect((await service.get("t1"))?.due).toBe(due(9));
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ due: due(9) }, undefined],
+    ]);
+  });
+
+  it("keeps the prompt while the box still shows nothing to keep", async () => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    expect(removePrompt()).toBeInTheDocument();
+
+    // A half-typed date reports itself empty again: there is still no date to keep.
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    expect(removePrompt()).toBeInTheDocument();
+    expect(service.requests).toHaveLength(0);
+
+    fireEvent.click(properties().getByRole("button", { name: "Clear date" }));
+    expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }]);
+    expect(removePrompt()).not.toBeInTheDocument();
+  });
+
   it("leaves the date recovery alone when an unrelated property is refused", async () => {
     const service = await refuseADateWrite();
     fireEvent.change(properties().getByRole("combobox", { name: "Priority" }), { target: { value: "2" } });

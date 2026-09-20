@@ -1,9 +1,10 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { describe, expect, it } from "vitest";
 import { ListView } from "../list/ListView";
 import type { Task } from "../model/types";
 import { TasksApp } from "../shell/TasksApp";
-import { WorkspaceProvider } from "../workspace/WorkspaceProvider";
+import { WorkspaceProvider, useVisibleTasks } from "../workspace/WorkspaceProvider";
 import { TaskDetail } from "./TaskDetail";
 import { FakeTaskService } from "@/test/fakeServices";
 import { renderWithServices } from "@/test/renderWithServices";
@@ -397,12 +398,45 @@ describe("closing the panel, from a list row", () => {
    * click lands. That is the interleaving the intermittent failure reported against this suite
    * came from; it happens under load, in single-file runs as well as parallel ones.
    */
-  it("hands focus on when the click that opened the panel ran an effect owed from before it", async () => {
+  /**
+   * A sibling of the list reading the same tasks, so it is rendered, committed and flushed in
+   * the same passes. Its layout effect runs inside the commit, before React has flushed that
+   * commit's passive effects; the microtask queued there is therefore the last moment before
+   * them. Its own passive effect records whether the click had already been dispatched when
+   * the loaded tasks' effects finally ran, which is what the test asserts rather than assumes.
+   */
+  function CommitWitness({ record, clickOnCommit }: { record: (listed: number) => void; clickOnCommit?: () => void }) {
+    const tasks = useVisibleTasks();
+    const opening = useRef(false);
+    useLayoutEffect(() => {
+      if (tasks.length === 0 || !clickOnCommit || opening.current) return;
+      opening.current = true;
+      queueMicrotask(clickOnCommit);
+    }, [tasks, clickOnCommit]);
+    useEffect(() => {
+      record(tasks.length);
+    }, [tasks, record]);
+    return null;
+  }
+
+  /** Opens Alpha from its row, either before or after the loaded commit's effects have run. */
+  async function openAlphaAroundTheLoadedCommit(clickBeforeItsEffects: boolean) {
+    const order: boolean[] = [];
+    let clicked = false;
     const taskService = new FakeTaskService(threeTasks);
     let listed!: (tasks: Task[]) => void;
     taskService.list = () => new Promise<Task[]>((resolve) => { listed = resolve; });
+    const click = () => {
+      const alpha = rowTitles()[0];
+      clicked = true;
+      alpha.focus();
+      alpha.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    };
+    const record = (tasks: number) => { if (tasks === threeTasks.length) order.push(clicked); };
+
     renderWithServices(
       <WorkspaceProvider>
+        <CommitWitness record={record} clickOnCommit={clickBeforeItsEffects ? click : undefined} />
         <ListView />
         <TaskDetail />
       </WorkspaceProvider>,
@@ -415,15 +449,18 @@ describe("closing the panel, from a list row", () => {
     try {
       listed(threeTasks);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const alpha = rowTitles()[0];
-      alpha.focus();
-      alpha.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (!clickBeforeItsEffects) click();
     } finally {
       env.IS_REACT_ACT_ENVIRONMENT = inAct;
     }
     await act(async () => {});
-    expect(screen.getByRole("dialog")).toHaveAccessibleName("Alpha");
+    return order;
+  }
 
+  /** The panel is open on Alpha; complete it so its row goes, then close and see where focus lands. */
+  async function completeAndClose() {
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Alpha");
     fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
     await settle();
     expect(rowTitles()).toHaveLength(2);
@@ -431,6 +468,27 @@ describe("closing the panel, from a list row", () => {
     fireEvent.click(screen.getByTestId("detail-backdrop"));
     await settle();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  }
+
+  /**
+   * The row click records where the focus was before React renders it, so an effect still owed
+   * from an earlier commit runs in between - during the click's own render, after the entry was
+   * written. Its closure reads the selection as it stood before the click, which is the same
+   * "nothing selected" the entry is waiting for when the panel closes, so a list that did not
+   * wait to see that panel open would spend the entry here and leave the focus on the document
+   * when the panel goes. That is the interleaving the intermittent failure reported against this
+   * suite came from; it happens under load, in single-file runs as well as parallel ones.
+   */
+  it("hands focus on when the click that opened the panel ran an effect owed from before it", async () => {
+    expect(await openAlphaAroundTheLoadedCommit(true)).toEqual([true]);
+    await completeAndClose();
+    expect(rowTitles()[0]).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("hands focus on when that effect had already run before the click", async () => {
+    expect(await openAlphaAroundTheLoadedCommit(false)).toEqual([false]);
+    await completeAndClose();
     expect(rowTitles()[0]).toHaveFocus();
     expect(document.body).not.toHaveFocus();
   });
