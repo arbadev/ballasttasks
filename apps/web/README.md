@@ -189,7 +189,8 @@ dialog and the hand-back on close are all untouched.
   that value is actually on its way, not while it is still being typed and could yet be emptied —
   or once the stored value moves without the field asking (something else wrote the task while no
   control was mounted), so its Retry cannot undo the newer value; a value the field stored itself
-  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`.
+  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`; the
+  two states an acknowledged write with a failed readback adds are under the box bullet below.
 - **A value the field cannot hold is never written by leaving it.** A field may declare which
   values are `savable`: an emptied number box and an emptied date box are not, and a date
   reports itself empty while a segment is being retyped. Such a value is kept as typed and never
@@ -229,10 +230,11 @@ dialog and the hand-back on close are all untouched.
   the server stored (task, box and child id), so the recovery also ends by itself the moment that
   very row appears in the task's own canonical detail — whichever reload brought it, including the
   workspace's own. Nothing else settles it: not a list summary, not another task's or another
-  row's id, and never a genuine refusal. The footer distinguishes “saved · reload needed” from a
-  genuinely refused write's “not saved”, stops asking for a reload once no box is still waiting for
-  its row, and a read-only recovery never clears “not saved”. This is not a promise
-  of exactly-once writes after an unacknowledged response or a change to sibling mutation contracts.
+  row's id, and never a genuine refusal. The footer says `reloading…` while that read runs,
+  distinguishes “saved · reload needed” from a genuinely refused write's “not saved”, stops asking
+  for a reload once no box is still waiting for its row, and a read-only recovery never clears
+  “not saved”. This is not a promise of exactly-once writes after an unacknowledged response or a
+  change to sibling mutation contracts.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
