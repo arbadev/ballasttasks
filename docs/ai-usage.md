@@ -18,7 +18,22 @@ identification of the coding assistant: see [ADR 0003](decisions/0003-llm-adapte
 
 ## Prompts used
 
-These are exact, representative excerpts from retained implementation instructions,
+**Proposed API scaffold prompt (written for this submission, not a historical
+invocation):**
+
+> Build a FastAPI task-management API using PostgreSQL and Clean Architecture:
+> domain rules, application use cases with small Protocol ports, infrastructure
+> adapters and one composition root. Support JWT registration/login, authenticated
+> task CRUD, assignment and completion, with status/due-date filtering and pagination.
+> Validate inputs and return safe errors. Use migrations, a request-scoped unit of
+> work, Redis-backed rate limiting and Celery background processing. Read the existing
+> architecture and decisions before editing. Write failing domain, contract and route
+> tests first; exercise real PostgreSQL/Redis integrations, document setup and Swagger,
+> and run tests, coverage, type checks and import-boundary checks. Do not use real
+> external keys or claim tests passed unless they ran.
+
+This proposed prompt did **not** produce the samples below. Historical evidence is
+narrower: these are exact, representative excerpts from retained implementation instructions,
 not newly reconstructed prompts or the entire development conversation:
 
 > Implement only the queued asynchronous step-generation API.
