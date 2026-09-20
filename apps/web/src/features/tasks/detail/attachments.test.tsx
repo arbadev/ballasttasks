@@ -48,10 +48,19 @@ describe("attachments", () => {
     openTask("t1");
     const toggle = section().getByRole("button", { name: "Add link" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Collapsed there is no form to point at, and a dangling IDREF is an invalid value.
+    expect(toggle).not.toHaveAttribute("aria-controls");
+
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", section().getByRole("form", { name: "Add a link" }).id);
     expect(section().getByRole("textbox", { name: "Link URL" })).toHaveFocus();
     expect(section().getByRole("textbox", { name: "Title (optional)" })).toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(section().queryByRole("form", { name: "Add a link" })).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).not.toHaveAttribute("aria-controls");
   });
 
   it("rejects an invalid address inline, without calling the service", async () => {

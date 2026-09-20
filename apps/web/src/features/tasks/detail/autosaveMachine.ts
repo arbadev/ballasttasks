@@ -125,7 +125,9 @@ export class AutosaveMachine<T> {
 
   change(value: T, delay: number) {
     if (this.pending?.timer) clearTimeout(this.pending.timer);
-    this.publish({ value }, null);
+    // Only an edit that will actually be written answers a refusal, as in `answered`: an
+    // unsavable one never reaches the queue, so retiring the recovery would lose the change.
+    this.publish({ value }, this.options.savable?.(value) === false ? this.view.failed : null);
     this.pending = { value, timer: delay > 0 ? setTimeout(this.commit, delay) : null };
     if (delay === 0) this.commit();
   }

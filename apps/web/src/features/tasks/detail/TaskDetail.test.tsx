@@ -77,6 +77,22 @@ describe("focus management", () => {
     fireEvent.keyDown(first, { key: "Tab", shiftKey: true });
     expect(last).toHaveFocus();
   });
+
+  it("wraps at the last control the browser would Tab to, not one that opted out", async () => {
+    await renderDetail();
+    const dialog = openTask("t4");
+    const stops = [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea")].filter((el) => !el.hasAttribute("disabled") && el.tabIndex >= 0);
+    // A control at the panel's edge that the browser skips: focus must not be parked on it.
+    stops[stops.length - 1].tabIndex = -1;
+    const last = stops[stops.length - 2];
+
+    last.focus();
+    fireEvent.keyDown(last, { key: "Tab" });
+    expect(stops[0]).toHaveFocus();
+
+    fireEvent.keyDown(stops[0], { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
+  });
 });
 
 describe("attention banner", () => {

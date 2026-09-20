@@ -186,6 +186,44 @@ describe("date save ownership across panel mounts", () => {
     expect(properties().queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it.each(["Keep", "blur"])("keeps a refused reschedule while the box is emptied mid-retype, settled by %s", async (settleBy) => {
+    const service = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    await service.finish(0, false);
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+
+    // Backspacing a segment makes the box report itself empty: a value the task can never
+    // hold, so it never reaches the queue and has nothing to say about the refusal.
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+    if (settleBy === "Keep") fireEvent.click(properties().getByRole("button", { name: "Keep" }));
+    else fireEvent.blur(dateInput());
+    expect(dateInput()).toHaveValue(due(3));
+
+    retryClear();
+    await service.finish(1, true);
+    expect(written(service)).toEqual([
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(1));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("retires the date recovery as soon as a date the field can write is typed", async () => {
+    const service = await refuseADateWrite();
+    fireEvent.change(dateInput(), { target: { value: due(12) } });
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.blur(dateInput());
+    await service.finish(1, true);
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ due: due(12) }, undefined],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(12));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("leaves the date recovery alone when an unrelated property is refused", async () => {
     const service = await refuseADateWrite();
     fireEvent.change(properties().getByRole("combobox", { name: "Priority" }), { target: { value: "2" } });

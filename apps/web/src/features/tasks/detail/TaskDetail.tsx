@@ -14,7 +14,10 @@ import { DescriptionField, TitleField } from "./TextFields";
 import { UrgencyBanner } from "./UrgencyBanner";
 import { useStepGeneration } from "./useStepGeneration";
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const NOT_SKIPPED = ':not([tabindex="-1"])';
+const FOCUSABLE = ["a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])", "textarea:not([disabled])", "[tabindex]"]
+  .map((candidate) => candidate + NOT_SKIPPED)
+  .join(", ");
 
 /** Not `display: none`: the back and close controls swap with the breakpoint, and only one can take focus. */
 const isShown = (el: HTMLElement) => getComputedStyle(el).display !== "none";
