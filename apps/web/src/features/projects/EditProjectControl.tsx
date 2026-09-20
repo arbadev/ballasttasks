@@ -25,6 +25,9 @@ function EditProjectDialog({ project, opener, onClose }: { project: Project; ope
   const id = useId();
   const { projects } = useDirectory();
   const { actions } = useWorkspace();
+  // Directory refreshes may replace props while this draft stays open. Only fields
+  // changed from the opening baseline belong in its PATCH; untouched values are server-owned.
+  const [baseline] = useState(() => ({ name: project.name, tone: project.tone }));
   const [name, setName] = useState(project.name);
   const [tone, setTone] = useState(project.tone);
   const [pending, setPending] = useState(false);
@@ -54,8 +57,8 @@ function EditProjectDialog({ project, opener, onClose }: { project: Project; ope
     setError(undefined);
     const normalized = normalizeName(name);
     // A name left as the directory stores it is never re-judged by the rules for a new one.
-    const renamed = normalized !== normalizeName(project.name);
-    const recoloured = tone !== project.tone;
+    const renamed = normalized !== normalizeName(baseline.name);
+    const recoloured = tone !== baseline.tone;
     const found = renamed ? validateProjectName(name, projects.filter((item) => item.id !== project.id)) : undefined;
     refuse(found);
     if (found) return;
