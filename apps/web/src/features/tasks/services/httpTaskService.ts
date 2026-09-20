@@ -131,6 +131,17 @@ export class HttpTaskService implements TaskService {
     });
   }
 
+  renameStep(id: string, stepId: string, text: string): Promise<Task> {
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/steps/${encodeURIComponent(stepId)}`, {
+      method: "PATCH", body: { title: text.trim() } satisfies Schemas["StepUpdate"],
+    }); });
+  }
+
+  reorderSteps(id: string, stepIds: string[]): Promise<Task> {
+    const body = { step_ids: [...stepIds] };
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/steps/order`, { method: "PUT", body }); });
+  }
+
   toggleStep(id: string, stepId: string): Promise<Task> {
     return this.change(id, async () => {
       const task = await this.client.get<Schemas["TaskDetailResponse"]>(pathFor(id));

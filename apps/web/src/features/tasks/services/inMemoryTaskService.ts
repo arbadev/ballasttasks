@@ -1,3 +1,4 @@
+import { renameStep, reorderSteps } from "../model/stepEditing";
 import { statusName } from "../model/statuses";
 import type { ActivityEntry, Attachment, Task, TaskStatus } from "../model/types";
 import type { InMemoryTaskStore } from "./inMemoryTaskStore";
@@ -70,6 +71,20 @@ export class InMemoryTaskService implements TaskService {
     return this.store.replace(id, (t) => {
       if (t.steps.length >= 100) throw new Error("A task can hold at most 100 steps.");
       return this.touch({ ...t, steps: [...t.steps, { id: this.store.nextId("s"), text: trimmed, done: false }] }, `Added step “${trimmed}”`);
+    });
+  }
+
+  async renameStep(id: string, stepId: string, text: string): Promise<Task> {
+    return this.store.replace(id, (task) => {
+      const steps = renameStep(task.steps, stepId, text);
+      return steps === task.steps ? task : this.touch({ ...task, steps });
+    });
+  }
+
+  async reorderSteps(id: string, stepIds: string[]): Promise<Task> {
+    return this.store.replace(id, (task) => {
+      const steps = reorderSteps(task.steps, stepIds);
+      return steps === task.steps ? task : this.touch({ ...task, steps });
     });
   }
 

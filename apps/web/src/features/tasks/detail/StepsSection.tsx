@@ -1,20 +1,48 @@
 "use client";
 
-import { Check, Sparkles, X } from "lucide-react";
-import { useId } from "react";
+import { ArrowDown, ArrowUp, Check, Sparkles, X } from "lucide-react";
+import { useId, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn";
 import type { Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
 import { ActionError, HIT_AREA, PanelButton, SECTION_LABEL } from "./controls";
 import { useComposer, useDetailSession } from "./DetailSession";
+import { StepTitle } from "./StepTitle";
 import { StepGenerationPanel } from "./StepGenerationPanel";
 import type { StepGenerationView } from "./useStepGeneration";
+
+type Direction = "up" | "down";
+
+const moveKey = (stepId: string, label: Direction) => `${stepId}:${label}`;
 
 /** The checklist, its progress, the add box and, under it, the assistant's draft. */
 export function StepsSection({ task, generation }: { task: Task; generation: StepGenerationView }) {
   const headingId = useId();
   const commands = useTaskCommands();
-  const { track } = useDetailSession();
+  const { track, stepOrders } = useDetailSession();
+  const order = useSyncExternalStore(stepOrders.subscribe, () => stepOrders.get(task.id), () => "idle");
+  const moveControls = useRef(new Map<string, HTMLButtonElement | null>());
+  const reloadControl = useRef<HTMLButtonElement>(null);
+  const lastMoved = useRef<{ taskId: string; stepId: string; label: Direction } | null>(null);
+  const handBack = useRef(false);
+  const move = (index: number, offset: number, label: Direction) => {
+    const ids = task.steps.map((step) => step.id);
+    [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
+    lastMoved.current = { taskId: task.id, stepId: ids[index + offset], label };
+    handBack.current = true;
+    stepOrders.run(task.id, () => track(task.id, commands.reorderSteps(task.id, ids)));
+  };
+  /** A move disables its own button and moves its row, which drops the focus; put it back. */
+  useLayoutEffect(() => {
+    if (order === "pending" || !handBack.current) return;
+    handBack.current = false;
+    const moved = lastMoved.current;
+    if (!moved || moved.taskId !== task.id || document.activeElement !== document.body) return;
+    const controls = order === "failed"
+      ? [reloadControl.current]
+      : [moveControls.current.get(moveKey(moved.stepId, moved.label)), moveControls.current.get(moveKey(moved.stepId, moved.label === "up" ? "down" : "up"))];
+    controls.find((control) => !!control && !control.disabled)?.focus();
+  }, [order, task.id]);
   const box = useComposer(task, "step", (text) => track(task.id, commands.addStep(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const total = task.steps.length;
@@ -52,7 +80,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           {task.steps.map((step, i) => (
             <li
               key={step.id}
-              className="flex animate-[bt-in_.3s_var(--ease)_both] items-start gap-2.5 border-b border-line py-2"
+              className="group/step flex animate-[bt-in_.3s_var(--ease)_both] flex-wrap items-start gap-2.5 border-b border-line py-2"
               style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
             >
               <button
@@ -69,9 +97,20 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               >
                 {step.done && <Check aria-hidden="true" size={11} strokeWidth={3} className="animate-bt-pop" />}
               </button>
-              <span className={cn("min-w-0 flex-1 text-[13.5px] break-words transition-colors duration-200 ease-bt", step.done ? "text-fg-3 line-through" : "text-fg")}>
-                {step.text}
-              </span>
+              <StepTitle taskId={task.id} step={step} />
+              <div className="flex flex-none opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 group-has-[[data-renaming]]/step:invisible pointer-coarse:order-1 pointer-coarse:w-full pointer-coarse:opacity-100">
+                {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
+                  key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
+                  ref={(control) => {
+                    const controls = moveControls.current;
+                    controls.set(moveKey(step.id, label), control);
+                    return () => { controls.delete(moveKey(step.id, label)); };
+                  }}
+                  disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
+                  onClick={() => move(i, offset, label)}
+                  className="grid h-5 w-6 cursor-pointer place-items-center rounded-bt-sm border-0 bg-transparent p-0 text-fg-3 transition-[color,background-color] duration-[160ms] ease-bt hover:bg-card hover:text-fg disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
+                ><Icon aria-hidden="true" size={14} /></button>)}
+              </div>
               <button
                 type="button"
                 aria-label={`Remove step: ${step.text}`}
@@ -87,6 +126,12 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           ))}
         </ul>
       )}
+
+      {order === "pending" && <p role="status" className="m-0 text-[12px] text-fg-3">Updating steps…</p>}
+      {order === "failed" && <div role="alert" className="flex flex-wrap items-center gap-2 text-[12px] text-danger">
+        <span>The last step move was not confirmed. Reload steps before moving again.</span>
+        <PanelButton ref={reloadControl} variant="secondary" className="px-2 py-1" onClick={() => { handBack.current = true; stepOrders.run(task.id, () => commands.refresh(task.id), true); }}>Reload steps</PanelButton>
+      </div>}
 
       <div className="flex items-center gap-2.5 py-1.5">
         <span aria-hidden="true" className="size-4 flex-none rounded-bt-sm border-[1.5px] border-dashed border-line-2" />

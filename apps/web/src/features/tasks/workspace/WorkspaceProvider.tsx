@@ -45,6 +45,9 @@ export interface TaskCommands {
   move(id: string, status: TaskStatus): Promise<Task>;
   toggleDone(id: string): Promise<Task>;
   addStep(id: string, text: string): Promise<Task>;
+  renameStep(id: string, stepId: string, text: string): Promise<Task>;
+  reorderSteps(id: string, stepIds: string[]): Promise<Task>;
+  /** Canonical read only, including after a stale step permutation was refused. */
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
@@ -302,6 +305,8 @@ export function useTaskCommands(): TaskCommands {
       move: async (id, status) => saved(await service.move(id, status)),
       toggleDone: async (id) => saved(await service.toggleDone(id)),
       addStep: async (id, text) => saved(await service.addStep(id, text)),
+      renameStep: async (id, stepId, text) => saved(await service.renameStep(id, stepId, text)),
+      reorderSteps: async (id, stepIds) => saved(await service.reorderSteps(id, stepIds)),
       toggleStep: async (id, stepId) => saved(await service.toggleStep(id, stepId)),
       removeStep: async (id, stepId) => saved(await service.removeStep(id, stepId)),
       addComment: async (id, text) => saved(await service.addComment(id, text)),

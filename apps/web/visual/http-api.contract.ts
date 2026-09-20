@@ -108,6 +108,100 @@ test.describe("served query-backed board focus", () => {
   }
 });
 
+test("served step editor preserves pending Escape drafts and recovers a genuine stale permutation", async ({ page }, testInfo) => {
+  const web = process.env.BT_HTTP_WEB_URL;
+  test.skip(!web, "Requires the explicit task-owned served UI.");
+  const { auth, tasks, client } = session(base!);
+  const email = `step-edit-${randomUUID()}@example.test`;
+  const password = randomUUID();
+  await auth.register(email, "Step Contract", password);
+  let task = await tasks.create({ title: `Step contract ${randomUUID()}` });
+  task = await tasks.addStep(task.id, "First");
+  task = await tasks.addStep(task.id, "Second");
+  const first = task.steps[0].id;
+  task = await tasks.toggleStep(task.id, first);
+  const activity = (await tasks.get(task.id))!.activity;
+  const events: object[] = [];
+  page.on("response", (response) => {
+    if (response.url().startsWith(`${base}/tasks/${task.id}`)) events.push({ path: new URL(response.url()).pathname, method: response.request().method(), status: response.status() });
+  });
+  await page.goto(web!);
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(email);
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("searchbox", { name: "Search tasks" }).fill(task.title);
+  await page.getByText(task.title, { exact: true }).click();
+  const section = page.getByRole("region", { name: "Steps", exact: true });
+  const input = section.getByRole("textbox", { name: "Step title" });
+  const stepUrl = `${base}/tasks/${task.id}/steps/${first}`;
+  let release!: () => void;
+  const delay = new Promise<void>((yes) => { release = yes; });
+  // Injection delays only delivery of the real successful PATCH response; the server writes normally.
+  await page.route(stepUrl, async (route) => {
+    const response = await route.fetch();
+    await delay;
+    await route.fulfill({ response });
+  });
+  await section.getByRole("button", { name: "Rename step: First", exact: true }).click();
+  await input.fill("Renamed over HTTP");
+  await input.press("Enter");
+  await expect(input).toHaveAttribute("aria-busy", "true");
+  await input.fill("");
+  await input.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByText(task.title, { exact: true }).click();
+  await expect(input).toHaveValue("");
+  await input.click();
+  release();
+  await expect(input).toHaveAttribute("aria-busy", "false");
+  await expect(input).toHaveValue("");
+  await expect(input).toBeFocused();
+  await input.press("Escape");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(section.getByRole("checkbox", { name: "Renamed over HTTP" })).toBeChecked();
+  await page.unroute(stepUrl);
+  const down = section.getByRole("button", { name: "Move step down: Renamed over HTTP" });
+  await down.focus();
+  await page.keyboard.press("Enter");
+  await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName("Renamed over HTTP");
+  await expect(section.getByRole("button", { name: "Move step up: Renamed over HTTP" })).toBeFocused();
+  expect((await tasks.get(task.id))!.activity).toEqual(activity);
+  // Genuine concurrent writer: the browser's two-ID permutation is no longer complete.
+  await tasks.addStep(task.id, "Concurrent third");
+  await page.keyboard.press("Enter");
+  await expect(section.getByRole("alert")).toContainText("Reload steps before moving again");
+  await page.screenshot({ path: testInfo.outputPath("stale-order-refusal.png") });
+  await section.getByRole("button", { name: "Reload steps" }).click();
+  await expect(section.getByRole("checkbox")).toHaveCount(3);
+  await expect(section.getByRole("alert")).toHaveCount(0);
+  await section.getByRole("button", { name: "Move step up: Renamed over HTTP" }).click();
+  await expect(section.getByRole("checkbox").nth(0)).toHaveAccessibleName("Renamed over HTTP");
+  const canonical = await client.get<Schemas["TaskDetailResponse"]>(`/tasks/${task.id}`);
+  expect(canonical.steps.map((s) => s.position)).toEqual([0, 1, 2]);
+  expect(canonical.steps[0]).toMatchObject({ id: first, done: true, title: "Renamed over HTTP" });
+  // Explicitly injected transport refusal, not an invented server validation response.
+  await page.route(stepUrl, (route) => route.abort("internetdisconnected"));
+  await section.getByRole("button", { name: "Rename step: Renamed over HTTP" }).click();
+  await input.fill("Refused transport");
+  await input.press("Enter");
+  await expect(section.getByRole("alert")).toContainText("Could not rename the step. Retry or dismiss the failed save before saving another edit.");
+  await input.fill("Newer title");
+  await input.press("Enter");
+  expect((await tasks.get(task.id))!.steps[0].text).toBe("Renamed over HTTP");
+  await page.unroute(stepUrl);
+  await section.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await input.press("Enter");
+  await expect(section.getByRole("checkbox", { name: "Newer title" })).toBeChecked();
+  await page.screenshot({ path: testInfo.outputPath("recovered-step-editor.png") });
+  expect(events.some((event) => "status" in event && event.status === 422)).toBe(true);
+  await testInfo.attach("real-step-requests", { body: JSON.stringify({ events, canonical }, null, 2), contentType: "application/json" });
+  auth.logout();
+  const fresh = session(base!);
+  await fresh.auth.login(email, password);
+  expect((await fresh.tasks.get(task.id))!.steps[0]).toEqual({ id: first, text: "Newer title", done: true });
+  fresh.auth.logout();
+});
+
 test("UTC quick-action date survives a fresh authenticated read without shifting entered dates or null", async () => {
   expect(["127.0.0.1", "localhost"]).toContain(new URL(base!).hostname);
   const { client, auth, tasks } = session(base!);

@@ -66,6 +66,10 @@ export interface TaskService {
   toggleDone(id: string): Promise<Task>;
   /** Blank text is ignored. TaskReadbackError means saved: recover by reading, never re-add. */
   addStep(id: string, text: string): Promise<Task>;
+  /** Renames in place (trimmed 1–200 characters, no NUL); silent activity. */
+  renameStep(id: string, stepId: string, text: string): Promise<Task>;
+  /** Exact permutation of current IDs; stale membership rejects the whole operation. */
+  reorderSteps(id: string, stepIds: string[]): Promise<Task>;
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
   /** Blank text is ignored. TaskReadbackError means saved: recover by reading, never re-post. */

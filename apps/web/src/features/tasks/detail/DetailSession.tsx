@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Task } from "../model/types";
 import { TaskReadbackError, type AcknowledgedWrite } from "../services/types";
 import { AutosaveMachine, type FieldOptions } from "./autosaveMachine";
+import { StepOrderStore } from "./stepOrderStore";
+import { StepRenameStore } from "./stepRenameStore";
 
 export type SaveStatus = "idle" | "saving" | "refreshing" | "refresh" | "failed";
 
@@ -98,6 +100,8 @@ interface DetailSession {
    */
   track<T>(taskId: string, save: Promise<T>, phase?: "write" | "refresh"): Promise<T>;
   composers: ComposerStore;
+  stepOrders: StepOrderStore;
+  stepRenames: StepRenameStore;
   /**
    * The row an acknowledged append created is on the canonical detail the panel is showing, so
    * that exact recovery is over: the box is freed, and the task stops asking for a reload once
@@ -129,6 +133,8 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
   const [composers] = useState(() => new ComposerStore());
+  const [stepOrders] = useState(() => new StepOrderStore());
+  const [stepRenames] = useState(() => new StepRenameStore());
   const [dateFields] = useState(() => new Map<string, AutosaveMachine<string | null>>());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -200,12 +206,14 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       },
       track,
       composers,
+      stepOrders,
+      stepRenames,
       settleReadback,
       dateField,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [saves, track, composers, settleReadback, dateField, failedGenerations, setGenerationFailed],
+    [saves, track, composers, stepOrders, stepRenames, settleReadback, dateField, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;

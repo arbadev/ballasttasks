@@ -236,6 +236,22 @@ dialog and the hand-back on close are all untouched.
   for a reload once no box is still waiting for its row, and a read-only recovery never clears
   “not saved”. This is not a promise of exactly-once writes after an unacknowledged response or a
   change to sibling mutation contracts.
+- **Rename and reorder steps.** Activate a title to edit inline; Enter/Save sends a trimmed
+  1–200-character title. Escape/Cancel cancels a local edit; while a send is pending, Escape
+  closes the panel instead. The session-owned per-step rename record holds submitted text,
+  independent newer drafts and an explicitly open empty editor across close/reopen and task
+  switches. It is separate from the acknowledged append composer: no append receipts or
+  aliases. A refusal blocks another save until Retry or Dismiss; Retry sends the held title,
+  not a newer draft. Existing-step drafts survive refusals, but externally deleted steps have
+  no draft-recovery UI. The session ends at sign-out.
+  Move up/down sends an exact current-ID permutation, preserves completion and disables the
+  boundaries. Finish or Cancel a rename before moving that row. Controls occupy a reserved
+  in-flow slot between title and Remove; coarse pointers have visible 44px targets. A failed
+  move requires explicit **Reload steps** before another move, even if another read already
+  updated the list. Reload uses the serialized canonical workspace refresh, not save tracking;
+  it must not clear a sibling failure. Historical “not saved” can remain until a later write.
+  A settled move returns focus to its control (opposite direction at a boundary), a refusal to
+  Reload and a successful reload back to the row, unless the reader deliberately moved focus.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
@@ -460,6 +476,10 @@ in the same commit; the schema source is always given, the command has no defaul
   styles and controls are compared after the replacement, at both desktop widths and at 375px
   against equal-width reference content (the reference has wider fixed gutters and a panel
   border). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+- `step-editing.visual.ts` covers keyboard rename/cancel/save, exact move boundaries, title
+  and move-control non-overlap (including wrapped tablet text), real browser touch taps at
+  375px, completion, reopen, overflow and console silence. Evidence goes to
+  `visual-results/step-editing/`; unchanged design regions retain their 1% thresholds.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
