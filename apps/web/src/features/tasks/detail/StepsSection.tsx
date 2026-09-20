@@ -80,7 +80,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           {task.steps.map((step, i) => (
             <li
               key={step.id}
-              className="group/step relative flex animate-[bt-in_.3s_var(--ease)_both] flex-wrap items-start gap-2.5 border-b border-line py-2"
+              className="group/step flex animate-[bt-in_.3s_var(--ease)_both] flex-wrap items-start gap-2.5 border-b border-line py-2"
               style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
             >
               <button
@@ -98,6 +98,19 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
                 {step.done && <Check aria-hidden="true" size={11} strokeWidth={3} className="animate-bt-pop" />}
               </button>
               <StepTitle taskId={task.id} step={step} />
+              <div className="flex flex-none opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 group-has-[[data-renaming]]/step:invisible pointer-coarse:order-1 pointer-coarse:w-full pointer-coarse:opacity-100">
+                {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
+                  key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
+                  ref={(control) => {
+                    const controls = moveControls.current;
+                    controls.set(moveKey(step.id, label), control);
+                    return () => { controls.delete(moveKey(step.id, label)); };
+                  }}
+                  disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
+                  onClick={() => move(i, offset, label)}
+                  className="grid h-5 w-6 cursor-pointer place-items-center rounded-bt-sm border-0 bg-transparent p-0 text-fg-3 transition-[color,background-color] duration-[160ms] ease-bt hover:bg-card hover:text-fg disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
+                ><Icon aria-hidden="true" size={14} /></button>)}
+              </div>
               <button
                 type="button"
                 aria-label={`Remove step: ${step.text}`}
@@ -109,19 +122,6 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               >
                 <X aria-hidden="true" size={14} strokeWidth={2} />
               </button>
-              <div className="absolute top-1 right-8 flex rounded-bt-sm bg-panel opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 group-has-[[data-renaming]]/step:hidden pointer-coarse:static pointer-coarse:w-full pointer-coarse:opacity-100">
-                {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
-                  key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
-                  ref={(control) => {
-                    const controls = moveControls.current;
-                    controls.set(moveKey(step.id, label), control);
-                    return () => { controls.delete(moveKey(step.id, label)); };
-                  }}
-                  disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
-                  onClick={() => move(i, offset, label)}
-                  className="grid h-6 w-6 cursor-pointer place-items-center rounded-bt-sm border-0 bg-transparent p-0 text-fg-3 transition-[color,background-color] duration-[160ms] ease-bt hover:bg-card hover:text-fg disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
-                ><Icon aria-hidden="true" size={14} /></button>)}
-              </div>
             </li>
           ))}
         </ul>

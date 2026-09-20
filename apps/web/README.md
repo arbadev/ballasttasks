@@ -224,8 +224,11 @@ dialog and the hand-back on close are all untouched.
 - **Rename and reorder steps.** Activate a step's title to edit inline; Enter/Save submits a
   trimmed 1–200-character title, and Escape/Cancel abandons the draft without ticking or
   removing the step. The session's composer holds pending/refused renames and independent
-  newer drafts across close/reopen. Move up/down buttons appear on row hover/keyboard focus
-  and remain visible with 44px targets on coarse pointers. First/last boundaries are disabled.
+  newer drafts across close/reopen, and the title being saved stays in the field, valid, until
+  the reader types over it. Move up/down buttons have a reserved slot of their own between the
+  title and Remove — they appear on row hover/keyboard focus without ever covering or reflowing
+  the title, and take their own line with 44px targets on coarse pointers. First/last
+  boundaries are disabled.
   Reordering sends the exact current-ID permutation, preserving completion and identity;
   neither operation invents activity. If membership changed concurrently or order cannot be
   confirmed, moving stops and **Reload steps** performs a canonical read, never resubmits
@@ -415,6 +418,8 @@ in the same commit; the schema source is always given, the command has no defaul
   are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
   is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
 - `step-editing.visual.ts` checks keyboard rename/cancel/save and exact move boundaries,
+  that a hovered row's move controls neither cover nor reflow the title (including the wrapped
+  one at 768px, where a click at the end of a line opens the rename editor and moves nothing),
   real browser touch taps with 44px non-overlapping targets at 375px, completion preservation,
   close/reopen, overflow and console silence. Screenshots go to `visual-results/step-editing/`;
   the existing `detail.visual.ts` still holds the untouched resting panel to its 1% limit.

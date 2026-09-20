@@ -7,6 +7,7 @@ const results = join(__dirname, "..", "visual-results", "step-editing");
 const first = "Task entity and TaskStatus enum in domain";
 const second = "TaskRepository port + in-memory fake, contract suite";
 const rich = "Task CRUD endpoints with pagination and filters";
+const long = "npm run gen:api and fix the frontend types in the same commit";
 
 async function tabTo(page: Page, control: Locator) {
   for (let i = 0; i < 80; i++) {
@@ -25,6 +26,21 @@ async function hit(control: Locator, touch = false) {
     const b = el.getBoundingClientRect();
     return el.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2));
   })).toBe(true);
+}
+
+interface Box { x: number; y: number; width: number; height: number }
+
+const apart = (a: Box, b: Box) => a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+
+/** Every point across the control's text lines hits the control itself, nothing on top of it. */
+async function ownsItsText(control: Locator) {
+  const box = (await control.boundingBox())!;
+  for (const y of [box.y + 8, box.y + box.height - 8]) {
+    for (let at = 2; at < box.width - 2; at += 8) {
+      const owner = await control.evaluate((el, point) => el.contains(document.elementFromPoint(point[0], point[1])), [box.x + at, y] as [number, number]);
+      expect(owner, `point ${Math.round(box.x + at)},${Math.round(y)} is covered`).toBe(true);
+    }
+  }
 }
 
 test.beforeAll(() => mkdirSync(results, { recursive: true }));
@@ -59,6 +75,43 @@ test("step rename and order have independent keyboard targets without changing t
   await page.getByText(rich, { exact: true }).click();
   await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName("Keyboard revised");
 });
+
+test("the move controls keep their own slot: the title stays readable and clickable under the pointer", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(APP_URL);
+  await page.getByText(rich, { exact: true }).click();
+  const section = page.getByRole("region", { name: "Steps" });
+  const steps = section.getByRole("checkbox");
+  const last = await steps.count() - 1;
+  const title = section.getByRole("button", { name: `Rename step: ${long}` });
+  const up = section.getByRole("button", { name: `Move step up: ${long}` });
+  const down = section.getByRole("button", { name: `Move step down: ${long}` });
+  const oneLine = (await section.getByRole("button", { name: `Rename step: ${first}` }).boundingBox())!.height;
+
+  for (const width of [1440, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    await title.scrollIntoViewIfNeeded();
+    const resting = (await title.boundingBox())!;
+    await title.hover();
+    await expect(up.locator("xpath=..")).toHaveCSS("opacity", "1");
+    const hovered = (await title.boundingBox())!;
+    expect([Math.round(hovered.width), Math.round(hovered.height)], "hovering the row reflowed the title").toEqual([Math.round(resting.width), Math.round(resting.height)]);
+    for (const control of [up, down]) expect(apart(hovered, (await control.boundingBox())!), "a move control overlaps the title").toBe(true);
+    await ownsItsText(title);
+    await page.screenshot({ path: join(results, `hovered-row-${width}.png`) });
+  }
+  expect((await title.boundingBox())!.height, "the title should wrap at 768px").toBeGreaterThan(oneLine);
+
+  const box = (await title.boundingBox())!;
+  await page.mouse.click(box.x + box.width - 6, box.y + 8);
+  const input = section.getByRole("textbox", { name: "Step title" });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue(long);
+  await expect(steps.nth(last)).toHaveAccessibleName(long);
+  await page.keyboard.press("Escape");
+  await expect(steps.nth(last)).toHaveAccessibleName(long);
+});
+
 
 test("a keyboard move hands the focus back to the row, and to the other arrow at the boundary", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -133,6 +186,10 @@ test("coarse-pointer step moves are visible, 44px, non-overlapping and tappable 
   await save.tap();
   await expect(section.getByRole("checkbox", { name: "Touch revised" })).toBeChecked();
   await section.getByRole("button", { name: "Move step down: Touch revised" }).scrollIntoViewIfNeeded();
+  for (const control of ["Move step up", "Move step down"]) {
+    const box = (await section.getByRole("button", { name: `${control}: Touch revised` }).boundingBox())!;
+    expect(apart(box, (await section.getByRole("button", { name: "Rename step: Touch revised" }).boundingBox())!), "the move control overlaps the title").toBe(true);
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: join(results, "mobile-controls.png") });
   expect(warnings).toEqual([]);

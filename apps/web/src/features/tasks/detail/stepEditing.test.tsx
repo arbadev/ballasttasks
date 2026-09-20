@@ -225,4 +225,48 @@ describe("ordinary panel step editing through workspace commands", () => {
     expect(section().queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
   });
+  it("keeps the submitted title in the field while it saves, and takes a newer draft over it", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let release!: () => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("First");
+    fireEvent.change(input(), { target: { value: "Revised" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input()).toHaveValue("Revised");
+    expect(input()).toHaveAttribute("aria-invalid", "false");
+    expect(input()).toHaveAttribute("aria-busy", "true");
+    expect(section().getByRole("status")).toHaveTextContent("Saving step title…");
+    fireEvent.change(input(), { target: { value: "" } });
+    expect(input()).toHaveValue("");
+    expect(input()).toHaveAttribute("aria-invalid", "true");
+    expect(section().getByRole("button", { name: "Save step title" })).toBeDisabled();
+    fireEvent.change(input(), { target: { value: "Newer" } });
+    release(); await settle();
+    expect(input()).toHaveValue("Newer");
+    expect(section().getByRole("checkbox", { name: "Revised" })).toBeChecked();
+    expect(taskService.calls.filter((c) => c[0] === "renameStep")).toEqual([["renameStep", "edit", "a", "Revised"]]);
+  });
+
+  it("puts a refused title back in its own field and collapses the editor when the save lands", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let settleSend!: (ok: boolean) => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes, no) => {
+      settleSend = (ok) => (ok ? yes() : no(new Error("refused")));
+    }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("Second");
+    fireEvent.change(input(), { target: { value: "Held" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input()).toHaveValue("Held");
+    settleSend(false); await settle();
+    expect(input()).toHaveValue("Held");
+    expect(input()).toHaveAttribute("aria-invalid", "false");
+    expect(section().queryByRole("checkbox", { name: "Held" })).not.toBeInTheDocument();
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    expect(input()).toHaveValue("Held");
+    settleSend(true); await settle();
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+    expect(names()).toEqual(["First", "Held", "Third"]);
+  });
 });
