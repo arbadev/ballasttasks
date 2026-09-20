@@ -205,6 +205,32 @@ describe("date save ownership across panel mounts", () => {
 
   const written = (service: DeferredUpdates) => service.requests.map((r) => [r.patch, r.note]);
 
+  it("keeps a reschedule refused while the panel was shut, behind the date its own write stored", async () => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: due(9) } });
+    fireEvent.blur(dateInput());
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    close();
+
+    // Nothing is mounted to watch, but the queue runs on: the typed date lands, the reschedule
+    // behind it is refused.
+    await service.finish(0, true);
+    await service.finish(1, false);
+    expect((await service.get("t1"))?.due).toBe(due(9));
+
+    openTask("t1");
+    expect(dateInput()).toHaveValue(due(9));
+    retryClear();
+    await service.finish(2, true);
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(1));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("makes a banner reschedule wait for a typed date already in flight, so it cannot be undone", async () => {
     const service = await setup();
     fireEvent.change(dateInput(), { target: { value: due(9) } });

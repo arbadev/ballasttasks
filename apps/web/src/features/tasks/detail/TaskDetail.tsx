@@ -50,6 +50,8 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const fresh = useRef<{ id: string; isNew: boolean } | null>(null);
+  /** A Tab is being carried out by the browser: watch whether it lands outside the panel. */
+  const leaving = useRef(false);
 
   // Remember what opened the panel, and hand focus back to it on the way out.
   useEffect(() => {
@@ -75,18 +77,30 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
     const onKey = (e: globalThis.KeyboardEvent) => {
       // A control inside the panel (the link form, the delete prompt) may have used Escape itself.
       if (e.key === "Escape" && !e.defaultPrevented) return onClose();
-      // A control that disables or unmounts itself under the reader (a send button once its box
-      // is busy, a step's own Remove) leaves the focus on the document. `keepTabInside` never
-      // sees a key pressed out there, so the open dialog takes this one back.
-      if (e.key !== "Tab" || e.defaultPrevented || !panelRef.current) return;
-      const active = document.activeElement;
-      if (active && active !== document.body && active !== document.documentElement) return;
-      e.preventDefault();
-      const stops = focusableIn(panelRef.current);
-      ((e.shiftKey ? stops[stops.length - 1] : stops[0]) ?? panelRef.current).focus();
+      // A control that went away under the reader (a step's own Remove, a button that disabled
+      // itself) leaves no live stop for `keepTabInside` to wrap at. The browser carries on from
+      // where that control stood, which is normally still inside the panel, so the key is left
+      // alone and only where it lands is checked.
+      leaving.current = e.key === "Tab" && !e.defaultPrevented;
+    };
+    // Landing outside is the one case the modal has to take back: the continuation ran past an
+    // edge of the panel, so the focus wraps to the other one as it does from inside.
+    const onFocusIn = (e: FocusEvent) => {
+      if (!leaving.current) return;
+      leaving.current = false;
+      const panel = panelRef.current;
+      const landed = e.target;
+      if (!panel?.isConnected || !(landed instanceof HTMLElement) || panel.contains(landed)) return;
+      const stops = focusableIn(panel);
+      const behind = panel.compareDocumentPosition(landed) & Node.DOCUMENT_POSITION_PRECEDING;
+      ((behind ? stops[stops.length - 1] : stops[0]) ?? panel).focus();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("focusin", onFocusIn);
+    };
   }, [onClose]);
 
   const keepTabInside = (e: KeyboardEvent<HTMLDivElement>) => {

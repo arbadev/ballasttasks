@@ -118,9 +118,10 @@ focus was dropped, never when it legitimately sits somewhere else.
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
   another task opening), so typed text is never dropped. A failed save puts the control back on
   the saved value with an inline message and a Retry that carries the rejected value. That recovery
-  is retired once the stored value moves without the field asking — the urgency banner
-  rescheduling the task, say — so its Retry cannot undo the newer value. The footer
-  reports `saving…`, `saved · <when>` or `not saved`.
+  is retired once the stored value moves without the field asking — something else wrote the
+  task while no control was mounted — so its Retry cannot undo the newer value; a value the
+  field stored itself never counts as such a move. The footer reports `saving…`,
+  `saved · <when>` or `not saved`.
 - **A value the field cannot hold is never written by leaving it.** A field may declare which
   values are `savable`: an emptied number box and an emptied date box are not, and a date
   reports itself empty while a segment is being retyped. Such a value is kept as typed, never

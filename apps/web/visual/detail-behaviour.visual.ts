@@ -299,29 +299,47 @@ test("date Clear and Keep do not leave keyboard focus behind the panel", async (
   expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
 });
 
-test("a control that disables or removes itself under the keyboard cannot let Tab out of the panel", async ({ page }) => {
+test("the browser's own Tab continuation is left alone after a control goes under the reader", async ({ page }) => {
   await openApp(page);
   const dialog = await openTask(page, RICH_TASK);
+  const landed = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "");
   const inside = () => dialog.evaluate((el) => el.contains(document.activeElement));
 
-  // Chrome drops the focus on the document the moment it disables a focused control, and the
-  // panel's own Tab handler only sees keys pressed inside the panel.
+  // Disabling a focused control does not move the focus at all in Chrome.
   const generate = dialog.getByRole("button", { name: "Generate steps" });
   await generate.focus();
   await page.keyboard.press("Enter");
   await expect(generate).toBeDisabled();
-  await page.keyboard.press("Tab");
   expect(await inside()).toBe(true);
+  await page.keyboard.press("Tab");
+  expect(await landed()).toBe("Task entity and TaskStatus enum in domain");
 
-  // The same for a control that goes away under the reader: a step's own Remove.
-  const remove = dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" });
-  await remove.focus();
+  // A control that is removed while focused leaves the document's focus navigation starting
+  // point where it stood, so the reader carries on from there rather than from the top.
+  await dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" }).focus();
   await page.keyboard.press("Enter");
-  await expect(remove).toBeHidden();
+  await expect(dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" })).toBeHidden();
   await page.keyboard.press("Tab");
-  expect(await inside()).toBe(true);
+  expect(await landed()).toBe("TaskRepository port + in-memory fake, contract suite");
   await page.keyboard.press("Shift+Tab");
-  expect(await inside()).toBe(true);
+  expect(await landed()).toBe("TEXTAREA");
+});
+
+test("a continuation that runs off the end of the panel is wrapped back into it", async ({ page }) => {
+  await openApp(page);
+  const dialog = await openTask(page, RICH_TASK);
+
+  // The panel's last stop goes away under the reader: the continuation has nowhere inside to
+  // go, and without the dialog taking it back it lands on the page behind.
+  await dialog.evaluate((el) => {
+    const stops = [...el.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    const last = stops[stops.length - 1];
+    last.focus();
+    (last as HTMLButtonElement).disabled = true;
+  });
+  await page.keyboard.press("Tab");
+  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Close task");
 });
 
 test("no console errors or warnings across the panel's states", async ({ page }) => {

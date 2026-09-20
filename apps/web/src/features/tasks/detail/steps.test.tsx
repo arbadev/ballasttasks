@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { FakeTaskService } from "@/test/fakeServices";
-import { openTask, renderDetail, settle } from "./testing/renderDetail";
+import { openTask, opener, renderDetail, settle } from "./testing/renderDetail";
 
 const steps = () => within(screen.getByRole("region", { name: "Steps" }));
 const stepTexts = () => within(steps().getByRole("list", { name: "Steps" })).getAllByRole("listitem").map((li) => li.textContent);
@@ -387,26 +387,35 @@ describe("steps checklist", () => {
     openTask("t4");
     expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("half typed");
   });
-});
 
-  it("keeps the focus in the dialog when a step's own Remove goes with the step", async () => {
+  it("leaves the browser to carry on after a step's own Remove, until it lets the keyboard out", async () => {
     await renderDetail();
     const dialog = openTask("t1");
     const remove = steps().getByRole("button", { name: "Remove step: Alembic migration for the tasks table" });
     remove.focus();
-    expect(remove).toHaveFocus();
 
     fireEvent.click(remove);
     await settle();
     expect(remove.isConnected).toBe(false);
     expect(document.activeElement).toBe(document.body);
 
-    // The panel's own Tab handler only sees keys pressed inside it, so this is the key that
-    // would walk out of the modal; the dialog takes it back instead.
+    // The browser carries on from where that button stood. Landing inside the panel is its
+    // own business, and the neighbouring step is where a reader expects to be.
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    expect(document.activeElement).not.toBe(dialog);
+    const neighbour = steps().getByRole("button", { name: "Remove step: npm run gen:api and fix the frontend types in the same commit" });
+    neighbour.focus();
+    expect(neighbour).toHaveFocus();
+
+    // Landing outside is not: the openers stand before the panel, so a continuation that
+    // reaches them ran off the front and wraps to the last stop, as it does from inside.
+    neighbour.blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(window, { key: "Tab" });
+    opener("t4").focus();
+    expect(within(dialog).getByRole("button", { name: "Delete" })).toHaveFocus();
   });
+
+});
 
 describe("step generation", () => {
   it("Generate steps starts a generation and shows the drafting state", async () => {

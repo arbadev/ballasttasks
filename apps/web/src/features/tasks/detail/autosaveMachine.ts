@@ -42,9 +42,10 @@ export class AutosaveMachine<T> {
   configure(options: FieldOptions<T>) {
     const before = this.options.saved;
     this.options = options;
-    // The stored value moved without this field asking for it - the urgency banner rescheduling
-    // the task, say. That answers the field's own outstanding failure: its recovery is about a
-    // value the reader has since moved past, and retrying it would undo the newer one.
+    // The stored value moved without this field asking for it - something else wrote the task
+    // while no control was mounted. That answers the field's own outstanding failure: its
+    // recovery is about a value the reader has since moved past, and retrying it would undo
+    // the newer one. What this field stored itself is not such a move; `answered` records it.
     if (this.view.failed && !Object.is(options.saved, before)) this.publish(this.view.draft, null);
   }
 
@@ -69,6 +70,7 @@ export class AutosaveMachine<T> {
     const answered = (ok: boolean) => {
       if (this.inFlight?.ticket !== ticket) return;
       this.inFlight = null;
+      if (ok) this.options = { ...this.options, saved: write.value };
       const next = this.queued;
       this.queued = null;
       // Only an edit that will actually be written supersedes this answer. A retained
