@@ -250,8 +250,9 @@ can outlive its target or come back if the card moves away again. A fulfilled co
 saved-status snapshot immediately, so a queued refusal in the same microtask chain sees that save
 even before React renders it. Settlement tickets are kept per task as well, so answers batched
 with another task cannot erase the signal that restores keyboard focus. If authoritative target
-satisfaction removes a focused alert, focus returns to its card or column heading; unrelated
-focus is left alone. "Add a task" belongs to its column
+satisfaction removes a focused alert, focus returns to its card or column heading in the
+same layout commit, before the canonical query is observable as settled; a later passive
+effect would leave focus on the document in between. Unrelated focus is left alone. "Add a task" belongs to its column
 rather than to a card, and a column adds one task at a time: while its call is out, and once that
 call has been refused, the column's "Add a task" reads as unavailable (`aria-disabled`, and
 `aria-busy` while the call is out) and does nothing, so the refusal keeps its place until the
@@ -296,6 +297,14 @@ npm run typecheck
 npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
 npm run gen:api -- http://localhost:8000/openapi.json  # use your OWN API URL; source is explicit
 ```
+
+Real HTTP adapter contracts use `BT_HTTP_API_URL=<owned-api-url> npm run test:http`.
+Optionally set `BT_HTTP_WEB_URL=<owned-http-web-url>` as well to execute the served-browser
+query/focus regressions against that same stack. Neither suite starts a stack or selects an
+endpoint by default. Use only an owned disposable database and the fake model provider:
+these tests register example accounts and write ordinary authenticated test data. The
+browser regression observes the canonical query's settled DOM boundary independently of
+focus; it does not wait for a later render to make a lost-focus assertion pass.
 
 Any change to an API response model is followed by `npm run gen:api` in the same commit.
 

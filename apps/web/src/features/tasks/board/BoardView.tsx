@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
 import { LOAD_FAILED_WITHOUT_DETAIL, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
@@ -68,7 +68,9 @@ function Board() {
   const columnHeading = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-heading]`) ?? null;
   const columnAdd = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-add]`) ?? null;
 
-  useEffect(() => {
+  // Retiring an alert and handing off its focus are one visible commit. A passive effect
+  // leaves BODY focused after the canonical query has already reported itself settled.
+  useLayoutEffect(() => {
     const focused = focusedFailure.current;
     if (focused && !moves.failures.some((failure) => failure.taskId === focused.taskId)) {
       focusedFailure.current = null;
