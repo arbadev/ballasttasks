@@ -117,6 +117,19 @@ describe("HTTP task adapter", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("uploads original bytes passed by the delivered panel's addAttachment contract", async () => {
+    detail();
+    const upload = vi.fn(async ({ request }: { request: Request }) => {
+      const file = (await request.formData()).get("file") as File;
+      expect(file.name).toBe("panel.pdf");
+      expect(await file.text()).toBe("%PDF-panel");
+      return HttpResponse.json({}, { status: 201 });
+    });
+    server.use(http.post(`${base}/tasks/task-id/attachments/files`, upload));
+    await new HttpTaskService(client()).addAttachment("task-id", { kind: "pdf", name: "panel.pdf", meta: "PDF" }, new File(["%PDF-panel"], "panel.pdf", { type: "application/pdf" }));
+    expect(upload).toHaveBeenCalledOnce();
+  });
+
   it("sends actual link URLs, uploads files, and retrieves authenticated bytes", async () => {
     detail();
     server.use(

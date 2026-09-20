@@ -97,7 +97,7 @@ export interface ProposedStep {
 export type Generation =
   | { taskId: string; phase: "running"; notice?: string }
   | { taskId: string; phase: "proposed"; steps: ProposedStep[]; accepting?: boolean; notice?: string }
-  | { taskId: string; phase: "error"; message: string };
+  | { taskId: string; phase: "error"; message: string; recovery?: "reload" };
 
 /**
  * Drafts are proposals only. HTTP handles belong to tasks and survive changing selection;

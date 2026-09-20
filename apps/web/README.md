@@ -157,7 +157,7 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 ## The task panel
 
-`<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
+`<TaskDetail />` opens for `state.selectedId`. HTTP list summaries first show loading/retry instead of fabricated editable children. Previously loaded detail remains mounted during authoritative refresh, preserving drafts and focus in the existing workspace. Rows and cards only call `actions.selectTask(id)`;
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
 card, the New task button) on close, so an opener needs nothing more than being focusable. An
 opener that is gone by then — the task deleted or filtered away from inside the panel — takes
@@ -207,12 +207,12 @@ dialog and the hand-back on close are all untouched.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
-  start, and both are still there after another task has been opened and closed.
+  start, and both are still there after another task has been opened and closed. HTTP terminal failures and polling notices are visible; proposal controls lock during atomic acceptance. A rejected limit retains the proposal, while an uncertain acceptance requires canonical readback before generating again. Discard is local and creates no activity.
 - **Attachments**: links retain their full validated URL and open in a new tab (URL plus optional
   title, validated by `model/linkAttachment.ts`). "Attach file" opens a labelled native picker;
   dropping a file works too. PDF, PNG, JPG, GIF and WEBP files up to 10 MB show uploading metadata
   until the service settles; invalid files or failed saves show an inline error. The in-memory
-  adapter keeps metadata only, never file bytes; a future HTTP adapter receives the original file.
+  adapter keeps metadata only, never file bytes. HTTP uploads the original file and reloads canonical metadata/activity; stored files offer authenticated blob downloads and confirmed removal, without credential-bearing URLs.
 - **Escape** closes the innermost thing: the link form or the delete prompt first, then the panel.
 
 ## The board

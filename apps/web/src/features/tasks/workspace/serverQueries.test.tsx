@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { TasksApp } from "../shell/TasksApp";
+import { TaskDetail } from "../detail/TaskDetail";
 import { BoardView } from "../board/BoardView";
 import { ListView } from "../list/ListView";
 import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
@@ -37,6 +38,28 @@ function InvitationProbe() {
 }
 
 describe("server-query workspace", () => {
+  it("retains mounted loaded detail and its draft while a changed server summary refreshes children", async () => {
+    const task = makeTask({ id: "full", title: "Loaded detail", detailLoaded: true, description: "Stored description", steps: [{ id: "s1", text: "Existing step", done: false }] });
+    const service = new QueryService([task]);
+    service.query.mockResolvedValueOnce({ ...page("first"), tasks: [task] });
+    service.query.mockResolvedValue({ ...page("changed"), tasks: [{ ...task, detailLoaded: false, steps: [], updatedAt: task.updatedAt + 1 }] });
+    let answer!: (value: typeof task) => void;
+    vi.spyOn(service, "get").mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    renderWithServices(<WorkspaceProvider><ListView /><TaskDetail /><InvitationProbe /></WorkspaceProvider>, { taskService: service });
+    fireEvent.click(await screen.findByRole("button", { name: task.title }));
+    const description = screen.getByRole("textbox", { name: "Description" });
+    description.focus();
+    fireEvent.change(description, { target: { value: "Kept draft" } });
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(service.get).toHaveBeenCalledOnce());
+    expect(screen.getByRole("textbox", { name: "Description" })).toBe(description);
+    expect(description).toHaveFocus();
+    expect(description).toHaveValue("Kept draft");
+    expect(screen.getByText("Existing step")).toBeVisible();
+    await act(async () => answer({ ...task, updatedAt: task.updatedAt + 1 }));
+    expect(screen.getByRole("textbox", { name: "Description" })).toBe(description);
+    expect(description).toHaveValue("Kept draft");
+  });
   it("preserves the first-task draft while its project's authoritative page refreshes", async () => {
     const service = new QueryService();
     const empty = { ...page("empty"), tasks: [], total: 0, headerTotal: 0, projectHasTasks: false };

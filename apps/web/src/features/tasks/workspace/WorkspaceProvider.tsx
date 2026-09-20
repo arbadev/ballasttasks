@@ -138,7 +138,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [stepGeneration]);
 
   useEffect(() => {
-    if (!selected || selected.detailLoaded !== false) return;
+    if (!selected || (selected.detailLoaded !== false && !selected.detailStale)) return;
     let cancelled = false;
     dispatch({ type: "detailStarted" });
     taskService.get(selected.id).then((task) => {

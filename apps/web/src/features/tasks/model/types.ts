@@ -63,6 +63,8 @@ export interface Task {
   key?: string;
   /** List summaries do not fabricate child rows. Load these on selection. */
   detailLoaded?: boolean;
+  /** Previously loaded detail stays mounted while a changed summary triggers a fresh read. */
+  detailStale?: boolean;
   tally?: { steps: number; done: number; attachments: number; comments: number };
   title: string;
   description: string;

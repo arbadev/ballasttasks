@@ -92,7 +92,12 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       if (request.query !== state.query || request.sort !== state.sort || request.board !== (state.view === "board") || request.offset !== (state.pageOffset ?? 0) || action.revision !== (state.revision ?? 0)) return state;
       const { tasks: rows, ...info } = action.page;
       const selected = state.tasks.find((task) => task.id === state.selectedId);
-      const tasks = rows.map((row) => selected?.id === row.id && selected.detailLoaded && selected.updatedAt === row.updatedAt ? selected : row);
+      const tasks = rows.map((row) => {
+        if (selected?.id !== row.id || !selected.detailLoaded) return row;
+        // Keep fields/composers mounted: a list summary is not replacement detail. The
+        // selected-detail request replaces it atomically once its children/activity arrive.
+        return selected.updatedAt === row.updatedAt ? selected : { ...selected, detailStale: true };
+      });
       if (selected && !rows.some((row) => row.id === selected.id)) tasks.push(selected);
       return { ...state, tasks, page: { ...info, ids: rows.map((row) => row.id), project: request.query.project }, load: { status: "ready" }, duringLoad: undefined };
     }

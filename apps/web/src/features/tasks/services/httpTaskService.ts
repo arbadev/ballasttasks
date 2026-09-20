@@ -147,7 +147,8 @@ export class HttpTaskService implements TaskService {
     return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/comments`, { method: "POST", body: { text: text.trim() } }) : Promise.resolve());
   }
 
-  addAttachment(id: string, attachment: Attachment): Promise<Task> {
+  addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task> {
+    if (attachment.kind !== "link" && file) return this.uploadAttachment(id, file);
     if (attachment.kind !== "link" || !attachment.url) return Promise.reject(new Error("Choose a file to upload, or enter an absolute link URL."));
     return this.change(id, () => this.client.request(`${pathFor(id)}/attachments/links`, {
       method: "POST", body: { name: attachment.name, url: attachment.url },

@@ -87,7 +87,7 @@ export class HttpStepGenerationService implements StepGenerationService {
           // do not offer a blind retry that could duplicate accepted steps.
           handle.value = error instanceof ApiError && error.status === 422
             ? { ...proposal, accepting: false, notice: "No steps were added. Check the 100-step limit and selected proposals." }
-            : { taskId: handle.taskId, phase: "error", message: "Acceptance could not be confirmed. Reload the task before generating again." };
+            : { taskId: handle.taskId, phase: "error", recovery: "reload", message: "Acceptance could not be confirmed. Reload the task before generating again." };
           this.emit();
         }
         throw error;
@@ -124,7 +124,7 @@ export class HttpStepGenerationService implements StepGenerationService {
     } catch (error) {
       if (!this.owns(handle)) return;
       if (error instanceof ApiError && (error.status === 404 || error.status === 401 || error.kind === "session")) {
-        handle.value = { taskId: handle.taskId, phase: "error", message: error.status === 404
+        handle.value = { taskId: handle.taskId, phase: "error", recovery: "reload", message: error.status === 404
           ? "This generation expired or its task was deleted. Reload the task."
           : "This session ended. Sign in again." };
       } else {

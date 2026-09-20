@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Image as ImageIcon, Link as LinkIcon, Paperclip, type LucideIcon } from "lucide-react";
+import { Download, FileText, Image as ImageIcon, Link as LinkIcon, Paperclip, Trash2, type LucideIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import type { Attachment, AttachmentKind, Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
@@ -23,6 +23,9 @@ export function AttachmentsSection({ task }: { task: Task }) {
   const uploadBusy = useRef(false);
   const [uploading, setUploading] = useState<Attachment | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const actionBusy = useRef(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const commands = useTaskCommands();
   const { track } = useDetailSession();
   const [adding, setAdding] = useState(false);
@@ -47,6 +50,34 @@ export function AttachmentsSection({ task }: { task: Task }) {
     } finally {
       uploadBusy.current = false;
       setUploading(null);
+    }
+  };
+
+  const attachmentAction = async (attachment: Attachment, action: "download" | "remove") => {
+    if (!attachment.id || actionBusy.current) return;
+    actionBusy.current = true;
+    setBusyId(attachment.id);
+    setActionError(null);
+    try {
+      if (action === "remove" && commands.removeAttachment) {
+        await track(task.id, commands.removeAttachment(task.id, attachment.id));
+      } else if (action === "download" && commands.downloadAttachment) {
+        const blob = await commands.downloadAttachment(task.id, attachment.id);
+        const url = URL.createObjectURL(blob);
+        try {
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = attachment.name;
+          link.click();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+      }
+    } catch {
+      setActionError(`Could not ${action} the attachment. Try again.`);
+    } finally {
+      actionBusy.current = false;
+      setBusyId(null);
     }
   };
 
@@ -99,6 +130,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
       </div>
 
       {uploadError && <p role="alert" className="m-0 text-[12px] text-danger">{uploadError}</p>}
+      {actionError && <p role="alert" className="m-0 text-[12px] text-danger">{actionError}</p>}
       {adding && <LinkForm id={formId} onAdd={addLink} onCancel={closeForm} />}
 
       {count > 0 && (
@@ -116,12 +148,16 @@ export function AttachmentsSection({ task }: { task: Task }) {
             </>;
             return (
               <li
-                key={`${attachment.name}-${i}`}
+                key={attachment.id ?? `${attachment.name}-${i}`}
                 className="flex min-w-0 animate-[bt-in_.3s_var(--ease)_both] items-center gap-2.5 rounded-bt border border-line bg-card p-2.5 transition-[border-color,transform] duration-[160ms] ease-bt hover:-translate-y-px hover:border-line-2"
               >
                 {attachment.kind === "link" ? (
                   <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="-m-2.5 flex min-w-0 flex-1 items-center gap-2.5 rounded-bt p-2.5 text-inherit no-underline">{content}</a>
-                ) : content}
+                ) : <div className="flex min-w-0 flex-1 items-center gap-2.5">{content}</div>}
+                {attachment.id && <div className="ml-auto flex shrink-0 gap-1">
+                  {attachment.kind !== "link" && commands.downloadAttachment && <PanelButton variant="quiet" icon={Download} aria-label={`Download ${attachment.name}`} disabled={busyId !== null} onClick={() => void attachmentAction(attachment, "download")} className="size-8 p-0" />}
+                  {commands.removeAttachment && <PanelButton variant="quiet" icon={Trash2} aria-label={`Remove attachment: ${attachment.name}`} disabled={busyId !== null} onClick={() => void attachmentAction(attachment, "remove")} className="size-8 p-0" />}
+                </div>}
               </li>
             );
           })}
