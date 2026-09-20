@@ -311,6 +311,16 @@ these tests register example accounts and write ordinary authenticated test data
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), all five checks
+in one command overbook credential setup: the three adapter checks need eight attempts,
+and the two served-browser checks need six. Select the groups separately with
+`-- --grep-invert 'served query-backed board focus'` and
+`-- --grep 'served query-backed board focus'`, respectively. Let the configured auth window
+elapse after the first group finishes before starting the second, without concurrent
+credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
+Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
+throttling, or blanket-retry the suite. No test or application request retries automatically.
+
 Any change to an API response model is followed by `npm run gen:api` in the same commit.
 
 ## Visual tests
