@@ -8,6 +8,7 @@ import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspacePro
 import { PanelButton } from "./controls";
 import { useDetailSession } from "./DetailSession";
 import { bannerFor } from "./model/banner";
+import { useDueField } from "./useDueField";
 import type { StepGenerationView } from "./useStepGeneration";
 
 const TONES = {
@@ -22,6 +23,9 @@ export function UrgencyBanner({ task, generation }: { task: Task; generation: St
   const { currentUser } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
+  // The quick reschedules write the same date the properties box owns, so they queue behind
+  // whatever it has in flight and report a refusal through its one inline message and Retry.
+  const due = useDueField(task);
   const banner = bannerFor(task, now, generation.generation !== null);
   if (!banner) return null;
 
@@ -47,10 +51,10 @@ export function UrgencyBanner({ task, generation }: { task: Task; generation: St
         )}
         {banner.canReschedule && (
           <>
-            <PanelButton variant="banner" onClick={() => save(commands.update(task.id, { due: dayFrom(1, now) }, "Due date moved to tomorrow"))}>
+            <PanelButton variant="banner" onClick={() => due.store(dayFrom(1, now), "Due date moved to tomorrow")}>
               Due tomorrow
             </PanelButton>
-            <PanelButton variant="banner" onClick={() => save(commands.update(task.id, { due: weekOut }, "Due date moved a week out"))}>
+            <PanelButton variant="banner" onClick={() => due.store(weekOut, "Due date moved a week out")}>
               +1 week
             </PanelButton>
           </>

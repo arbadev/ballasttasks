@@ -9,13 +9,13 @@ import { openTask, renderDetail, settle } from "./testing/renderDetail";
 
 /** Controlled latency/refusal only: successful releases mutate the fake's actual saved task. */
 class DeferredUpdates extends FakeTaskService {
-  readonly requests: { id: string; patch: TaskPatch; done: boolean; finish(ok: boolean): void }[] = [];
+  readonly requests: { id: string; patch: TaskPatch; note?: string; done: boolean; finish(ok: boolean): void }[] = [];
   maxConcurrent = 0;
 
   override update(id: string, patch: TaskPatch, note?: string): Promise<Task> {
     return new Promise((resolve, reject) => {
       const request = {
-        id, patch, done: false,
+        id, patch, note, done: false,
         finish: (ok: boolean) => {
           request.done = true;
           if (ok) void super.update(id, patch, note).then(resolve, reject);
@@ -167,18 +167,100 @@ describe("date save ownership across panel mounts", () => {
     expect(service.requests.map((r) => r.patch)).toEqual([{ due: due(9) }, { due: due(1) }]);
   });
 
-  it("keeps the date recovery when a banner reschedule is refused", async () => {
+  it("hands the date recovery to the newest thing asked of the field", async () => {
     const service = await refuseADateWrite();
     fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
     await service.finish(1, false);
     expect(dateInput()).toHaveValue(due(3));
-    const alert = properties().getByRole("alert");
-    expect(alert).toHaveTextContent("Could not save the due date.");
-    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    // One field, one story about failure: the reader has asked for tomorrow since, so Retry
+    // sends that and its note rather than the date they left behind.
+    retryClear();
     await service.finish(2, true);
-    expect((await service.get("t1"))?.due).toBe(due(9));
-    expect(dateInput()).toHaveValue(due(9));
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(1));
     expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves the date recovery alone when an unrelated property is refused", async () => {
+    const service = await refuseADateWrite();
+    fireEvent.change(properties().getByRole("combobox", { name: "Priority" }), { target: { value: "2" } });
+    await service.finish(1, false);
+
+    const dueAlert = properties().getAllByRole("alert").find((a) => a.textContent?.includes("due date"));
+    expect(dueAlert).toBeDefined();
+    fireEvent.click(within(dueAlert as HTMLElement).getByRole("button", { name: "Retry" }));
+    await service.finish(2, true);
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ prio: 2 }, undefined],
+      [{ due: due(9) }, undefined],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(9));
+  });
+
+  const written = (service: DeferredUpdates) => service.requests.map((r) => [r.patch, r.note]);
+
+  it("makes a banner reschedule wait for a typed date already in flight, so it cannot be undone", async () => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: due(9) } });
+    fireEvent.blur(dateInput());
+    expect(service.requests).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    // The banner writes the date the box owns, so it queues behind it instead of racing it.
+    expect(service.requests).toHaveLength(1);
+    expect(dateInput()).toHaveValue(due(1));
+
+    await service.finish(0, true);
+    expect(service.requests).toHaveLength(2);
+    await service.finish(1, true);
+    expect(written(service)).toEqual([
+      [{ due: due(9) }, undefined],
+      [{ due: due(1) }, "Due date moved to tomorrow"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(1));
+    expect(dateInput()).toHaveValue(due(1));
+    expect(service.maxConcurrent).toBe(1);
+  });
+
+  it("reports a refused banner reschedule under the date box, and retries that date and note", async () => {
+    const service = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "+1 week" }));
+    expect(dateInput()).toHaveValue(due(10));
+
+    await service.finish(0, false);
+    expect(dateInput()).toHaveValue(due(3));
+    retryClear();
+    await service.finish(1, true);
+    expect(written(service)).toEqual([
+      [{ due: due(10) }, "Due date moved a week out"],
+      [{ due: due(10) }, "Due date moved a week out"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(10));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves a date being retyped in the box when the clear it follows is refused", async () => {
+    const service = await setup();
+    clearDate();
+    fireEvent.change(dateInput(), { target: { value: due(9) } });
+    // Retyping a segment makes the native box report itself empty again: the same value the
+    // clear sent, but a newer edit all the same, and the clear's answer is not about it.
+    fireEvent.change(dateInput(), { target: { value: "" } });
+
+    await service.finish(0, false);
+    expect(dateInput()).toHaveValue("");
+    expect(service.requests).toHaveLength(1);
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+
+    // Leaving the field is what settles it: an empty box is not a date the task can hold.
+    fireEvent.blur(dateInput());
+    expect(dateInput()).toHaveValue(due(3));
   });
 
   it("preserves a newer complete date after reopening during a clear, and flushes text to its own task", async () => {

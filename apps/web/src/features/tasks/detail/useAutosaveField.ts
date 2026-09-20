@@ -19,8 +19,8 @@ export interface AutosaveField<T> {
   /** Flush complete edits on blur and unmount; incomplete typing never authorizes a write. */
   flush(): void;
   /** Explicitly stores a value (including null), through the same serialized save path. */
-  store(value: T): void;
-  failed: { value: T } | null;
+  store(value: T, note?: string): void;
+  failed: { value: T; note?: string } | null;
   retry(): void;
 }
 

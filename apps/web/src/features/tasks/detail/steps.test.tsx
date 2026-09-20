@@ -389,6 +389,25 @@ describe("steps checklist", () => {
   });
 });
 
+  it("keeps the focus in the dialog when a step's own Remove goes with the step", async () => {
+    await renderDetail();
+    const dialog = openTask("t1");
+    const remove = steps().getByRole("button", { name: "Remove step: Alembic migration for the tasks table" });
+    remove.focus();
+    expect(remove).toHaveFocus();
+
+    fireEvent.click(remove);
+    await settle();
+    expect(remove.isConnected).toBe(false);
+    expect(document.activeElement).toBe(document.body);
+
+    // The panel's own Tab handler only sees keys pressed inside it, so this is the key that
+    // would walk out of the modal; the dialog takes it back instead.
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(dialog);
+  });
+
 describe("step generation", () => {
   it("Generate steps starts a generation and shows the drafting state", async () => {
     const { generation } = await renderDetail();

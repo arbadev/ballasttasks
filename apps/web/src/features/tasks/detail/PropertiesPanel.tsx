@@ -8,6 +8,7 @@ import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspacePro
 import { BOX_INPUT, FieldLabel, PanelButton, PropertySelect, SaveError } from "./controls";
 import { useDetailSession } from "./DetailSession";
 import { AUTOSAVE_DELAY_MS, useAutosaveField } from "./useAutosaveField";
+import { useDueField } from "./useDueField";
 
 const STATUS_OPTIONS = STATUSES.map((s) => ({ value: s.id, label: s.name }));
 const PRIORITY_OPTIONS = ([0, 1, 2, 3] as const).map((p) => ({ value: String(p), label: `P${p}` }));
@@ -22,25 +23,13 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const now = useNow();
   const { people, projects } = useDirectory();
   const commands = useTaskCommands();
-  const { track, dateField } = useDetailSession();
+  const { track } = useDetailSession();
   const [clearingDue, setClearingDue] = useState(false);
   const dateInput = useRef<HTMLInputElement>(null);
 
   const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
   const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(task.id, commands.update(task.id, { assignee: v })) });
-  // A date input reports an empty value while one of its segments is being retyped, so an
-  // empty box is never a date the task can hold: leaving the field puts the stored date back,
-  // and removing it is its own action below.
-  const dueOptions = {
-    saved: task.due,
-    savable: (v: string | null) => v !== null,
-    save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })),
-  };
-  const due = useAutosaveField({
-    ...dueOptions,
-    owner: dateField(task.id, dueOptions),
-    delay: AUTOSAVE_DELAY_MS,
-  });
+  const due = useDueField(task);
   const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(task.id, commands.update(task.id, { prio: v })) });
   const project = useAutosaveField({ saved: task.project, save: (v: string) => track(task.id, commands.update(task.id, { project: v })) });
   // Held as text while typing so the field can be emptied: an empty or half-typed box is not a

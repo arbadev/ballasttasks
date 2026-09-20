@@ -107,7 +107,12 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 `<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
-card, the New task button) on close, so an opener needs nothing more than being focusable.
+card, the New task button) on close, so an opener needs nothing more than being focusable. While
+it is open it keeps the keyboard: a control that disables or unmounts itself under the reader's
+hands (a send button once its box is busy, a step's own Remove) leaves the focus on the
+document, where `keepTabInside` never sees the next Tab — so the dialog takes that key itself
+and puts the focus on its first stop, or its last for Shift+Tab. It does this only when the
+focus was dropped, never when it legitimately sits somewhere else.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
@@ -126,6 +131,12 @@ card, the New task button) on close, so an opener needs nothing more than being 
   inline message and Retry. The date's existing machine is owned by `DetailSession`, not its
   mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
   and a reopened input subscribes to the same owner. Other fields keep their existing lifetimes.
+- **Everything that writes the due date shares one owner**, `useDueField(task)`: the date box,
+  "Clear date" and the urgency banner's "Due tomorrow"/"+1 week". The banner passes its activity
+  note to `store`, which carries it through the same queue, so a quick reschedule cannot be
+  undone by an older typed date that was still in flight, and a refused one says so under the
+  date box with a Retry that re-sends that date and that note. A write releases only the draft
+  it was made from, so an answer arriving while the reader is mid-retype leaves the box alone.
 - **The step and comment boxes send one thing at a time.** `useComposer` holds what is typed and
   the send it is waiting on in one record per task and box, so both survive the panel closing
   mid-send and the box that opens again sees how that send ended. While a send runs the box says

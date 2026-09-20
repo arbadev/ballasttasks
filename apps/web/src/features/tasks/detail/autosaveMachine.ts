@@ -1,29 +1,37 @@
 export interface FieldOptions<T> {
   saved: T;
-  save(value: T): Promise<unknown>;
+  /** `note` is what the caller has to say about this particular write, if anything. */
+  save(value: T, note?: string): Promise<unknown>;
   savable?(value: T): boolean;
+}
+
+/** A value on its way to the service, with whatever the writer asked to be recorded about it. */
+interface Write<T> {
+  value: T;
+  note?: string;
 }
 
 interface View<T> {
   draft: { value: T } | null;
-  failed: { value: T } | null;
+  failed: Write<T> | null;
 }
 
 /**
  * The field's existing debounce/serialized-save machine, with its recovery and draft in the
  * same owner. A mounted control subscribes; disposing that control does not dispose a save.
  *
- * Only matching answers release a draft. Writes run one at a time, newest queued value wins,
- * and failure is shown unless a newer edit that will be written supersedes it, and retired once
- * the stored value moves without this field asking. Unsavable typing never writes; flush
- * restores the confirmed value, while store explicitly authorizes values such as null.
+ * A save releases only the draft it was made from, never a newer one that happens to read the
+ * same. Writes run one at a time, newest queued value wins, and failure is shown unless a newer
+ * edit that will be written supersedes it, and retired once the stored value moves without this
+ * field asking. Unsavable typing never writes; flush restores the confirmed value, while store
+ * explicitly authorizes values such as null and carries the writer's note.
  */
 export class AutosaveMachine<T> {
   private view: View<T> = { draft: null, failed: null };
   private readonly listeners = new Set<() => void>();
   private pending: { value: T; timer: ReturnType<typeof setTimeout> | null } | null = null;
-  private inFlight: { ticket: number; value: T } | null = null;
-  private queued: { value: T } | null = null;
+  private inFlight: { ticket: number } | null = null;
+  private queued: Write<T> | null = null;
   private tickets = 0;
   private options: FieldOptions<T>;
 
@@ -52,9 +60,12 @@ export class AutosaveMachine<T> {
     this.listeners.forEach((listener) => listener());
   }
 
-  private start(value: T) {
+  private start(write: Write<T>) {
     const ticket = ++this.tickets;
-    this.inFlight = { ticket, value };
+    // The draft this write was made from. Anything typed since is a newer one, which this
+    // answer has nothing to say about even when it happens to read the same.
+    const from = this.view.draft;
+    this.inFlight = { ticket };
     const answered = (ok: boolean) => {
       if (this.inFlight?.ticket !== ticket) return;
       this.inFlight = null;
@@ -65,21 +76,21 @@ export class AutosaveMachine<T> {
       // count would swallow this refusal and the change would vanish with nothing said.
       const superseded = !!next || (this.pending !== null && this.options.savable?.(this.pending.value) !== false);
       const final = !superseded;
-      const draft = final && this.view.draft && Object.is(this.view.draft.value, value) ? null : this.view.draft;
-      const failed = ok ? null : final ? { value } : this.view.failed;
+      const draft = final && this.view.draft === from ? null : this.view.draft;
+      const failed = ok ? null : final ? write : this.view.failed;
       this.publish(draft, failed);
-      if (next) this.start(next.value);
+      if (next) this.start(next);
     };
-    this.options.save(value).then(() => answered(true), () => answered(false));
+    this.options.save(write.value, write.note).then(() => answered(true), () => answered(false));
   }
 
-  private enqueue(value: T) {
-    if (!this.inFlight && !this.queued && Object.is(value, this.options.saved)) {
-      this.publish(this.view.draft && Object.is(this.view.draft.value, value) ? null : this.view.draft, this.view.failed);
+  private enqueue(write: Write<T>) {
+    if (!this.inFlight && !this.queued && write.note === undefined && Object.is(write.value, this.options.saved)) {
+      this.publish(this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, this.view.failed);
       return;
     }
-    if (this.inFlight) this.queued = { value };
-    else this.start(value);
+    if (this.inFlight) this.queued = write;
+    else this.start(write);
   }
 
   private commit = () => {
@@ -91,16 +102,16 @@ export class AutosaveMachine<T> {
       return false;
     }
     this.pending = null;
-    this.enqueue(edit.value);
+    this.enqueue({ value: edit.value });
     return true;
   };
 
   /** Explicit value, never inferred from incomplete typing. Shares the ordinary save queue. */
-  store = (value: T) => {
+  store = (value: T, note?: string) => {
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.pending = null;
     this.publish({ value }, null);
-    this.enqueue(value);
+    this.enqueue({ value, note });
   };
 
   flush = () => {
@@ -117,6 +128,6 @@ export class AutosaveMachine<T> {
   }
 
   retry = () => {
-    if (this.view.failed) this.store(this.view.failed.value);
+    if (this.view.failed) this.store(this.view.failed.value, this.view.failed.note);
   };
 }

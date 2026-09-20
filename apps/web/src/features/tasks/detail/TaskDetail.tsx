@@ -19,6 +19,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 /** Not `display: none`: the back and close controls swap with the breakpoint, and only one can take focus. */
 const isShown = (el: HTMLElement) => getComputedStyle(el).display !== "none";
 
+const focusableIn = (panel: HTMLElement) => [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isShown);
+
 /**
  * The task side panel. The shell keeps this mounted, so the session around the dialog (saves
  * in flight, unsent drafts, failed generations) outlives any one task being open.
@@ -72,7 +74,16 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       // A control inside the panel (the link form, the delete prompt) may have used Escape itself.
-      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+      if (e.key === "Escape" && !e.defaultPrevented) return onClose();
+      // A control that disables or unmounts itself under the reader (a send button once its box
+      // is busy, a step's own Remove) leaves the focus on the document. `keepTabInside` never
+      // sees a key pressed out there, so the open dialog takes this one back.
+      if (e.key !== "Tab" || e.defaultPrevented || !panelRef.current) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== document.documentElement) return;
+      e.preventDefault();
+      const stops = focusableIn(panelRef.current);
+      ((e.shiftKey ? stops[stops.length - 1] : stops[0]) ?? panelRef.current).focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -80,7 +91,7 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
 
   const keepTabInside = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab" || !panelRef.current) return;
-    const focusable = [...panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isShown);
+    const focusable = focusableIn(panelRef.current);
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];

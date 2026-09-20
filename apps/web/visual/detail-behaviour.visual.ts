@@ -299,6 +299,31 @@ test("date Clear and Keep do not leave keyboard focus behind the panel", async (
   expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
 });
 
+test("a control that disables or removes itself under the keyboard cannot let Tab out of the panel", async ({ page }) => {
+  await openApp(page);
+  const dialog = await openTask(page, RICH_TASK);
+  const inside = () => dialog.evaluate((el) => el.contains(document.activeElement));
+
+  // Chrome drops the focus on the document the moment it disables a focused control, and the
+  // panel's own Tab handler only sees keys pressed inside the panel.
+  const generate = dialog.getByRole("button", { name: "Generate steps" });
+  await generate.focus();
+  await page.keyboard.press("Enter");
+  await expect(generate).toBeDisabled();
+  await page.keyboard.press("Tab");
+  expect(await inside()).toBe(true);
+
+  // The same for a control that goes away under the reader: a step's own Remove.
+  const remove = dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" });
+  await remove.focus();
+  await page.keyboard.press("Enter");
+  await expect(remove).toBeHidden();
+  await page.keyboard.press("Tab");
+  expect(await inside()).toBe(true);
+  await page.keyboard.press("Shift+Tab");
+  expect(await inside()).toBe(true);
+});
+
 test("no console errors or warnings across the panel's states", async ({ page }) => {
   const problems: string[] = [];
   const record = (m: ConsoleMessage) => {
