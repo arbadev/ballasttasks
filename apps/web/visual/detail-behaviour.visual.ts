@@ -24,6 +24,39 @@ async function openTask(page: Page, title: string) {
 }
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
+for (const action of ["Keep", "Clear date"] as const) {
+  for (const activation of ["pointer", "keyboard"] as const) {
+    test(`${action} returns date focus after ${activation} activation`, async ({ page }) => {
+      await openApp(page);
+      const dialog = await openTask(page, RICH_TASK);
+      const input = dialog.getByLabel("Due date", { exact: true });
+      const stored = await input.inputValue();
+      await input.focus();
+      await page.keyboard.press("Backspace");
+      await expect(input).toHaveValue("");
+      const button = dialog.getByRole("button", { name: action, exact: true });
+      if (activation === "pointer") {
+        const box = await button.boundingBox();
+        expect(box).not.toBeNull();
+        // One genuine pointer gesture: no locator retry if blur removes the target.
+        await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      } else {
+        // Date segments are separate native Tab stops. Bound traversal, never set focus
+        // to the action programmatically or retry an activation after it disappears.
+        for (let stop = 0; stop < 6; stop++) {
+          if (await button.evaluate((el) => el === document.activeElement)) break;
+          await page.keyboard.press("Tab");
+        }
+        await expect(button).toBeFocused();
+        await page.keyboard.press("Enter");
+      }
+      await expect(input).toBeFocused();
+      await expect(input).toHaveValue(action === "Keep" ? stored : "");
+      await expect(dialog.getByRole("group", { name: "Remove the date?" })).toBeHidden();
+    });
+  }
+}
+
 test("at 375px the panel is full-screen, with a back control instead of the corner close", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
@@ -43,6 +76,83 @@ test("at 375px the panel is full-screen, with a back control instead of the corn
   await expect(page.getByRole("dialog")).toBeHidden();
   await context.close();
 });
+
+/** Every quick action the banner can offer at once: a P0 due soon, unassigned, with no steps. */
+const BANNER_ACTIONS = ["Assign to me", "Break it into steps", "Due tomorrow", "+1 week"];
+
+for (const width of [375, 768]) {
+  test(`at ${width}px every urgency quick action stays inside the panel and reachable`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width, height: 812 }, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    await openApp(page);
+    const dialog = await openTask(page, BARE_TASK);
+    const banner = dialog.getByTestId("detail-banner");
+    // Measure with all four offered: an action that has gone is not an action that fits.
+    expect(await banner.getByRole("button").allInnerTexts()).toEqual(BANNER_ACTIONS);
+
+    // The panel is clipped, not scrolled, so an action past its edge draws nothing and takes no
+    // click: measure each against the panel's own box and hit-test its centre.
+    const measured = await banner.evaluate((el) =>
+      [...el.querySelectorAll("button")].map((button) => {
+        const box = button.getBoundingClientRect();
+        const panel = button.closest("[role=dialog]")!.getBoundingClientRect();
+        const under = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
+        return {
+          name: button.textContent!.trim(),
+          left: Math.round(box.left),
+          right: Math.round(box.right),
+          inside: box.left >= panel.left - 0.5 && box.right <= panel.right + 0.5,
+          underPointer: under instanceof Node && button.contains(under),
+        };
+      }),
+    );
+    console.log(`banner actions at ${width}px:`, JSON.stringify(measured));
+    expect.soft(measured).toEqual(BANNER_ACTIONS.map((name) => expect.objectContaining({ name, inside: true, underPointer: true })));
+
+    // Keyboard: the browser scrolls a focused control into view, which on a clipped row drags
+    // the panel sideways and takes the header, the title and "Mark complete" off its left edge.
+    const anchors = () =>
+      dialog.evaluate((el) => {
+        const left = (node: Element | null | undefined) => (node ? Math.round(node.getBoundingClientRect().left) : NaN);
+        return {
+          panelScrollLeft: el.scrollLeft,
+          header: left(el.querySelector("[data-testid=detail-project]")),
+          title: left(el.querySelector("[aria-label='Task name']")),
+          complete: left([...el.querySelectorAll("button")].find((b) => b.textContent!.trim() === "Mark complete")),
+        };
+      });
+    const resting = await anchors();
+    const reached: string[] = [];
+    const displaced: unknown[] = [];
+    await dialog.evaluate((el: HTMLElement) => el.focus());
+    for (let stop = 0; stop < 12 && reached.length < BANNER_ACTIONS.length; stop++) {
+      await page.keyboard.press("Tab");
+      const focused = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+      if (!BANNER_ACTIONS.includes(focused)) continue;
+      reached.push(focused);
+      const shifted = await anchors();
+      if (JSON.stringify(shifted) !== JSON.stringify(resting)) displaced.push({ focused, resting, shifted });
+    }
+    expect.soft(reached, "every action is a Tab stop inside the panel").toEqual(BANNER_ACTIONS);
+    expect.soft(displaced, "focusing an action must not move the panel sideways").toEqual([]);
+
+    await page.screenshot({ path: join(RESULTS, `behaviour-${width}-banner-actions.png`) });
+
+    // One real pointer gesture on the furthest action, from a panel nobody has scrolled: it
+    // reschedules, so the banner drops to the one thing still worth doing. Activating it removes
+    // the other three, so it happens on a fresh panel, after they have all been measured.
+    await page.reload();
+    await page.getByText("13 tasks", { exact: true }).waitFor();
+    const reopened = await openTask(page, BARE_TASK);
+    const again = reopened.getByTestId("detail-banner");
+    await expect(again.getByRole("button")).toHaveText(BANNER_ACTIONS);
+    expect(await reopened.evaluate((el) => el.scrollLeft), "the panel sits at its left edge").toBe(0);
+    const box = (await again.getByRole("button", { name: "+1 week", exact: true }).boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(again.getByRole("button")).toHaveText(["Assign to me"]);
+    await context.close();
+  });
+}
 
 for (const width of [375, 768, 1024, 1440]) {
   test(`the panel never scrolls the page sideways at ${width}px, with every expanding surface open`, async ({ browser }) => {

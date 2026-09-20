@@ -190,11 +190,14 @@ dialog and the hand-back on close are all untouched.
   reports itself empty while a segment is being retyped. Such a value is kept as typed and never
   sent — so it never retires a reported failure — and `flush` (blur, unmount) puts the stored
   value back instead of saving it. Removing a due date is its own action — emptying the box asks,
-  with "Clear date" beside a "Keep" that restores it — and "Clear date" calls `field.store`, the
+  with "Clear date" beside a "Keep" that restores it. Focus moves within that date editor do
+  not settle the input before its controls activate; leaving the editor still flushes normally.
+  "Clear date" calls `field.store`, the
   one path that writes a value the control is not typing. The prompt asks about one stored date:
   it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
   moving the box to a different one takes it away, with no write of its own either way — its
-  "Clear date" can never remove a date the reader has not seen it ask about. `store` drops any
+  "Clear date" acts only on the date it asked about, never on a different one the box is
+  showing; a later write of that same date stays within its reach. `store` drops any
   half-typed edit as it goes, so an abandoned one cannot land on top of it, and its failure uses
   the field's own inline message and Retry. The date's machine is owned by `DetailSession`, not
   its mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
@@ -383,7 +386,13 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
   colour and contrast, `prefers-reduced-motion`, and no console error or warning across every
-  state of the panel.
+  state of the panel. Two behaviours are checked with real gestures rather than assertions on
+  the markup, because both turn on what the browser itself does: "Clear date" and "Keep" are
+  activated by pointer and by native Tab traversal of the date's segments, and each must leave
+  the focus back on the date box; and at 375px and 768px, with all four quick actions offered,
+  every banner action is measured against the panel's own box and hit-tested at its centre,
+  because the panel clips rather than scrolls, so an action past its edge draws nothing and
+  takes no click while the page still reports no overflow.
 
 Both servers are reused when already running. When two checkouts run the suite at once, give
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each

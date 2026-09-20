@@ -74,6 +74,65 @@ describe("date save ownership across panel mounts", () => {
     else expect(service.requests).toHaveLength(0);
   });
 
+  it.each(["Keep", "Clear date"])("activates %s after an internal focus move, with and without a queued date changing the stored value", async (action) => {
+    const service = await setup();
+    // Normal path: blur restores the same date, so the action survives even at the old boundary.
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    act(() => dateInput().focus());
+    const normal = properties().getByRole("button", { name: "Keep" });
+    act(() => normal.focus());
+    expect(normal).toHaveFocus();
+    act(() => normal.click());
+    expect(dateInput()).toHaveFocus();
+    expect(service.requests).toHaveLength(0);
+
+    vi.useFakeTimers();
+    try {
+      clearDate(); // Explicit A is held; B really queues before incomplete C.
+      fireEvent.change(dateInput(), { target: { value: due(9) } });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }]);
+      fireEvent.change(dateInput(), { target: { value: "" } });
+      await service.finish(0, false);
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }, { due: due(9) }]);
+      expect(service.requests[1].done).toBe(false);
+      await service.finish(1, true);
+      expect((await service.get("t1"))?.due).toBe(due(9));
+      expect(dateInput()).toHaveValue("");
+      expect(dateInput()).toHaveFocus();
+
+      const button = properties().getByRole("button", { name: action });
+      // Native DOM focus dispatches blur with relatedTarget before activation. Unlike
+      // fireEvent.click alone this exercises the boundary; trusted pointer/Tab/Enter
+      // activation is checked separately in Chromium, not claimed by this jsdom test.
+      act(() => button.focus());
+      expect(button, "internal blur must not unmount the action before activation").toHaveFocus();
+      act(() => button.click());
+      expect(dateInput()).toHaveFocus();
+      expect(service.requests.map((r) => r.patch)).toEqual(action === "Keep"
+        ? [{ due: null }, { due: due(9) }]
+        : [{ due: null }, { due: due(9) }, { due: null }]);
+      if (action === "Clear date") await service.finish(2, true);
+      expect(dateInput()).toHaveFocus();
+      expect(dateInput()).toHaveValue(action === "Keep" ? due(9) : "");
+      expect((await service.get("t1"))?.due).toBe(action === "Keep" ? due(9) : null);
+      expect(service.maxConcurrent).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("settles an incomplete date when focus leaves its controls, without writing null", async () => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    act(() => dateInput().focus());
+    act(() => properties().getByRole("button", { name: "Keep" }).focus());
+    act(() => screen.getByRole("textbox", { name: "Description" }).focus());
+    expect(dateInput()).toHaveValue(due(3));
+    expect(service.requests).toHaveLength(0);
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveFocus();
+  });
+
   it("returns focus to the date when Retry removes the failure", async () => {
     const service = await setup();
     clearDate();

@@ -62,7 +62,13 @@ export function PropertiesPanel({ task }: { task: Task }) {
         {assignee.failed && <SaveError what="assignee" onRetry={assignee.retry} />}
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <div
+        className="flex flex-col gap-1.5"
+        onBlur={(e) => {
+          // Let Clear/Keep receive focus and activate before settling their input.
+          if (!e.currentTarget.contains(e.relatedTarget)) due.flush();
+        }}
+      >
         <FieldLabel htmlFor={`${id}-due`}>Due date</FieldLabel>
         <input
           ref={dateInput}
@@ -75,7 +81,6 @@ export function PropertiesPanel({ task }: { task: Task }) {
             due.change(value);
             setClearingDue(value === null ? task.due : null);
           }}
-          onBlur={due.flush}
           className={`${BOX_INPUT} h-[34px] px-2.5 font-mono text-[13px] pointer-coarse:h-11`}
         />
         {clearingDue !== null && (due.value === null || due.value === clearingDue) && (

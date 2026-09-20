@@ -38,7 +38,9 @@ export function UrgencyBanner({ task, generation }: { task: Task; generation: St
     <div data-testid="detail-banner" className={cn("flex animate-[bt-in_.3s_var(--ease)] flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-5 py-2.5 max-md:px-4", TONES[banner.tone])}>
       <span aria-hidden="true" className={cn("size-2 flex-none rounded-full bg-current", banner.blink && "animate-bt-blink")} />
       <p className="m-0 flex-auto text-[13px] font-medium">{banner.text}</p>
-      <div className="ml-auto flex flex-none flex-wrap gap-1.5">
+      {/* Shrinkable on purpose: at mobile widths the row wraps inside the panel rather than
+          keeping its content width and being clipped by the panel's own overflow. */}
+      <div className="ml-auto flex flex-wrap gap-1.5">
         {banner.canAssign && currentUser && (
           <PanelButton variant="banner" icon={User} iconSize={12} iconStroke={2.2} onClick={() => save(commands.update(task.id, { assignee: currentUser.id }))}>
             Assign to me
