@@ -214,7 +214,7 @@ test("mobile shell handoff lifecycle and deliberate departures", async ({ browse
   const card = (id: string) => board.locator(`[data-card-open="${id}"]`);
   const toggleProject = async () => {
     await page.getByRole("button", { name: "Open navigation", exact: true }).click();
-    await page.getByRole("navigation", { name: "Projects", exact: true }).getByRole("button", { name: new RegExp(`^${project.name}`) }).click();
+    await page.getByRole("navigation", { name: "Projects", exact: true }).getByRole("link", { name: new RegExp(`^${project.name}`) }).click();
   };
   const removeInPanel = async () => {
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();

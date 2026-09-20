@@ -109,8 +109,8 @@ for (const viewport of VIEWPORTS) {
     await capture("6-empty-project", empty);
 
     await showSidebar();
-    const item = sidebar(page).getByRole("button", { name: /^Marketing/ });
-    await expect(item).toHaveAttribute("aria-pressed", "true");
+    const item = sidebar(page).getByRole("link", { name: /^Marketing/ });
+    await expect(item).toHaveAttribute("aria-current", "page");
     await expect(item).toHaveText("Marketing0");
     await capture("5-created", sidebar(page));
     if (narrow) await page.keyboard.press("Escape");
@@ -169,13 +169,13 @@ test("the whole flow works from the keyboard, and Tab never leaves the dialog", 
   await expect(dialog(page).getByRole("button", { name: "Creating…" })).toBeVisible();
   await page.clock.runFor(1000);
   await expect(dialog(page)).toBeHidden();
-  await expect(sidebar(page).getByRole("button", { name: /^Ops/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(sidebar(page).getByRole("link", { name: /^Ops/ })).toHaveAttribute("aria-current", "page");
   await expect(control(page)).toBeFocused();
 
   // New task lands in the new project.
   await page.getByRole("button", { name: "New task" }).click();
   await page.keyboard.press("Escape");
-  await expect(sidebar(page).getByRole("button", { name: /^Ops/ })).toHaveText("Ops1");
+  await expect(sidebar(page).getByRole("link", { name: /^Ops/ })).toHaveText("Ops1");
 
   expect(problems).toEqual([]);
   await context.close();

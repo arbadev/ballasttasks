@@ -15,6 +15,7 @@ from app.api.routes import (
     auth,
     health,
     projects,
+    session,
     sso,
     step_generations,
     steps,
@@ -49,8 +50,8 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         CORSMiddleware,
         allow_origins=settings.cors.allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Protection"],
         # Without this a browser hides them from the frontend.
         expose_headers=list(RATE_LIMIT_HEADERS),
     )
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     install_access_log_redaction(container.sso.api_public_path)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(session.router)
     app.include_router(sso.router)
     app.include_router(tasks.router)
     app.include_router(attachments.router)

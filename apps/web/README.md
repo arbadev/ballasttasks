@@ -1,8 +1,9 @@
 # apps/web
 
-Next.js (App Router, TypeScript, Tailwind) frontend. `/` is the Ballast Tasks application;
-`/status` shows API, Database, Redis and AI (provider and model) health, and is linked from
-the sidebar footer.
+Next.js (App Router, TypeScript, Tailwind) frontend. `/` resolves after session verification;
+`/login` and `/register` are anonymous routes, while `/tasks`, `/tasks/mine`, `/tasks/overdue`
+and `/projects/[id]` expose the existing workspace. Public `/status` shows API, Database,
+Redis and AI health and is linked from the sidebar footer.
 
 ## Architecture
 
@@ -37,17 +38,46 @@ falls back to it after an API error. Unit tests can still inject individual serv
 
 ## Authentication and HTTP integration
 
-`/` presents password sign-in/registration; `/auth/callback` exchanges an SSO one-time code
-in a POST body after clearing it from the browser URL. Enabled providers come from the API.
-The bearer credential lives **only in memory**. Full reloads and new tabs require sign-in
-again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
-Unsaved per-session drafts are cleared by that teardown: within-session close/reopen
-retention does not promise draft survival across sign-out or expiry.
-Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
-to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
+`/login` and `/register` create a browser session through `POST /auth/session` after
+password authentication. `/auth/callback` exchanges an SSO one-time code in a POST body
+after clearing it from the browser URL. Enabled providers come from the API. The API
+sets a **persistent HttpOnly cookie**; JavaScript holds only the verified public user,
+never a readable persistent credential or remembered logged-in flag. Bootstrap blocks
+private UI until `GET /auth/session` verifies the cookie and active user. Full reloads
+and new tabs restore valid sessions; a temporary verification failure offers retry,
+not a false login screen. The API's configured JWT expiry is unchanged (default 30
+minutes from sign-in), with no refresh token, silent extension or cookie renewal.
+
+Logout/401 clears services and unmounts the workspace. Logout waits for any in-flight
+credential response before deleting the cookie, and explicitly reports deletion failure.
+Same-origin tabs receive invalidations; focus/pageshow and visible minute checks also
+reconcile the session. Server expiry is enforced on every API call; the idle UI learns
+of it on those checks or a 401. This is not XSS protection or server-side JWT revocation:
+copied tokens and independent device sessions last until their existing expiry or user
+deactivation. An accepted server write is not undone by disposal. Unsaved session drafts
+are cleared; saved tasks/projects remain in PostgreSQL. Only a validated SSO return
+route, never credentials, may temporarily use sessionStorage. Policy and deployment
+limits: [ADR 0009](../../docs/decisions/0009-browser-sessions-and-routes.md).
+
+The API requires `X-CSRF-Protection: 1` plus exact configured Origin on cookie-authenticated
+writes, including sign-in/out and uploads. `client.ts` supplies the header and includes
+cookies. Cookies are host-only, Path=/, SameSite=Lax, Secure in production; production
+origins must use HTTPS. Use same-site web/API origins, including the same loopback host
+spelling locally. Different ports do not isolate cookies; use separate profiles or hosts
+for independent local deployments. Legacy non-browser bearer adapters remain usable.
 Next development request logs exclude `/auth/callback`; deployment proxy/access logs must
 also omit callback query strings. Real-vendor OAuth setup and primary-stack activation are
 separate operator actions, not performed by the local fake-provider tests.
+
+The URL owns task scope/project, status/due/priority, search (`q`), Attention signal,
+sort, list/board (`view`) and 50-row offset. Direct links, reload and Back/Forward feed
+the same validated query projection; there is no state-to-router synchronization effect.
+Filters/views/pages push history; search replaces it, retaining request debouncing.
+Sidebar anchors navigate and support new tabs. A named scope leaves the selected project;
+a project route may carry a combined `scope`. Unknown/duplicate/invalid parameters are
+canonicalized to defaults; unsafe return destinations fall back to `/tasks`. Selection
+and drafts stay session-local, not in URLs. Signed-in visitors to login/register return
+to the app; anonymous protected links preserve only a validated same-app destination.
 
 The HTTP workspace uses the API's filters, sorting, search and limit/offset pages (50 rows),
 not client filtering over the first page. Page/filter changes discard stale requests;
@@ -63,7 +93,7 @@ this page; columns with off-page rows say so.
 Selected-task detail/activity is loaded separately, not once per list row. The complete
 `TaskService.list()` remains a legacy/demo capability, not the HTTP workspace's data path.
 
-`client.ts` attaches bearer headers, carries Retry-After, uploads multipart files and returns
+`client.ts` sends browser cookies/CSRF headers (or bearer headers for API clients), carries Retry-After, uploads multipart files and returns
 authenticated download blobs (never bearer URLs). It fences both late responses and queued
 work from an obsolete session. Client disposal does not undo an already accepted mutation.
 Generation handles belong to tasks; observation pauses when not selected/visible/subscribed,

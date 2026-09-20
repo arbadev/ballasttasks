@@ -21,6 +21,7 @@ def _refuse_construction(monkeypatch: pytest.MonkeyPatch) -> list[Settings]:
 
 def test_production_refuses_before_building_any_adapter(minimal_env: pytest.MonkeyPatch) -> None:
     minimal_env.setenv("APP__ENV", "production")
+    minimal_env.setenv("CORS__ALLOWED_ORIGINS", '["https://web.example.test"]')
     built = _refuse_construction(minimal_env)
     with pytest.raises(seed_demo.DemoSeedRefusedError, match="production"):
         asyncio.run(seed_demo.run(confirmed=True))

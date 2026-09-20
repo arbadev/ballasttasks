@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthService } from "@/app/providers";
 import { Button } from "@/components/ui/Button";
+import { returnDestination } from "@/features/tasks/workspace/route";
+import { SSO_RETURN_KEY } from "./ApplicationRoute";
 
 export function AuthCallback() {
   const auth = useAuthService();
@@ -20,7 +22,9 @@ export function AuthCallback() {
     async function exchange() {
       if (!code || params.has("error") || !auth) throw new Error("Could not complete single sign-on. Please sign in again.");
       await auth.exchange(code);
-      router.replace("/");
+      const destination = returnDestination(sessionStorage.getItem(SSO_RETURN_KEY));
+      sessionStorage.removeItem(SSO_RETURN_KEY);
+      router.replace(destination);
     }
     void exchange().catch((error: unknown) => setError(error instanceof Error ? error.message : "Could not complete single sign-on."));
   }, [auth, router]);
@@ -28,7 +32,7 @@ export function AuthCallback() {
     <section className="w-full max-w-[420px] rounded-bt border border-line bg-panel p-7 shadow-2">
       <h1 className="font-heading text-[24px] text-fg">Signing in</h1>
       {error ? <p role="alert" className="mt-4 text-[13px] text-danger">{error}</p> : <p role="status" className="mt-4 text-[13px] text-fg-3">Completing your sign-in…</p>}
-      <Button variant="ghost" className="mt-5" onClick={() => { auth?.logout(); router.replace("/"); }}>Back to sign in</Button>
+      <Button variant="ghost" className="mt-5" onClick={() => { void auth?.logout(); router.replace("/login"); }}>Back to sign in</Button>
     </section>
   </main>;
 }

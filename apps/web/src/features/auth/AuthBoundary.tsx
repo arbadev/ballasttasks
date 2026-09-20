@@ -11,12 +11,25 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
   const auth = useAuthService();
   const session = useSession();
   if (!auth) return children;
+  if (session.status && session.status !== "ready") return <SessionCheck />;
   if (session.user) return <Fragment key={session.epoch}>{children}</Fragment>;
   return <AuthScreen auth={auth} expired={session.reason === "expired"} />;
 }
 
-function AuthScreen({ auth, expired }: { auth: AuthService; expired: boolean }) {
-  const [register, setRegister] = useState(false);
+export function SessionCheck() {
+  const auth = useAuthService();
+  const session = useSession();
+  const unavailable = session.status === "unavailable";
+  const logoutFailed = session.status === "logout-failed";
+  return <main className="grid min-h-dvh place-items-center bg-bg px-5 text-fg"><section className="rounded-bt border border-line bg-panel p-7">
+    <p role={unavailable || logoutFailed ? "alert" : "status"}>{unavailable ? "We could not verify your session. Check your connection and try again." : logoutFailed ? "Sign-out could not reach the server. Retry to remove this browser's session." : session.status === "signing-out" ? "Signing out…" : "Checking your session…"}</p>
+    {(unavailable || logoutFailed) && <Button className="mt-4" onClick={() => { if (logoutFailed) void auth?.logout(); else void auth?.restore?.(); }}>Retry {logoutFailed ? "sign out" : "session check"}</Button>}
+  </section></main>;
+}
+
+export function AuthScreen({ auth, expired, mode, onModeChange, onSso }: { auth: AuthService; expired: boolean; mode?: "login" | "register"; onModeChange?: () => void; onSso?: () => void }) {
+  const [localRegister, setRegister] = useState(false);
+  const register = mode ? mode === "register" : localRegister;
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -69,10 +82,10 @@ function AuthScreen({ auth, expired }: { auth: AuthService; expired: boolean }) 
           {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
           <Button type="submit" disabled={pending} className="mt-2 h-11 justify-center disabled:cursor-wait disabled:opacity-60">{pending ? "Please wait…" : register ? "Create account" : "Sign in"}</Button>
         </form>
-        {providers.map((provider) => <a key={provider.name} href={provider.url} className="mt-3 flex min-h-11 items-center justify-center rounded-bt border border-line text-[13px] text-fg-2 hover:bg-card">Continue with {provider.name}</a>)}
+        {providers.map((provider) => <a key={provider.name} href={provider.url} onClick={onSso} className="mt-3 flex min-h-11 items-center justify-center rounded-bt border border-line text-[13px] text-fg-2 hover:bg-card">Continue with {provider.name}</a>)}
         {providerError && <div className="mt-3 text-[12px] text-fg-3">Single sign-on is unavailable. <Button variant="ghost" onClick={() => setAttempt((n) => n + 1)}>Retry single sign-on</Button></div>}
-        <Button variant="ghost" disabled={pending} className="mt-5 w-full justify-center" onClick={() => { setRegister(!register); setError(""); setPassword(""); }}>{register ? "Already have an account? Sign in" : "Create an account"}</Button>
-        <p className="mt-6 border-t border-line pt-4 text-[11px] leading-relaxed text-fg-3">For this session only. Sign in again after reloading or opening a new tab. Your saved work stays in the workspace.</p>
+        <Button variant="ghost" disabled={pending} className="mt-5 w-full justify-center" onClick={() => { if (onModeChange) onModeChange(); else setRegister(!register); setError(""); setPassword(""); }}>{register ? "Already have an account? Sign in" : "Create an account"}</Button>
+        <p className="mt-6 border-t border-line pt-4 text-[11px] leading-relaxed text-fg-3">Stay signed in across reloads and tabs until your session expires or you sign out. Your saved work stays in the workspace.</p>
       </section>
     </main>
   );

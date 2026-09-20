@@ -100,6 +100,20 @@ class StorageSettings(_Group):
 class CorsSettings(_Group):
     allowed_origins: list[str] = ["http://localhost:3000"]
 
+    @field_validator("allowed_origins")
+    @classmethod
+    def _exact_origins(cls, values: list[str]) -> list[str]:
+        for value in values:
+            _plain_http_url(value, "CORS__ALLOWED_ORIGINS")
+            parts = urlsplit(value)
+            if parts.path or parts.netloc != parts.netloc.strip() or "*" in value:
+                raise ValueError(
+                    "CORS__ALLOWED_ORIGINS must contain exact origins without paths or wildcards"
+                )
+            if parts.scheme == "http" and parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                raise ValueError("CORS__ALLOWED_ORIGINS requires HTTPS except on loopback")
+        return values
+
 
 class AuthSettings(_Group):
     jwt_secret: SecretStr
@@ -214,6 +228,14 @@ class Settings(BaseSettings):
     sso: SsoSettings = SsoSettings()
     rate_limit: RateLimitSettings = RateLimitSettings()
     storage: StorageSettings = StorageSettings()
+
+    @model_validator(mode="after")
+    def _production_origins(self) -> Self:
+        if self.app.env == "production" and any(
+            not origin.startswith("https://") for origin in self.cors.allowed_origins
+        ):
+            raise ValueError("CORS__ALLOWED_ORIGINS requires HTTPS in production")
+        return self
 
 
 def load_settings(

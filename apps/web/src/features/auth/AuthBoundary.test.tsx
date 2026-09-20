@@ -18,14 +18,17 @@ function fill() {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: "test@example.test" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "password" } });
 }
-describe("memory-only auth screen", () => {
-  it("signs in through HTTP, signs out, and requires sign-in on a full remount", async () => {
+describe("verified cookie auth screen", () => {
+  it("signs in through HTTP, signs out, and verifies the persisted session on a full remount", async () => {
+    let signedIn = false;
     server.use(
-      http.post(`${base}/auth/login`, () => HttpResponse.json({ access_token: "test-token", token_type: "bearer" })),
-      http.get(`${base}/auth/me`, () => HttpResponse.json(apiPerson)),
+      http.get(`${base}/auth/session`, () => signedIn ? HttpResponse.json(apiPerson) : new HttpResponse(null, { status: 401 })),
+      http.post(`${base}/auth/session`, () => { signedIn = true; return HttpResponse.json(apiPerson); }),
+      http.delete(`${base}/auth/session`, () => { signedIn = false; return new HttpResponse(null, { status: 204 }); }),
     );
     const view = renderApp();
-    expect(screen.getByText(/sign in again after reloading/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Private workspace/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/stay signed in across reloads/i)).toBeInTheDocument();
     fill();
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     fireEvent.click(await screen.findByRole("button", { name: /Private workspace/ }));
@@ -35,15 +38,16 @@ describe("memory-only auth screen", () => {
     await screen.findByRole("button", { name: /Private workspace/ });
     view.unmount();
     renderApp();
-    expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Welcome back" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Private workspace/ })).toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
   });
 
   it("registers with a name and safely presents a duplicate email error with retry", async () => {
-    server.use(http.post(`${base}/auth/register`, () => HttpResponse.json({}, { status: 409 })));
+    server.use(http.get(`${base}/auth/session`, () => new HttpResponse(null, { status: 401 })), http.post(`${base}/auth/register`, () => HttpResponse.json({}, { status: 409 })));
     renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "Create an account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create an account" }));
     fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Test Person" } });
     fill();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
@@ -52,6 +56,7 @@ describe("memory-only auth screen", () => {
   });
 
   it("shows provider discovery errors without blocking password sign-in", async () => {
+    server.use(http.get(`${base}/auth/session`, () => new HttpResponse(null, { status: 401 })));
     renderApp(503);
     await waitFor(() => expect(screen.getByRole("button", { name: "Retry single sign-on" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();

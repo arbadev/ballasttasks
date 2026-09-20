@@ -23,6 +23,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.api.session_policy import BrowserSessionPolicy
 from app.application.clock import Clock, utc_now
 from app.application.file_changes import FileChanges, files_following_the_transaction
 from app.application.ports.activity_feed import ActivityFeed
@@ -405,6 +406,14 @@ class Container:
     identity_providers: Mapping[str, IdentityProvider]
     one_time_store: OneTimeStore
     sso: SsoConfig
+
+    @property
+    def browser_session(self) -> BrowserSessionPolicy:
+        return BrowserSessionPolicy(
+            origins=tuple(self.settings.cors.allowed_origins),
+            secure=self.settings.app.env == "production",
+            lifetime_seconds=self.settings.auth.access_token_expire_minutes * 60,
+        )
 
     @property
     def step_generations(self) -> StepGenerations:

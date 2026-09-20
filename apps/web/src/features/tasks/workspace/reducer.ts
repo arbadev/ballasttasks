@@ -34,6 +34,7 @@ export interface WorkspaceState {
 }
 
 export type WorkspaceAction =
+  | { type: "routeChanged"; route: Pick<WorkspaceState, "query" | "sort" | "view" | "pageOffset"> }
   | { type: "loadStarted" }
   | { type: "tasksLoaded"; tasks: Task[] }
   | { type: "loadFailed"; message: string }
@@ -75,6 +76,8 @@ function withQuery(state: WorkspaceState, patch: Partial<TaskQuery>): WorkspaceS
 
 export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   switch (action.type) {
+    case "routeChanged":
+      return { ...state, ...action.route, load: state.page ? { status: "loading" } : state.load };
     case "loadStarted":
       return { ...state, load: { status: "loading" }, duringLoad: {} };
     case "tasksLoaded": {

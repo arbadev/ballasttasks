@@ -26,7 +26,7 @@ const ELEMENTS: { name: string; find: (page: Page) => Locator; except?: string[]
   { name: "page body", find: (page) => page.locator("body"), except: ["fontSize"] },
   { name: "sidebar", find: (page) => page.locator("aside").first() },
   { name: "logo mark", find: (page) => page.locator("aside span").first() },
-  { name: "nav button", find: (page) => page.getByRole("button", { name: /^My tasks/ }) },
+  { name: "nav item", find: (page) => page.getByRole(page.url().startsWith(APP_URL) ? "link" : "button", { name: /^My tasks/ }) },
   { name: "page heading", find: (page) => page.getByRole("heading", { level: 1 }) },
   { name: "primary button", find: (page) => page.getByRole("button", { name: "New task" }) },
   { name: "search box", find: (page) => page.getByPlaceholder("Search tasks") },
@@ -71,7 +71,7 @@ test("the radius utilities follow the skin's radii on all four corners", async (
 
   expect(await corners(page.getByRole("button", { name: "New task" })), "rounded-bt").toEqual(["7px", "7px", "7px", "7px"]);
   expect(await corners(page.getByPlaceholder("Search tasks")), "rounded-bt").toEqual(["7px", "7px", "7px", "7px"]);
-  expect(await corners(page.getByRole("button", { name: /^My tasks/ })), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
+  expect(await corners(page.getByRole("link", { name: /^My tasks/ })), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
   expect(await corners(page.locator("aside span").first()), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
 });
 

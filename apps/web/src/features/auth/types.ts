@@ -4,6 +4,7 @@ export interface Session {
   epoch: number;
   user: Person | null;
   reason?: "expired";
+  status?: "checking" | "ready" | "unavailable" | "signing-out" | "logout-failed";
 }
 
 export interface AuthService {
@@ -13,5 +14,7 @@ export interface AuthService {
   register(email: string, name: string, password: string): Promise<void>;
   exchange(code: string): Promise<void>;
   providers(): Promise<{ name: string; url: string }[]>;
-  logout(): void;
+  logout(): void | Promise<void>;
+  restore?(): Promise<void>;
+  connect?(): () => void;
 }

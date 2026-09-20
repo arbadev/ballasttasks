@@ -7,6 +7,8 @@ import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type P
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
 import type { NewTask, TaskPatch, ProjectEdit } from "../services/types";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
+import { useTaskNavigation } from "./TaskRouteContext";
+import { changeTaskRoute } from "./route";
 
 export interface WorkspaceActions {
   selectScope(scope: Scope): void;
@@ -103,7 +105,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const directoryService = useDirectoryService();
   const stepGeneration = useStepGenerationService();
   const clock = useClock();
-  const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState);
+  const navigation = useTaskNavigation();
+  const [state, reduce] = useReducer(workspaceReducer, { ...initialWorkspaceState, ...navigation?.route });
+  const [route, setRoute] = useState(navigation?.route);
+  // URL is authoritative. Synchronize its projection before rendering children or issuing
+  // queries; never run a state->router effect (that would undo Back/Forward).
+  if (navigation && route !== navigation.route) {
+    setRoute(navigation.route);
+    reduce({ type: "routeChanged", route: navigation.route });
+  }
+  const dispatch = useCallback((action: WorkspaceAction) => {
+    const next = navigation && changeTaskRoute(navigation.route, action);
+    if (next && navigation) navigation.navigate(next, action.type === "searchChanged");
+    else reduce(action);
+  }, [navigation]);
   const [directory, setDirectory] = useState<Directory>(EMPTY_DIRECTORY);
   const [now, setNow] = useState(() => clock());
   const [attempt, setAttempt] = useState(0);
@@ -126,11 +141,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       .then(([tasks, people, projects, currentUser]) => {
         if (cancelled) return;
         setDirectory((current) => ({ people, projects: mergeProjects(current.projects, projects, revision, projectChangedAt.current), currentUser }));
-        if (tasks) dispatch({ type: "tasksLoaded", tasks });
+        if (tasks) reduce({ type: "tasksLoaded", tasks });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : LOAD_FAILED_WITHOUT_DETAIL });
+        reduce({ type: "loadFailed", message: error instanceof Error ? error.message : LOAD_FAILED_WITHOUT_DETAIL });
       });
     return () => {
       cancelled = true;
@@ -157,7 +172,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       });
     }, state.query.search ? 250 : 0);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [taskService, directory.currentUser, state.query, state.sort, state.view, state.pageOffset, state.revision, attempt, now]);
+  }, [taskService, directory.currentUser, state.query, state.sort, state.view, state.pageOffset, state.revision, attempt, now, dispatch]);
 
   useEffect(() => {
     stepGeneration.select?.(state.selectedId);
@@ -173,13 +188,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!selected || (selected.detailLoaded !== false && !selected.detailStale)) return;
     let cancelled = false;
-    dispatch({ type: "detailStarted" });
+    reduce({ type: "detailStarted" });
     taskService.get(selected.id).then((task) => {
       if (cancelled) return;
-      if (task) dispatch({ type: "detailLoaded", task, expected: selected });
-      else { dispatch({ type: "taskRemoved", id: selected.id }); stepGeneration.forget?.(selected.id); }
+      if (task) reduce({ type: "detailLoaded", task, expected: selected });
+      else { reduce({ type: "taskRemoved", id: selected.id }); stepGeneration.forget?.(selected.id); }
     }).catch((error: unknown) => {
-      if (!cancelled) dispatch({ type: "detailFailed", id: selected.id, message: error instanceof Error ? error.message : "Could not load task details." });
+      if (!cancelled) reduce({ type: "detailFailed", id: selected.id, message: error instanceof Error ? error.message : "Could not load task details." });
     });
     return () => { cancelled = true; };
   }, [selected, taskService, stepGeneration, detailAttempt]);
@@ -224,19 +239,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         projectChangedAt.current.set(project.id, directoryRevision.current);
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
         // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
-        dispatch({ type: "scopeSelected", scope: "all" });
-        dispatch({ type: "signalCleared" });
-        dispatch({ type: "statusFilterChanged", status: DEFAULT_QUERY.status });
-        dispatch({ type: "dueFilterChanged", due: DEFAULT_QUERY.due });
-        dispatch({ type: "priorityFilterChanged", priority: DEFAULT_QUERY.priority });
-        dispatch({ type: "searchChanged", search: DEFAULT_QUERY.search });
-        dispatch({ type: "projectToggled", project: project.id });
+        if (navigation) navigation.navigate({ ...navigation.route, query: { ...DEFAULT_QUERY, project: project.id }, pageOffset: 0 });
+        else {
+          dispatch({ type: "scopeSelected", scope: "all" });
+          dispatch({ type: "signalCleared" });
+          dispatch({ type: "statusFilterChanged", status: DEFAULT_QUERY.status });
+          dispatch({ type: "dueFilterChanged", due: DEFAULT_QUERY.due });
+          dispatch({ type: "priorityFilterChanged", priority: DEFAULT_QUERY.priority });
+          dispatch({ type: "searchChanged", search: DEFAULT_QUERY.search });
+          dispatch({ type: "projectToggled", project: project.id });
+        }
       },
     }),
-    [directoryService],
+    [directoryService, dispatch, navigation],
   );
 
-  const value = useMemo(() => ({ state, dispatch, actions, directory, now }), [state, actions, directory, now]);
+  const value = useMemo(() => ({ state, dispatch, actions, directory, now }), [state, dispatch, actions, directory, now]);
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 
