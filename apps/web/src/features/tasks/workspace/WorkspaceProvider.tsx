@@ -278,6 +278,6 @@ export function useTaskCommands(): TaskCommands {
         saved(task);
       },
     }),
-    [service, stepGeneration, saved, forget, dispatch, project],
+    [service, saved, forget, dispatch, project],
   );
 }
