@@ -64,7 +64,7 @@ function EditProjectDialog({ project, opener, onClose }: { project: Project; ope
       {invalid && <FieldMessage id={`${id}-invalid`} tone="error">{invalid}</FieldMessage>}
       <div className="flex items-start gap-4">
         <label className="flex w-24 flex-none flex-col gap-1.5 text-[11.5px] text-fg-3">Key
-          <input readOnly value={project.key ?? ""} className="h-[34px] w-full rounded-bt border border-line bg-card px-2.5 font-mono text-[12.5px] text-fg" />
+          <input id={`${id}-key`} aria-describedby={`${id}-key-hint`} readOnly value={project.key ?? ""} className="h-[34px] w-full rounded-bt border border-line bg-card px-2.5 font-mono text-[12.5px] text-fg" />
         </label>
         <ProjectColour id={id} tone={tone} setTone={setTone} pending={pending} />
       </div>

@@ -11,6 +11,7 @@ describe("project editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
     expect(screen.getByLabelText("Key")).toHaveValue(project.key);
     expect(screen.getByLabelText("Key")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Key")).toHaveAttribute("id");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed project" } });
     fireEvent.click(screen.getByRole("radio", { name: "Blue" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
