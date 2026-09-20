@@ -224,11 +224,13 @@ dialog and the hand-back on close are all untouched.
 - **Rename and reorder steps.** Activate a step's title to edit inline; Enter/Save submits a
   trimmed 1–200-character title, and Escape/Cancel abandons the draft without ticking or
   removing the step. The session's composer holds pending/refused renames and independent
-  newer drafts across close/reopen, and the title being saved stays in the field, valid, until
-  the reader types over it. Move up/down buttons have a reserved slot of their own between the
-  title and Remove — they appear on row hover/keyboard focus without ever covering or reflowing
-  the title, and take their own line with 44px targets on coarse pointers. First/last
-  boundaries are disabled.
+  newer drafts across close/reopen. A rename edits in place, so the composer keeps the title it
+  sent in the field, valid, and gives it up only when that same send lands untouched: closing
+  the panel, reopening it or visiting another task mid-save finds the title still there, and a
+  draft the reader emptied on purpose stays empty. Move up/down buttons have a reserved slot of
+  their own between the title and Remove — they appear on row hover/keyboard focus without ever
+  covering or reflowing the title, and take their own line with 44px targets on coarse
+  pointers. First/last boundaries are disabled.
   Reordering sends the exact current-ID permutation, preserving completion and identity;
   neither operation invents activity. If membership changed concurrently or order cannot be
   confirmed, moving stops and **Reload steps** performs a canonical read, never resubmits

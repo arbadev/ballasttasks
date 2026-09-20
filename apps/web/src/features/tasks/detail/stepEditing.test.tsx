@@ -8,6 +8,7 @@ const task = makeTask({ id: "edit", steps: [
   { id: "b", text: "Second", done: false },
   { id: "c", text: "Third", done: false },
 ] });
+const elsewhere = makeTask({ id: "elsewhere", title: "Another task" });
 const section = () => within(screen.getByRole("region", { name: "Steps" }));
 const names = () => section().getAllByRole("checkbox").map((s) => s.getAttribute("aria-label"));
 const edit = (name: string) => fireEvent.click(section().getByRole("button", { name: `Rename step: ${name}` }));
@@ -268,5 +269,43 @@ describe("ordinary panel step editing through workspace commands", () => {
     settleSend(true); await settle();
     expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
     expect(names()).toEqual(["First", "Held", "Third"]);
+  });
+  it("holds the title being saved in its own field through a close and reopen", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let release!: () => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("First");
+    fireEvent.change(input(), { target: { value: "Revised" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    openTask("edit");
+    expect(input()).toHaveValue("Revised");
+    expect(input()).toHaveAttribute("aria-invalid", "false");
+    expect(input()).toHaveAttribute("aria-busy", "true");
+    expect(section().getByRole("button", { name: "Save step title" })).toBeDisabled();
+    release(); await settle();
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+    expect(section().getByRole("checkbox", { name: "Revised" })).toBeChecked();
+    expect(taskService.calls.filter((c) => c[0] === "renameStep")).toEqual([["renameStep", "edit", "a", "Revised"]]);
+  });
+
+  it("keeps a draft emptied on purpose empty across another task, and saves what was sent", async () => {
+    const { taskService } = await renderDetail({ tasks: [task, elsewhere] });
+    const original = taskService.renameStep.bind(taskService);
+    let release!: () => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("Second");
+    fireEvent.change(input(), { target: { value: "Sent" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.change(input(), { target: { value: "" } });
+    openTask("elsewhere");
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+    openTask("edit");
+    expect(input()).toHaveValue("");
+    expect(input()).toHaveAttribute("aria-invalid", "true");
+    release(); await settle();
+    expect(names()).toEqual(["First", "Sent", "Third"]);
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
   });
 });

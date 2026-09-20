@@ -11,7 +11,8 @@ interface Sending {
   text: string;
   /** The send came back refused; the text is kept here so a Retry can send exactly it. */
   failed: boolean;
-  /** This send's failure put its text back in the box, and nothing has been typed since. */
+  /** The box holds this send's own text — left there by an in-place box or put back by a
+   *  refusal — and nothing has been typed over it since. */
   restored: boolean;
 }
 
@@ -177,7 +178,8 @@ export interface Composer {
   failed: string | null;
   /** This box cannot take a send: one is running, or one was refused and is still held. */
   busy: boolean;
-  /** Sends what is in the box. Does nothing while this box is `busy`. */
+  /** Sends what is in the box. Does nothing while this box is `busy`. An in-place box keeps
+   *  the trimmed text it sent; every other box empties for the next draft. */
   submit(): void;
   retry(): void;
   dismiss(): void;
@@ -189,11 +191,12 @@ export interface Composer {
  * thing at a time: while a send runs the box says so and takes no second one, and a send that
  * is refused is held, still blocking, until it is retried or dismissed — there is no implicit
  * way past it. The box stays the user's to type in throughout; text is only ever taken back
- * out of it when a failure put it there and nothing has been typed over it since, however
+ * out of it when the send itself put it there and nothing has been typed over it since, however
  * many refusals that took, so no send can erase what the user wrote or post the same thing
- * twice.
+ * twice. A box that edits in place (`editsInPlace`) keeps what it sent on screen instead of
+ * emptying for the next draft, and gives it up only when that same send lands untouched.
  */
-export function useComposer(key: string, send: (text: string) => Promise<unknown>): Composer {
+export function useComposer(key: string, send: (text: string) => Promise<unknown>, editsInPlace = false): Composer {
   const { composers } = useDetailSession();
   const read = useCallback(() => composers.get(key), [composers, key]);
   const subscribe = useCallback((listener: () => void) => composers.subscribe(listener), [composers]);
@@ -205,8 +208,8 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
   });
 
   const run = useCallback(
-    (value: string) => {
-      composers.update(key, (c) => ({ ...c, sending: { text: value, failed: false, restored: c.sending?.restored ?? false } }));
+    (value: string, owned = false) => {
+      composers.update(key, (c) => ({ ...c, sending: { text: value, failed: false, restored: owned || (c.sending?.restored ?? false) } }));
       latest.current(value).then(
         () =>
           composers.update(key, (c) => ({
@@ -215,8 +218,8 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
           })),
         () =>
           composers.update(key, (c) => {
-            // Still this send's text in the box: either it was empty, or an earlier refusal of
-            // the same send put the text there and nothing has been typed over it since.
+            // Still this send's text in the box: either it was empty, or the send itself or an
+            // earlier refusal put the text there and nothing has been typed over it since.
             const restored = c.text === "" || (c.sending?.restored === true && c.text === value);
             return { text: restored ? value : c.text, sending: { text: value, failed: true, restored } };
           }),
@@ -238,9 +241,9 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
     if (current.sending) return;
     const value = current.text.trim();
     if (!value) return;
-    composers.update(key, (c) => ({ ...c, text: "" }));
-    run(value);
-  }, [composers, key, run]);
+    composers.update(key, (c) => ({ ...c, text: editsInPlace ? value : "" }));
+    run(value, editsInPlace);
+  }, [composers, key, run, editsInPlace]);
 
   const retry = useCallback(() => {
     const held = composers.get(key).sending;
