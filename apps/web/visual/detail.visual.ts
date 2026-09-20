@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { APP_URL, DESIGN_URL } from "../playwright.config";
@@ -32,14 +32,17 @@ type Region = keyof typeof REGIONS;
 /**
  * Where the app differs from the design on purpose. Each entry is compared like any other
  * region and reported, but held to its own ceiling instead of 1%, and carries the reason for
- * it here; nothing is masked or skipped. Empty: no tolerance exceptions. The three approved
- * copy replacements below instead have localized baselines at the unchanged 1% ceiling.
+ * it here; nothing is masked or skipped. Empty: the panel matches the design everywhere,
+ * including the three regions whose superseded sentence is replaced in the rendered reference.
  */
 const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason: string }[] = [];
 
-/** Only these three sentences supersede the design's unsupported attachment-reading claim.
- * Keep the original diff, but check the affected full region against its revised-copy baseline
- * at the same 1% ceiling. Geometry/styles/controls still compare with the unchanged design.
+/**
+ * Only these three sentences supersede the design's unsupported attachment-reading claim.
+ * The reference stays the reference: it is rendered, this one sentence is replaced in the
+ * rendered DOM (the file on disk is never touched, nothing else is), and the whole region is
+ * then held to the same 1% and 2-per-channel contract as every other region. The design's
+ * original sentence is still diffed unmasked and reported, only without a ceiling of its own.
  */
 const REVISED_COPY: Record<string, { region: Region; text: string; original: string }> = {
   "new-task": {
@@ -58,6 +61,25 @@ const REVISED_COPY: Record<string, { region: Region; text: string; original: str
     original: "Drafted from the title, description and attachments. Remove what doesn't fit — nothing is added until you say so.",
   },
 };
+
+/**
+ * The rendered reference with only the superseded sentence rewritten. Exactly one visible node
+ * must read the design's original sentence: a reference that no longer says it, or says it in
+ * more than one place, fails here instead of quietly comparing the app against something else.
+ */
+async function supersedeCopy(page: Page, state: string) {
+  const copy = REVISED_COPY[state];
+  const replaced = await page.evaluate(({ original, text }) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const hits: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeValue?.trim() === original && node.parentElement?.checkVisibility()) hits.push(node as Text);
+    }
+    for (const node of hits) node.nodeValue = node.nodeValue!.replace(original, text);
+    return hits.length;
+  }, copy);
+  expect(replaced, `the reference must show exactly one "${copy.original}"`).toBe(1);
+}
 
 /** Compare corresponding visible controls and copy, not differing DOM tags or hidden pickers. */
 async function copyLayout(page: Page, state: string, side: "design" | "app") {
@@ -245,7 +267,7 @@ async function measure(canvas: Page, id: string, pair: Pair, ceiling: number | n
 }
 
 for (const state of STATES.filter((state) => REVISED_COPY[state.name])) {
-  test(`revised ${state.name} copy preserves reference layout and wraps at 375px`, async ({ browser }) => {
+  test(`revised ${state.name} copy keeps the reference's layout at 375px`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
     const [design, app] = [await context.newPage(), await context.newPage()];
     const layouts: Record<string, Awaited<ReturnType<typeof copyLayout>>> = {};
@@ -262,14 +284,49 @@ for (const state of STATES.filter((state) => REVISED_COPY[state.name])) {
       await parkPointer(page);
       layouts[side] = await copyLayout(page, state.name, side);
       const region = page.locator(REGIONS[REVISED_COPY[state.name].region]).first();
-      expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth), `${side}: copy and controls fit without horizontal scrolling`).toBe(true);
+      expect.soft(await region.evaluate((el) => el.scrollWidth <= el.clientWidth), `${side}: copy and controls fit without horizontal scrolling`).toBe(true);
       writeFileSync(join(RESULTS, `${state.name}-375-${side}.png`), await shoot(page, REGIONS[REVISED_COPY[state.name].region]));
+      // The draft lasts 2.2s on both sides: say so, rather than reporting the layout of a
+      // state that had already moved on while it was being measured.
+      if (state.name === "generation-running") await expect.soft(page.getByText("Drafting steps", { exact: true }), `${side} left the running state before it was measured`).toBeVisible();
     }
     writeFileSync(join(RESULTS, `${state.name}-mobile-layout.json`), JSON.stringify(layouts, null, 2));
-    expect(layouts.app, "original reference geometry/styles/controls at equal 343px content width").toEqual(layouts.design);
     await context.close();
+    expect.soft(layouts.app, "original reference geometry/styles/controls at equal 343px content width").toEqual(layouts.design);
   });
 }
+
+/**
+ * The regions with a superseded sentence are only worth their ceiling if they can still fail.
+ * Supersede it in the reference, confirm the app as it ships passes the whole region at 1%,
+ * then give the app an unrelated wrong surface token there: the same comparison must reject it.
+ */
+test("a superseded sentence still leaves the rest of its region under the 1% ceiling", async ({ browser }) => {
+  const state = STATES.find((candidate) => candidate.name === "new-task")!;
+  const { region } = REVISED_COPY[state.name];
+  const context = await browser.newContext({ viewport: VIEWPORTS[0], deviceScaleFactor: 1 });
+  const [design, app, canvas] = [await context.newPage(), await context.newPage(), await context.newPage()];
+  await open(design, `${DESIGN_URL}/${DESIGN_FILE}`, "All tasks");
+  await open(app, APP_URL, "13 tasks");
+  for (const page of [design, app]) {
+    await state.reach(page);
+    await parkPointer(page);
+  }
+  await supersedeCopy(design, state.name);
+  const reference = await shoot(design, REGIONS[region]);
+
+  const shipped: string[] = [];
+  await measure(canvas, `control-${region}-as-shipped`, { design: reference, app: await shoot(app, REGIONS[region]) }, MAX_RATIO, shipped, "control: the app as it ships, against the reference with its sentence superseded");
+
+  // Nothing to do with the sentence: one wrong surface token, what the ceiling is there to catch.
+  await app.locator(REGIONS[region]).first().evaluate((el) => ((el as HTMLElement).style.background = "#2b3348"));
+  const perturbed: string[] = [];
+  await measure(canvas, `control-${region}-wrong-surface`, { design: reference, app: await shoot(app, REGIONS[region]) }, MAX_RATIO, perturbed, "control: an unrelated wrong surface token must still be rejected");
+
+  await context.close();
+  expect(shipped, shipped.join("\n")).toEqual([]);
+  expect(perturbed, "a wrong surface token elsewhere in the region must fail the comparison").not.toEqual([]);
+});
 
 for (const viewport of VIEWPORTS) {
   const size = `${viewport.width}x${viewport.height}`;
@@ -286,12 +343,17 @@ for (const viewport of VIEWPORTS) {
       const structure = new Map<Region, Pair>();
       const revised = REVISED_COPY[state.name];
       const layouts: Record<string, Awaited<ReturnType<typeof copyLayout>>> = {};
+      /** The reference as it ships, before its sentence is superseded: evidence, never a limit. */
+      let originalCopy: Buffer | undefined;
       for (const [side, page] of [["design", design], ["app", app]] as const) {
         await state.reach(page);
         await parkPointer(page);
         if (revised) {
           layouts[side] = await copyLayout(page, state.name, side);
-          if (side === "app") await expect(page.getByText(revised.text, { exact: true })).toBeVisible();
+          if (side === "design") {
+            originalCopy = await shoot(page, REGIONS[revised.region]);
+            await supersedeCopy(page, state.name);
+          }
         }
         const capture = async (into: Map<Region, Pair>, regions: Region[]) => {
           for (const region of regions) {
@@ -311,17 +373,10 @@ for (const viewport of VIEWPORTS) {
         const id = `${region}-${size}-${state.name}`;
         const deviation = DEVIATIONS.find((d) => d.region === region && (!d.states || d.states.includes(state.name)));
         const held = structure.get(region);
-        if (revised?.region === region) {
-          await measure(canvas, `${id}-original-copy`, held ?? pair, null, failures, "original design copy superseded; unmasked diff retained, not claimed under 1%");
-          if (held) await measure(canvas, `${id}-original-copy-with-placeholder`, pair, null, failures, "original copy and placeholders, untouched");
-          writeFileSync(join(RESULTS, `${id}-layout.json`), JSON.stringify(layouts, null, 2));
-          expect(layouts.app, `${id}: unchanged reference geometry, styles and controls`).toEqual(layouts.design);
-          const baseline = `${id}-revised-copy.png`;
-          expect(pair.app).toMatchSnapshot(baseline, { maxDiffPixelRatio: MAX_RATIO, threshold: 2 / 255 });
-          // Retain the original per-channel comparator too: Playwright's snapshot threshold
-          // is perceptual, not the design suite's strict 2/255 per-channel contract.
-          await measure(canvas, `${id}-revised-copy`, { design: readFileSync(test.info().snapshotPath(baseline)), app: pair.app }, MAX_RATIO, failures, "approved revised-copy baseline, original 1% and per-channel tolerance");
-        } else if (held) {
+        if (originalCopy && revised?.region === region) {
+          await measure(canvas, `${id}-original-copy`, { design: originalCopy, app: pair.app }, null, failures, "the reference's superseded sentence: diffed unmasked and reported, not held to a limit");
+        }
+        if (held) {
           await measure(canvas, id, held, deviation?.maxRatio ?? MAX_RATIO, failures, "structure: placeholder glyphs transparent on both sides");
           await measure(canvas, `${id}-with-placeholder`, pair, null, failures, "untouched: reported, not limited (placeholders are --fg-3 by ruling)");
         } else {
@@ -330,6 +385,10 @@ for (const viewport of VIEWPORTS) {
       }
 
       await context.close();
+      if (revised) {
+        writeFileSync(join(RESULTS, `${size}-${state.name}-layout.json`), JSON.stringify(layouts, null, 2));
+        expect.soft(layouts.app, `${size} ${state.name}: unchanged reference geometry, styles and controls`).toEqual(layouts.design);
+      }
       expect(failures, failures.join("\n")).toEqual([]);
     });
   }
