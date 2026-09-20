@@ -60,6 +60,27 @@ test("step rename and order have independent keyboard targets without changing t
   await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName("Keyboard revised");
 });
 
+test("a keyboard move hands the focus back to the row, and to the other arrow at the boundary", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(APP_URL);
+  await page.getByText(rich, { exact: true }).click();
+  const section = page.getByRole("region", { name: "Steps" });
+  const steps = section.getByRole("checkbox");
+  const total = await steps.count();
+  const down = section.getByRole("button", { name: `Move step down: ${first}` });
+  await tabTo(page, down);
+  for (let position = 1; position < total; position++) {
+    await page.keyboard.press("Enter");
+    await expect(steps.nth(position)).toHaveAccessibleName(first);
+    if (position < total - 1) await expect(down).toBeFocused();
+  }
+  await expect(down).toBeDisabled();
+  await expect(section.getByRole("button", { name: `Move step up: ${first}` })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(steps.nth(total - 2)).toHaveAccessibleName(first);
+  await expect(section.getByRole("button", { name: `Move step up: ${first}` })).toBeFocused();
+});
+
 test("a click inside an open rename input lands in the input and moves no step", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(APP_URL);

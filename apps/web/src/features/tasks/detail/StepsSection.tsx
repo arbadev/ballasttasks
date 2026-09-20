@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, ArrowUp, Check, Sparkles, X } from "lucide-react";
-import { useId, useSyncExternalStore } from "react";
+import { useId, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn";
 import type { Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
@@ -11,17 +11,38 @@ import { StepTitle } from "./StepTitle";
 import { StepGenerationPanel } from "./StepGenerationPanel";
 import type { StepGenerationView } from "./useStepGeneration";
 
+type Direction = "up" | "down";
+
+const moveKey = (stepId: string, label: Direction) => `${stepId}:${label}`;
+
 /** The checklist, its progress, the add box and, under it, the assistant's draft. */
 export function StepsSection({ task, generation }: { task: Task; generation: StepGenerationView }) {
   const headingId = useId();
   const commands = useTaskCommands();
   const { track, stepOrders } = useDetailSession();
   const order = useSyncExternalStore(stepOrders.subscribe, () => stepOrders.get(task.id), () => "idle");
-  const move = (index: number, offset: number) => {
+  const moveControls = useRef(new Map<string, HTMLButtonElement | null>());
+  const reloadControl = useRef<HTMLButtonElement>(null);
+  const lastMoved = useRef<{ taskId: string; stepId: string; label: Direction } | null>(null);
+  const handBack = useRef(false);
+  const move = (index: number, offset: number, label: Direction) => {
     const ids = task.steps.map((step) => step.id);
     [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
+    lastMoved.current = { taskId: task.id, stepId: ids[index + offset], label };
+    handBack.current = true;
     stepOrders.run(task.id, () => track(task.id, commands.reorderSteps(task.id, ids)));
   };
+  /** A move disables its own button and moves its row, which drops the focus; put it back. */
+  useLayoutEffect(() => {
+    if (order === "pending" || !handBack.current) return;
+    handBack.current = false;
+    const moved = lastMoved.current;
+    if (!moved || moved.taskId !== task.id || document.activeElement !== document.body) return;
+    const controls = order === "failed"
+      ? [reloadControl.current]
+      : [moveControls.current.get(moveKey(moved.stepId, moved.label)), moveControls.current.get(moveKey(moved.stepId, moved.label === "up" ? "down" : "up"))];
+    controls.find((control) => !!control && !control.disabled)?.focus();
+  }, [order, task.id]);
   const box = useComposer(`step:${task.id}`, (text) => track(task.id, commands.addStep(task.id, text)));
 
   const total = task.steps.length;
@@ -91,8 +112,13 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               <div className="absolute top-1 right-8 flex rounded-bt-sm bg-panel opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 group-has-[[data-renaming]]/step:hidden pointer-coarse:static pointer-coarse:w-full pointer-coarse:opacity-100">
                 {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
                   key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
+                  ref={(control) => {
+                    const controls = moveControls.current;
+                    controls.set(moveKey(step.id, label), control);
+                    return () => { controls.delete(moveKey(step.id, label)); };
+                  }}
                   disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
-                  onClick={() => move(i, offset)}
+                  onClick={() => move(i, offset, label)}
                   className="grid h-6 w-6 cursor-pointer place-items-center rounded-bt-sm border-0 bg-transparent p-0 text-fg-3 transition-[color,background-color] duration-[160ms] ease-bt hover:bg-card hover:text-fg disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
                 ><Icon aria-hidden="true" size={14} /></button>)}
               </div>
@@ -103,8 +129,8 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
 
       {order === "pending" && <p role="status" className="m-0 text-[12px] text-fg-3">Updating steps…</p>}
       {order === "failed" && <div role="alert" className="flex flex-wrap items-center gap-2 text-[12px] text-danger">
-        <span>Could not confirm the step order. Reload steps before moving again.</span>
-        <PanelButton variant="secondary" className="px-2 py-1" onClick={() => stepOrders.run(task.id, () => track(task.id, commands.refreshTask(task.id)), true)}>Reload steps</PanelButton>
+        <span>The last step move was not confirmed. Reload steps before moving again.</span>
+        <PanelButton ref={reloadControl} variant="secondary" className="px-2 py-1" onClick={() => { handBack.current = true; stepOrders.run(task.id, () => commands.refreshTask(task.id), true); }}>Reload steps</PanelButton>
       </div>}
 
       <div className="flex items-center gap-2.5 py-1.5">

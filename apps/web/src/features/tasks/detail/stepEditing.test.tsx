@@ -12,6 +12,12 @@ const section = () => within(screen.getByRole("region", { name: "Steps" }));
 const names = () => section().getAllByRole("checkbox").map((s) => s.getAttribute("aria-label"));
 const edit = (name: string) => fireEvent.click(section().getByRole("button", { name: `Rename step: ${name}` }));
 const input = () => section().getByRole("textbox", { name: "Step title" });
+/** Chrome drops the focus to <body> when the activated control disables or its row moves; jsdom keeps it. */
+const dropFocusAsTheBrowserDoes = () => {
+  const spare = section().getByRole("textbox", { name: "Add a step" });
+  spare.focus();
+  spare.blur();
+};
 
 describe("ordinary panel step editing through workspace commands", () => {
   it("renames inline on Enter without ticking/removing; persists identity, completion and order after reopening", async () => {
@@ -138,5 +144,85 @@ describe("ordinary panel step editing through workspace commands", () => {
     await settle();
     expect(names()).toEqual(["Second", "First", "Third", "Concurrent"]);
     expect(taskService.calls).toContainEqual(["reorderSteps", "edit", ["b", "a", "c", "step1"]]);
+  });
+  it("hands the keyboard to recovery when a move is refused, and back to the row after the reload", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    openTask("edit");
+    await taskService.removeStep("edit", "c");
+    const up = section().getByRole("button", { name: "Move step up: Second" });
+    up.focus();
+    fireEvent.click(up);
+    dropFocusAsTheBrowserDoes();
+    await settle();
+    const reload = section().getByRole("button", { name: "Reload steps" });
+    expect(reload).toHaveFocus();
+    fireEvent.click(reload);
+    dropFocusAsTheBrowserDoes();
+    await settle();
+    expect(names()).toEqual(["First", "Second"]);
+    expect(section().getByRole("button", { name: "Move step up: Second" })).toHaveFocus();
+  });
+
+  it("leaves a focus the reader chose during a move alone", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.reorderSteps.bind(taskService);
+    let release!: () => void;
+    taskService.reorderSteps = (id, ids) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, ids));
+    openTask("edit");
+    const up = section().getByRole("button", { name: "Move step up: Second" });
+    up.focus();
+    fireEvent.click(up);
+    dropFocusAsTheBrowserDoes();
+    const add = section().getByRole("textbox", { name: "Add a step" });
+    add.focus();
+    release();
+    await settle();
+    expect(add).toHaveFocus();
+    expect(names()).toEqual(["Second", "First", "Third"]);
+  });
+
+  it("speaks about the refused move: a later canonical read updates the list and still holds moving", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    openTask("edit");
+    await taskService.removeStep("edit", "c");
+    fireEvent.click(section().getByRole("button", { name: "Move step up: Second" }));
+    await settle();
+    expect(section().getByRole("alert")).toHaveTextContent("The last step move was not confirmed.");
+    fireEvent.click(section().getByRole("checkbox", { name: "First" }));
+    await settle();
+    expect(names()).toEqual(["First", "Second"]);
+    expect(section().getByRole("alert")).toHaveTextContent("The last step move was not confirmed.");
+    expect(section().getByRole("button", { name: "Move step down: First" })).toBeDisabled();
+    fireEvent.click(section().getByRole("button", { name: "Reload steps" }));
+    await settle();
+    expect(section().queryByRole("alert")).not.toBeInTheDocument();
+    expect(section().getByRole("button", { name: "Move step down: First" })).toBeEnabled();
+    expect(taskService.calls.filter((c) => c[0] === "reorderSteps")).toHaveLength(1);
+  });
+
+  it("reloads as a read: the section says so and the footer neither invents nor clears a save", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const read = taskService.get.bind(taskService);
+    taskService.update = async () => { throw new Error("offline"); };
+    openTask("edit");
+    fireEvent.change(screen.getByRole("textbox", { name: "Task name" }), { target: { value: "Refused elsewhere" } });
+    fireEvent.blur(screen.getByRole("textbox", { name: "Task name" }));
+    await settle();
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
+    await taskService.removeStep("edit", "c");
+    fireEvent.click(section().getByRole("button", { name: "Move step up: Second" }));
+    await settle();
+    expect(section().getByRole("alert")).toBeInTheDocument();
+    let finish!: () => void;
+    taskService.get = (id) => new Promise((resolve) => { finish = () => resolve(read(id)); });
+    fireEvent.click(section().getByRole("button", { name: "Reload steps" }));
+    await settle();
+    expect(section().getByRole("status")).toHaveTextContent("Updating steps…");
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
+    finish();
+    await settle();
+    expect(names()).toEqual(["First", "Second"]);
+    expect(section().queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("save-state")).toHaveTextContent("not saved");
   });
 });

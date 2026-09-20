@@ -229,7 +229,14 @@ dialog and the hand-back on close are all untouched.
   Reordering sends the exact current-ID permutation, preserving completion and identity;
   neither operation invents activity. If membership changed concurrently or order cannot be
   confirmed, moving stops and **Reload steps** performs a canonical read, never resubmits
-  the stale permutation. A failed reload retains recovery and drafts.
+  the stale permutation. A failed reload retains recovery and drafts. The alert speaks about
+  that refused move, not about what is on screen: a later canonical read (ticking a step, say)
+  can bring the list up to date, and the message and the block on moving still stand until the
+  reader reloads deliberately. The reload is a read, so it never reports itself as a save and
+  never clears another field's "not saved". Keyboard order survives a move: the control that
+  was activated takes the focus back when the move settles, the opposite arrow takes it at a
+  boundary, **Reload steps** takes it when the move was refused and the row's control takes it
+  again after the reload — unless the reader moved the focus somewhere themselves.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
