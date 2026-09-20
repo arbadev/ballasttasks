@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { StepOrderStore } from "./stepOrderStore";
 import { AutosaveMachine, type FieldOptions } from "./autosaveMachine";
 
 export type SaveStatus = "idle" | "saving" | "failed";
@@ -65,6 +66,7 @@ interface DetailSession {
    */
   track<T>(taskId: string, save: Promise<T>): Promise<T>;
   composers: ComposerStore;
+  stepOrders: StepOrderStore;
   /** One date field owner per task, including its pending write and exact-null recovery. */
   dateField(taskId: string, options: FieldOptions<string | null>): AutosaveMachine<string | null>;
   generationFailed(taskId: string): boolean;
@@ -89,6 +91,7 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
   const [composers] = useState(() => new ComposerStore());
+  const [stepOrders] = useState(() => new StepOrderStore());
   const [dateFields] = useState(() => new Map<string, AutosaveMachine<string | null>>());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -147,11 +150,12 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       },
       track,
       composers,
+      stepOrders,
       dateField,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [saves, track, composers, dateField, failedGenerations, setGenerationFailed],
+    [saves, track, composers, stepOrders, dateField, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;

@@ -1,12 +1,13 @@
 "use client";
 
-import { Check, Sparkles, X } from "lucide-react";
-import { useId } from "react";
+import { ArrowDown, ArrowUp, Check, Sparkles, X } from "lucide-react";
+import { useId, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn";
 import type { Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
 import { ActionError, HIT_AREA, PanelButton, SECTION_LABEL } from "./controls";
 import { useComposer, useDetailSession } from "./DetailSession";
+import { StepTitle } from "./StepTitle";
 import { StepGenerationPanel } from "./StepGenerationPanel";
 import type { StepGenerationView } from "./useStepGeneration";
 
@@ -14,7 +15,13 @@ import type { StepGenerationView } from "./useStepGeneration";
 export function StepsSection({ task, generation }: { task: Task; generation: StepGenerationView }) {
   const headingId = useId();
   const commands = useTaskCommands();
-  const { track } = useDetailSession();
+  const { track, stepOrders } = useDetailSession();
+  const order = useSyncExternalStore(stepOrders.subscribe, () => stepOrders.get(task.id), () => "idle");
+  const move = (index: number, offset: number) => {
+    const ids = task.steps.map((step) => step.id);
+    [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
+    stepOrders.run(task.id, () => track(task.id, commands.reorderSteps(task.id, ids)));
+  };
   const box = useComposer(`step:${task.id}`, (text) => track(task.id, commands.addStep(task.id, text)));
 
   const total = task.steps.length;
@@ -52,7 +59,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           {task.steps.map((step, i) => (
             <li
               key={step.id}
-              className="flex animate-[bt-in_.3s_var(--ease)_both] items-start gap-2.5 border-b border-line py-2"
+              className="group/step relative flex animate-[bt-in_.3s_var(--ease)_both] flex-wrap items-start gap-2.5 border-b border-line py-2"
               style={{ animationDelay: `${Math.min(i, 10) * 30}ms` }}
             >
               <button
@@ -69,9 +76,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               >
                 {step.done && <Check aria-hidden="true" size={11} strokeWidth={3} className="animate-bt-pop" />}
               </button>
-              <span className={cn("min-w-0 flex-1 text-[13.5px] break-words transition-colors duration-200 ease-bt", step.done ? "text-fg-3 line-through" : "text-fg")}>
-                {step.text}
-              </span>
+              <StepTitle taskId={task.id} step={step} />
               <button
                 type="button"
                 aria-label={`Remove step: ${step.text}`}
@@ -83,10 +88,24 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               >
                 <X aria-hidden="true" size={14} strokeWidth={2} />
               </button>
+              <div className="absolute top-1 right-8 flex rounded-bt-sm bg-panel opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 pointer-coarse:static pointer-coarse:w-full pointer-coarse:opacity-100">
+                {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
+                  key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
+                  disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
+                  onClick={() => move(i, offset)}
+                  className="grid h-6 w-6 cursor-pointer place-items-center rounded-bt-sm border-0 bg-transparent p-0 text-fg-3 transition-[color,background-color] duration-[160ms] ease-bt hover:bg-card hover:text-fg disabled:cursor-default disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11"
+                ><Icon aria-hidden="true" size={14} /></button>)}
+              </div>
             </li>
           ))}
         </ul>
       )}
+
+      {order === "pending" && <p role="status" className="m-0 text-[12px] text-fg-3">Updating steps…</p>}
+      {order === "failed" && <div role="alert" className="flex flex-wrap items-center gap-2 text-[12px] text-danger">
+        <span>Could not confirm the step order. Reload steps before moving again.</span>
+        <PanelButton variant="secondary" className="px-2 py-1" onClick={() => stepOrders.run(task.id, () => track(task.id, commands.refreshTask(task.id)), true)}>Reload steps</PanelButton>
+      </div>}
 
       <div className="flex items-center gap-2.5 py-1.5">
         <span aria-hidden="true" className="size-4 flex-none rounded-bt-sm border-[1.5px] border-dashed border-line-2" />

@@ -10,6 +10,7 @@ import {
   type TaskPatch,
   type TaskService,
 } from "@/features/tasks/services/types";
+import { renameStep, reorderSteps } from "@/features/tasks/model/stepEditing";
 import { NOW } from "./tasks";
 
 /** A TaskService over a plain array that records every call, for tests that drive the UI. */
@@ -61,6 +62,14 @@ export class FakeTaskService implements TaskService {
   async addStep(id: string, text: string) {
     this.calls.push(["addStep", id, text]);
     return this.change(id, (t) => ({ ...t, steps: [...t.steps, { id: `step${++this.sequence}`, text, done: false }] }));
+  }
+  async renameStep(id: string, stepId: string, text: string) {
+    this.calls.push(["renameStep", id, stepId, text]);
+    return this.change(id, (t) => ({ ...t, steps: renameStep(t.steps, stepId, text) }));
+  }
+  async reorderSteps(id: string, stepIds: string[]) {
+    this.calls.push(["reorderSteps", id, stepIds]);
+    return this.change(id, (t) => ({ ...t, steps: reorderSteps(t.steps, stepIds) }));
   }
   async toggleStep(id: string, stepId: string) {
     this.calls.push(["toggleStep", id, stepId]);

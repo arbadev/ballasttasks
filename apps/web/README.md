@@ -141,7 +141,8 @@ than `useTaskService()` directly.
 | `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. The API owns assignment/due-date/priority event wording; legacy `note` is ignored, never posted as a comment or invented event. |
-| `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
+| `addStep`, `toggleStep`, `removeStep`, `renameStep`, `reorderSteps` | same names | Detail steps; rename keeps identity/completion, order sends every current ID exactly once. |
+| `refreshTask(id)` | `get` | Read-only recovery after a refused/stale step order; syncs canonical children or forgets a missing task. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
 | `addAttachment(id, attachment, file?)` | `addAttachment` | Link with its full absolute URL, or file metadata and original bytes for upload-capable adapters. Demo retains metadata only. |
 | `uploadAttachment`, `downloadAttachment`, `removeAttachment` | same names | Optional capabilities for older demo doubles; HTTP implements all three. Upload/removal synchronize workspace state; download returns an authenticated blob, never a credential-bearing URL. |
@@ -179,7 +180,7 @@ back to the panel's first stop, or its last when the key was Shift+Tab, the same
 `keepTabInside` wraps at from within. Nothing else moves the focus, so an opener, another
 dialog and the hand-back on close are all untouched.
 
-- **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
+- **Task fields autosave, no Save button.** Each task field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
   another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
   that carries the rejected value. The control goes back to the stored value only when the refused
@@ -220,6 +221,15 @@ dialog and the hand-back on close are all untouched.
   meanwhile, and nothing dismisses it implicitly. It is put back in the box only if the box is
   empty, and it keeps that text as its own however many refusals it takes, so a newer draft is
   never overwritten and a Retry that lands clears only text the failure itself put there.
+- **Rename and reorder steps.** Activate a step's title to edit inline; Enter/Save submits a
+  trimmed 1–200-character title, and Escape/Cancel abandons the draft without ticking or
+  removing the step. The session's composer holds pending/refused renames and independent
+  newer drafts across close/reopen. Move up/down buttons appear on row hover/keyboard focus
+  and remain visible with 44px targets on coarse pointers. First/last boundaries are disabled.
+  Reordering sends the exact current-ID permutation, preserving completion and identity;
+  neither operation invents activity. If membership changed concurrently or order cannot be
+  confirmed, moving stops and **Reload steps** performs a canonical read, never resubmits
+  the stale permutation. A failed reload retains recovery and drafts.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
@@ -397,6 +407,10 @@ in the same commit; the schema source is always given, the command has no defaul
   placeholders are `--fg-3` here and the browser default in the design. Deliberate differences
   are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
   is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+- `step-editing.visual.ts` checks keyboard rename/cancel/save and exact move boundaries,
+  real browser touch taps with 44px non-overlapping targets at 375px, completion preservation,
+  close/reopen, overflow and console silence. Screenshots go to `visual-results/step-editing/`;
+  the existing `detail.visual.ts` still holds the untouched resting panel to its 1% limit.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
