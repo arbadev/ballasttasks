@@ -63,8 +63,8 @@ export class AutosaveMachine<T> {
 
   private start(write: Write<T>) {
     const ticket = ++this.tickets;
-    // The draft this write was made from. Anything typed since is a newer one, which this
-    // answer has nothing to say about even when it happens to read the same.
+    // Remember the draft at dispatch. A queued write may start after another edit was typed,
+    // so matching this reference alone does not authorize releasing a still-pending draft.
     const from = this.view.draft;
     this.inFlight = { ticket };
     const answered = (ok: boolean) => {
@@ -78,7 +78,8 @@ export class AutosaveMachine<T> {
       // count would swallow this refusal and the change would vanish with nothing said.
       const superseded = !!next || (this.pending !== null && this.options.savable?.(this.pending.value) !== false);
       const final = !superseded;
-      const draft = final && this.view.draft === from ? null : this.view.draft;
+      // An unsavable pending edit does not hide a refusal, but only normal settling releases it.
+      const draft = final && !this.pending && this.view.draft === from ? null : this.view.draft;
       const failed = ok ? null : final ? write : this.view.failed;
       this.publish(draft, failed);
       if (next) this.start(next);
