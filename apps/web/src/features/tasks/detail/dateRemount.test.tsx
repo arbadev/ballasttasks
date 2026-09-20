@@ -63,6 +63,29 @@ function retryClear() {
 }
 
 describe("date save ownership across panel mounts", () => {
+  it.each(["Clear date", "Keep"])("returns focus to the date after %s removes its prompt", async (action) => {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: "" } });
+    const button = properties().getByRole("button", { name: action });
+    button.focus();
+    fireEvent.click(button);
+    expect(dateInput()).toHaveFocus();
+    if (action === "Clear date") await service.finish(0, true);
+    else expect(service.requests).toHaveLength(0);
+  });
+
+  it("returns focus to the date when Retry removes the failure", async () => {
+    const service = await setup();
+    clearDate();
+    await service.finish(0, false);
+    const retry = within(properties().getByRole("alert")).getByRole("button", { name: "Retry" });
+    retry.focus();
+    fireEvent.click(retry);
+    expect(dateInput()).toHaveFocus();
+    await service.finish(1, true);
+    expect(dateInput()).toHaveFocus();
+  });
+
   it.each(exits)("retains exact-null recovery after a refusal: %s", async (mode) => {
     const service = await setup();
     clearDate();
