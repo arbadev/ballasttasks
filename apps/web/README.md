@@ -274,6 +274,14 @@ unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: c
 to Testing`) so that stacked alerts do not all read "Retry"; the visible labels, the Dismiss
 tooltip included, stay as the design has them (`IconButton` takes a `title` of its own for that).
 
+A task opened from a focused board card also records a panel-return location. Closing after a
+status change returns to the card in its new column; deleting or filtering it away returns to
+the neighbour at its old position, or the origin column's heading. The panel keeps focus until
+it closes. If a save's canonical query is still pending, that one handoff survives until the
+query settles, because its old-page card may disappear then; moving focus elsewhere retires
+it immediately. Unchanged closes still use the connected opener, and the board's direct-move
+and alert focus paths keep their own ownership.
+
 A failed load is built from the same parts in both views — the danger badge, the heading, the
 detail line and a Retry carrying the design's refresh mark — each naming its own subject and
 keeping its own content gutter. The board states the failure once: a rejection that carried no
@@ -315,12 +323,14 @@ these tests register example accounts and write ordinary authenticated test data
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
-With the unchanged default auth policy (10 attempts per IP per 60 seconds), all five checks
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), all seven checks
 in one command overbook credential setup: the three adapter checks need eight attempts,
-and the two served-browser checks need six. Select the groups separately with
-`-- --grep-invert 'served query-backed board focus'` and
-`-- --grep 'served query-backed board focus'`, respectively. Let the configured auth window
-elapse after the first group finishes before starting the second, without concurrent
+the two served query/Retry focus checks need six, and the two board-panel keyboard checks
+(desktop/mobile) need six. Select the three groups separately with
+`-- --grep-invert 'served (query-backed board focus|board panel return)'`,
+`-- --grep 'served query-backed board focus'`, and
+`-- --grep 'served board panel return'`, respectively. Let the configured auth window
+elapse after each group finishes before starting the next, without concurrent
 credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
 Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
 throttling, or blanket-retry the suite. No test or application request retries automatically.

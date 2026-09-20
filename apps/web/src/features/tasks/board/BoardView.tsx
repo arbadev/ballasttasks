@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
+import type { TaskPageInfo } from "../services/query";
 import { LOAD_FAILED_WITHOUT_DETAIL, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
 import { BoardAlert } from "./BoardAlert";
 import { BoardColumn } from "./BoardColumn";
@@ -22,6 +23,17 @@ interface FocusAfterMove {
   /** The column the card left, and its place in it: where focus lands if the card is gone. */
   column: TaskStatus;
   index: number;
+}
+
+/** One panel opening, and at most the canonical refresh owed by its last save. */
+interface FocusAfterPanel {
+  taskId: string;
+  column: TaskStatus;
+  index: number;
+  opened: boolean;
+  page: TaskPageInfo | undefined;
+  revision: number;
+  returnedTo?: HTMLElement;
 }
 
 /** The board: one column per status. It owns its loading and error states as well. */
@@ -60,6 +72,7 @@ function Board() {
    * refused, so focus follows it until the move has settled: it is never left on the body.
    */
   const focusAfterMove = useRef<FocusAfterMove | null>(null);
+  const focusAfterPanel = useRef<FocusAfterPanel | null>(null);
   /** Removing a focused alert does not emit blur; an ordinary focus change does. */
   const focusedFailure = useRef<{ taskId: string; column: TaskStatus } | null>(null);
 
@@ -96,6 +109,39 @@ function Board() {
     // The move took the card off the board: focus what took its place in the column it left.
     const left = cardsIn(pending.column);
     (left[Math.max(0, Math.min(pending.index, left.length - 1))] ?? columnHeading(pending.column))?.focus();
+  });
+
+  // The modal returns to a connected opener itself. A detail edit can remount that card in
+  // another column, or leave it on an old HTTP page until the canonical query filters it out.
+  // Recover on close, retaining only that owed refresh; a deliberate focus departure retires
+  // the handoff below. No focus moves while a panel is selected, nor for an obsolete selection.
+  useLayoutEffect(() => {
+    const pending = focusAfterPanel.current;
+    if (!pending) return;
+    if (state.selectedId === pending.taskId) {
+      pending.opened = true;
+      if (pending.page !== state.page) {
+        pending.page = state.page;
+        pending.revision = state.revision ?? 0;
+      }
+      return;
+    }
+    if (!pending.opened) return;
+    const active = document.activeElement;
+    if (state.selectedId !== null || (active !== document.body && active !== pending.returnedTo)) {
+      focusAfterPanel.current = null;
+      return;
+    }
+    if (active === document.body) {
+      const neighbours = cardsIn(pending.column);
+      const target = cardButton(pending.taskId) ?? neighbours[Math.min(pending.index, neighbours.length - 1)] ?? columnHeading(pending.column);
+      if (target) {
+        pending.returnedTo = target;
+        target.focus();
+      }
+    }
+    const owesQuery = state.page && state.page === pending.page && (state.revision ?? 0) !== pending.revision && state.load.status !== "error";
+    if (!owesQuery) focusAfterPanel.current = null;
   });
 
   const endDrag = () => {
@@ -168,7 +214,15 @@ function Board() {
         />
       ))}
 
-      <div ref={grid} className={BOARD_GRID}>
+      <div
+        ref={grid}
+        className={BOARD_GRID}
+        onBlurCapture={(event) => {
+          // DOM removal emits no blur. A real departure must not be undone by a late query,
+          // even if that deliberate destination is itself removed before the query settles.
+          if (focusAfterPanel.current?.returnedTo === event.target && event.relatedTarget !== null) focusAfterPanel.current = null;
+        }}
+      >
         {STATUSES.map((status, position) => {
           const tasks = moves.tasks.filter((t) => t.status === status.id);
           return (
@@ -208,7 +262,13 @@ function Board() {
                     dragging={draggedId === task.id}
                     previous={STATUSES[position - 1] ?? null}
                     next={STATUSES[position + 1] ?? null}
-                    onOpen={() => actions.selectTask(task.id)}
+                    onOpen={() => {
+                      const opener = cardButton(task.id);
+                      focusAfterPanel.current = opener?.closest("article")?.contains(document.activeElement)
+                        ? { taskId: task.id, column: status.id, index, opened: false, page: state.page, revision: state.revision ?? 0 }
+                        : null;
+                      actions.selectTask(task.id);
+                    }}
                     onMove={(to) => moveWithoutDrag(task.id, status.id, to.id)}
                     onDragStart={(event) => {
                       event.dataTransfer.setData(DRAG_TYPE, task.id);

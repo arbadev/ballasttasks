@@ -7,16 +7,16 @@ import type { Task } from "../model/types";
 
 const alpha = makeTask({ id: "alpha", title: "Alpha", importance: 90 });
 const beta = makeTask({ id: "beta", title: "Beta", importance: 50 });
-const board = () => screen.getByRole("region", { name: "Board", exact: true });
-const card = (name: string) => within(board()).getByRole("button", { name, exact: true });
-const heading = (name: string) => within(board()).getByRole("heading", { name, exact: true });
+const board = () => screen.getByRole("region", { name: "Board" });
+const card = (name: string) => within(board()).getByRole("button", { name });
+const heading = (name: string) => within(board()).getByRole("heading", { name });
 const panel = () => screen.getByRole("dialog");
 const close = () => fireEvent.keyDown(window, { key: "Escape" });
 
 async function setup(tasks: Task[] = [alpha, beta]) {
   const services = renderWithServices(<TasksApp />, { tasks });
   fireEvent.click(screen.getByText("Board", { exact: true }));
-  await screen.findByRole("region", { name: "To Do", exact: true });
+  await screen.findByRole("region", { name: "To Do" });
   return services;
 }
 
@@ -27,13 +27,13 @@ function open(name = "Alpha") {
 }
 
 async function moveOpenTask() {
-  fireEvent.change(within(panel()).getByRole("combobox", { name: "Status", exact: true }), { target: { value: "progress" } });
+  fireEvent.change(within(panel()).getByRole("combobox", { name: "Status" }), { target: { value: "progress" } });
   await waitFor(() => expect(within(panel()).getByTestId("detail-status")).toHaveTextContent("In Progress"));
 }
 
 async function removeOpenTask() {
-  fireEvent.click(within(panel()).getByRole("button", { name: "Delete", exact: true }));
-  fireEvent.click(within(panel()).getByRole("button", { name: "Delete task", exact: true }));
+  fireEvent.click(within(panel()).getByRole("button", { name: "Delete" }));
+  fireEvent.click(within(panel()).getByRole("button", { name: "Delete task" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 }
 
@@ -60,10 +60,10 @@ describe("board-opened panel return", () => {
 
   it("uses the origin column when an edit filters the task away", async () => {
     await setup([{ ...alpha, prio: 0 }]);
-    fireEvent.change(screen.getByRole("combobox", { name: "Priority", exact: true }), { target: { value: "0" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "0" } });
     open();
-    fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority", exact: true }), { target: { value: "3" } });
-    await waitFor(() => expect(within(board()).queryByRole("button", { name: "Alpha", exact: true })).not.toBeInTheDocument());
+    fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority" }), { target: { value: "3" } });
+    await waitFor(() => expect(within(board()).queryByRole("button", { name: "Alpha" })).not.toBeInTheDocument());
     expect(panel()).toContainElement(document.activeElement as HTMLElement);
     close();
     expect(heading("To Do")).toHaveFocus();
