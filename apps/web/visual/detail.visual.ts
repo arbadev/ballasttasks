@@ -31,8 +31,8 @@ type Region = keyof typeof REGIONS;
 
 /**
  * Where the app differs from the design on purpose. Each entry is compared like any other
- * region and reported, but held to its own ceiling instead of 1%. The reasons are the ones
- * listed in the delivery notes; nothing here is masked or skipped.
+ * region and reported, but held to its own ceiling instead of 1%, and carries the reason for
+ * it here; nothing is masked or skipped. Empty: the panel matches the design everywhere.
  */
 const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason: string }[] = [];
 
