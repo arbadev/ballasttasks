@@ -24,8 +24,23 @@ interface FocusAfterMove {
   index: number;
 }
 
+/** One panel opening, and where the board has put the focus back since it closed. */
+interface FocusAfterPanel {
+  taskId: string;
+  column: TaskStatus;
+  index: number;
+  opened: boolean;
+  /** What the board focused on the way out: it owes another return while the focus is still there. */
+  returnedTo?: HTMLElement;
+}
+
+interface BoardViewProps {
+  /** Called when the board is taken off the screen still owing the keyboard somewhere to stand. */
+  onReturnLost?: () => void;
+}
+
 /** The board: one column per status. It owns its loading and error states as well. */
-export function BoardView() {
+export function BoardView({ onReturnLost }: BoardViewProps = {}) {
   const { state, actions } = useWorkspace();
 
   return (
@@ -34,12 +49,12 @@ export function BoardView() {
       {state.load.status === "error" && (
         <BoardLoadError detail={state.load.message === LOAD_FAILED_WITHOUT_DETAIL ? undefined : state.load.message} onRetry={actions.reload} />
       )}
-      {(state.page || state.load.status === "ready") && <Board />}
+      {(state.page || state.load.status === "ready") && <Board onReturnLost={onReturnLost} />}
     </section>
   );
 }
 
-function Board() {
+function Board({ onReturnLost }: BoardViewProps) {
   const { state, actions } = useWorkspace();
   const { people, projects, currentUser } = useDirectory();
   const commands = useTaskCommands();
@@ -60,6 +75,7 @@ function Board() {
    * refused, so focus follows it until the move has settled: it is never left on the body.
    */
   const focusAfterMove = useRef<FocusAfterMove | null>(null);
+  const focusAfterPanel = useRef<FocusAfterPanel | null>(null);
   /** Removing a focused alert does not emit blur; an ordinary focus change does. */
   const focusedFailure = useRef<{ taskId: string; column: TaskStatus } | null>(null);
 
@@ -97,6 +113,42 @@ function Board() {
     const left = cardsIn(pending.column);
     (left[Math.max(0, Math.min(pending.index, left.length - 1))] ?? columnHeading(pending.column))?.focus();
   });
+
+  // The modal returns to a connected opener itself. A detail edit can remount that card in
+  // another column, and a save still in flight, or the canonical query it triggers, can do so
+  // long after the panel has gone. So the board keeps owing a return for as long as the focus
+  // is where it put it, and stops owing one as soon as the user moves it themselves (the blur
+  // below). No focus moves while a panel is selected, nor for an obsolete selection.
+  useLayoutEffect(() => {
+    const pending = focusAfterPanel.current;
+    if (!pending) return;
+    if (state.selectedId === pending.taskId) {
+      pending.opened = true;
+      return;
+    }
+    if (!pending.opened) return;
+    const active = document.activeElement;
+    if (state.selectedId !== null || (active !== document.body && active !== pending.returnedTo)) {
+      focusAfterPanel.current = null;
+      return;
+    }
+    if (active !== document.body) return;
+    const neighbours = cardsIn(pending.column);
+    const target = cardButton(pending.taskId) ?? neighbours[Math.min(pending.index, neighbours.length - 1)] ?? columnHeading(pending.column);
+    if (!target) return;
+    pending.returnedTo = target;
+    target.focus();
+  });
+
+  // A board that is taken away — the last task of a project deleted from its panel — takes the
+  // card, neighbour or heading it was returning to with it. Only the view that replaces it can
+  // carry the keyboard on from there, so the shell is told the return is now its own.
+  useLayoutEffect(
+    () => () => {
+      if (focusAfterPanel.current || focusAfterMove.current) onReturnLost?.();
+    },
+    [onReturnLost],
+  );
 
   const endDrag = () => {
     setDraggedId(null);
@@ -168,7 +220,16 @@ function Board() {
         />
       ))}
 
-      <div ref={grid} className={BOARD_GRID}>
+      <div
+        ref={grid}
+        className={BOARD_GRID}
+        onBlurCapture={(event) => {
+          // Taking the focused card off the board emits no blur, and leaves a detached target
+          // where one is emitted at all. Anything else is the user leaving — a Tab, a click on
+          // another control or on nothing at all — and the board stops owing them a return.
+          if (focusAfterPanel.current?.returnedTo === event.target && event.target.isConnected) focusAfterPanel.current = null;
+        }}
+      >
         {STATUSES.map((status, position) => {
           const tasks = moves.tasks.filter((t) => t.status === status.id);
           return (
@@ -208,7 +269,13 @@ function Board() {
                     dragging={draggedId === task.id}
                     previous={STATUSES[position - 1] ?? null}
                     next={STATUSES[position + 1] ?? null}
-                    onOpen={() => actions.selectTask(task.id)}
+                    onOpen={() => {
+                      const opener = cardButton(task.id);
+                      focusAfterPanel.current = opener?.closest("article")?.contains(document.activeElement)
+                        ? { taskId: task.id, column: status.id, index, opened: false }
+                        : null;
+                      actions.selectTask(task.id);
+                    }}
                     onMove={(to) => moveWithoutDrag(task.id, status.id, to.id)}
                     onDragStart={(event) => {
                       event.dataTransfer.setData(DRAG_TYPE, task.id);

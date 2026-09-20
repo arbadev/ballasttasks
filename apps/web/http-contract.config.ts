@@ -4,7 +4,7 @@ import { defineConfig } from "@playwright/test";
  * Never starts, reuses or modifies an application stack's configuration/lifecycle. */
 export default defineConfig({
   testDir: "./visual",
-  testMatch: "http-api.contract.ts",
+  testMatch: /http-.*\.contract\.ts/,
   fullyParallel: false,
   workers: 1,
   timeout: 120_000,
