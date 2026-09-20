@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
+import { Button } from "@/components/ui/Button";
 import type { Project } from "@/features/tasks/model/types";
 import { useDirectory, useTaskCommands, useWorkspace } from "@/features/tasks/workspace/WorkspaceProvider";
 import { ProjectDot } from "./ui/ProjectDot";
@@ -12,8 +13,9 @@ export function useEmptyProject(): Project | null {
   const { state } = useWorkspace();
   const { projects } = useDirectory();
   const project = projects.find((p) => p.id === state.query.project);
-  if (!project || state.load.status !== "ready") return null;
-  if (state.page) return state.page.projectHasTasks === false ? project : null;
+  if (!project) return null;
+  if (state.page) return state.page.project === project.id && state.page.projectHasTasks === false && !state.tasks.some((t) => t.project === project.id) ? project : null;
+  if (state.load.status !== "ready") return null;
   return state.tasks.some((t) => t.project === project.id) ? null : project;
 }
 
@@ -26,6 +28,7 @@ interface EmptyProjectProps {
 /** What a project with no tasks shows instead of a list or board: an invitation to add the first one. */
 export function EmptyProject({ project, onFirstTask }: EmptyProjectProps) {
   const commands = useTaskCommands();
+  const { state, actions } = useWorkspace();
   const id = useId();
   const [title, setTitle] = useState("");
   const [failed, setFailed] = useState(false);
@@ -50,7 +53,11 @@ export function EmptyProject({ project, onFirstTask }: EmptyProjectProps) {
   };
 
   return (
-    <section aria-labelledby={`${id}-title`} className="flex animate-bt-in flex-col items-start gap-4 px-6 py-14 max-md:px-4 max-md:py-10">
+    <section aria-labelledby={`${id}-title`} aria-busy={state.load.status === "loading"} className="flex animate-bt-in flex-col items-start gap-4 px-6 py-14 max-md:px-4 max-md:py-10">
+      {state.load.status === "error" && <div role="alert" className="flex items-center gap-3 text-[12.5px] text-danger">
+        Could not refresh tasks. Your first-task draft is kept.
+        <Button onClick={actions.reload}>Retry</Button>
+      </div>}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <ProjectDot tone={project.tone} />

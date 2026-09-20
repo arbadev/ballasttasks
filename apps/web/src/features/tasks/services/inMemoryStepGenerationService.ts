@@ -18,7 +18,7 @@ export class InMemoryStepGenerationService implements StepGenerationService {
   async start(taskId: string): Promise<void> {
     const task = this.store.require(taskId);
     this.selected = taskId;
-    if (this.generations.get(taskId)?.phase === "running") return;
+    clearTimeout(this.timers.get(taskId));
     this.generations.set(taskId, { taskId, phase: "running" });
     this.emit();
     this.timers.set(taskId, setTimeout(() => {

@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { TasksApp } from "../shell/TasksApp";
 import { BoardView } from "../board/BoardView";
 import { ListView } from "../list/ListView";
+import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithServices } from "@/test/renderWithServices";
 import { FakeTaskService } from "@/test/fakeServices";
@@ -25,7 +26,40 @@ function Probe() {
     <button onClick={() => void commands.create({ title: "created" })}>Create</button>
   </>;
 }
+function InvitationProbe() {
+  const project = useEmptyProject();
+  const { actions } = useWorkspace();
+  return <>
+    <button onClick={() => actions.toggleProject("ballast")}>Project</button>
+    <button onClick={actions.reload}>Refresh</button>
+    {project && <EmptyProject project={project} />}
+  </>;
+}
+
 describe("server-query workspace", () => {
+  it("preserves the first-task draft while its project's authoritative page refreshes", async () => {
+    const service = new QueryService();
+    const empty = { ...page("empty"), tasks: [], total: 0, headerTotal: 0, projectHasTasks: false };
+    service.query.mockResolvedValue(empty);
+    renderWithServices(<WorkspaceProvider><InvitationProbe /></WorkspaceProvider>, { taskService: service });
+    fireEvent.click(screen.getByText("Project"));
+    const input = await screen.findByRole("textbox", { name: "Name the first task" });
+    fireEvent.change(input, { target: { value: "Unsubmitted work" } });
+    let answer!: (value: TaskPage) => void;
+    service.query.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const count = service.query.mock.calls.length;
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(service.query.mock.calls.length).toBeGreaterThan(count));
+    await act(async () => answer(empty));
+    expect(screen.getByRole("textbox", { name: "Name the first task" })).toHaveValue("Unsubmitted work");
+    service.query.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(screen.getByText("Refresh"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your first-task draft is kept");
+    expect(screen.getByRole("textbox", { name: "Name the first task" })).toHaveValue("Unsubmitted work");
+    fireEvent.click(screen.getByText("Retry"));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("textbox", { name: "Name the first task" })).toHaveValue("Unsubmitted work");
+  });
   it("keeps the moved card focused across an asynchronous authoritative page refresh", async () => {
     const task = makeTask({ id: "focus", title: "Query-backed move", status: "todo" });
     const service = new QueryService([task]);

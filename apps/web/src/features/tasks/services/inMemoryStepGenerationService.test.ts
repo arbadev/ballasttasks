@@ -54,12 +54,15 @@ describe("InMemoryStepGenerationService", () => {
     expect(g?.phase === "proposed" && g.steps).toHaveLength(5);
   });
 
-  it("ignores a second start for the task already running", async () => {
+  it("observes the latest explicit start without an obsolete completion replacing it", async () => {
     await service.start("t4");
     vi.advanceTimersByTime(2000);
     await service.start("t4");
     vi.advanceTimersByTime(200);
+    expect(service.current()?.phase).toBe("running");
+    vi.advanceTimersByTime(2000);
     expect(service.current()?.phase).toBe("proposed");
+    expect(seen.map((g) => g?.phase)).toEqual(["running", "running", "proposed"]);
   });
 
   it("retains each task's proposal when another task starts", async () => {

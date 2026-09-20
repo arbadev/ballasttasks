@@ -94,7 +94,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       const selected = state.tasks.find((task) => task.id === state.selectedId);
       const tasks = rows.map((row) => selected?.id === row.id && selected.detailLoaded && selected.updatedAt === row.updatedAt ? selected : row);
       if (selected && !rows.some((row) => row.id === selected.id)) tasks.push(selected);
-      return { ...state, tasks, page: { ...info, ids: rows.map((row) => row.id) }, load: { status: "ready" }, duringLoad: undefined };
+      return { ...state, tasks, page: { ...info, ids: rows.map((row) => row.id), project: request.query.project }, load: { status: "ready" }, duringLoad: undefined };
     }
     case "detailStarted":
       return { ...state, detailLoad: { status: "loading" } };

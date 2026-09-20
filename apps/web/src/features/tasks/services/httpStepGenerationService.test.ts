@@ -106,6 +106,56 @@ describe("retained HTTP generation handles", () => {
     expect(get).toHaveBeenCalledTimes(1);
   });
 
+  it("retains late task-A proposals without replacing the selected task-B handle", async () => {
+    const { service, get } = setup();
+    let finishA!: (job: unknown) => void;
+    get.mockImplementationOnce(() => new Promise((resolve) => { finishA = resolve; }));
+    await service.start("a");
+    await vi.advanceTimersByTimeAsync(2000);
+    await service.start("b");
+    finishA({ id: "job", task_id: "a", state: "success", titles: ["A only"], error: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.current()).toEqual({ taskId: "b", phase: "running" });
+    service.select("a");
+    expect(service.current()).toMatchObject({ taskId: "a", phase: "proposed", steps: [{ text: "A only" }] });
+    service.select("b");
+    expect(service.current()).toEqual({ taskId: "b", phase: "running" });
+  });
+
+  it("returns an accepted task A for workspace synchronization without clearing task B", async () => {
+    const { service, acceptSteps, state } = setup();
+    let finish!: (task: ReturnType<typeof makeTask>) => void;
+    await service.start("a");
+    state("success");
+    await vi.advanceTimersByTimeAsync(2000);
+    acceptSteps.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const accepting = service.accept();
+    await service.start("b");
+    finish(makeTask({ id: "a" }));
+    expect(await accepting).toMatchObject({ id: "a" });
+    expect(service.current()).toEqual({ taskId: "b", phase: "running" });
+    service.select("a");
+    expect(service.current()).toBeNull();
+  });
+
+  it("stops on provider failure, and does not blindly repeat an ambiguously accepted batch", async () => {
+    const { service, get, state, acceptSteps } = setup();
+    await service.start("a");
+    state("failure");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(service.current()).toMatchObject({ phase: "error", message: "Generation timed out. Try again." });
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(get).toHaveBeenCalledTimes(1);
+    await service.start("a");
+    state("success");
+    await vi.advanceTimersByTimeAsync(2000);
+    acceptSteps.mockRejectedValueOnce(new ApiError("offline", { kind: "network", status: null }));
+    await expect(service.accept()).rejects.toMatchObject({ kind: "network" });
+    expect(service.current()).toMatchObject({ phase: "error", message: expect.stringContaining("could not be confirmed") });
+    expect(await service.accept()).toBeNull();
+    expect(acceptSteps).toHaveBeenCalledTimes(1);
+  });
+
   it("retains proposals after a rejected 100-step ceiling and never adds partially", async () => {
     const { service, acceptSteps, state } = setup();
     await service.start("a");

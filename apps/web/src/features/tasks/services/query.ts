@@ -22,4 +22,4 @@ export interface TaskPage {
   /** Across all statuses and filters, for the empty-project invitation. */
   projectHasTasks?: boolean;
 }
-export type TaskPageInfo = Omit<TaskPage, "tasks"> & { ids: string[] };
+export type TaskPageInfo = Omit<TaskPage, "tasks"> & { ids: string[]; project: string };
