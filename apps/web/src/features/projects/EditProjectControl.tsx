@@ -49,8 +49,8 @@ function EditProjectDialog({ project, opener, onClose }: { project: Project; ope
       if (active.current) onClose();
     } catch (failure) {
       if (active.current) {
-        if (failure instanceof ProjectRejectedError) setInvalid(failure.errors.name);
-        setError(failure instanceof Error ? failure.message : "Please try again.");
+        if (failure instanceof ProjectRejectedError) setInvalid(failure.errors.name ?? failure.message);
+        else setError(failure instanceof Error ? failure.message : "Please try again.");
       }
     } finally {
       sending.current = false;

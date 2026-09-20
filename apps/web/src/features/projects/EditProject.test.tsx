@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderWithServices } from "@/test/renderWithServices";
+import { ProjectRejectedError } from "@/features/tasks/services/types";
 import { TasksApp } from "@/features/tasks/shell/TasksApp";
 
 describe("project editing", () => {
@@ -45,6 +46,28 @@ describe("project editing", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("crumb")).toHaveTextContent("Try again");
     expect(directoryService.calls).toHaveLength(2);
+  });
+  it("shows a refused name on the field alone, then saves the corrected name", async () => {
+    const { directoryService } = renderWithServices(<TasksApp />);
+    const [project] = await directoryService.projects();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(project.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Taken elsewhere" } });
+    const gate = directoryService.holdNextCreate();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    // The directory refuses the field, as it does when another session took the name first.
+    await act(async () => gate.fail(new ProjectRejectedError({ name: "That name is already used." })));
+    expect(screen.getByText("That name is already used.")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toHaveValue("Taken elsewhere");
+    expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("crumb")).toHaveTextContent(project.name);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Free name" } });
+    expect(screen.queryByText("That name is already used.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("crumb")).toHaveTextContent("Free name");
   });
   it("cancels and closes unchanged forms without a write", async () => {
     const { directoryService } = renderWithServices(<TasksApp />);

@@ -31,6 +31,22 @@ describe("project directory synchronization", () => {
     await waitFor(() => expect(result.current.state.load.status).toBe("ready"));
     expect(result.current.directory.projects[0].name).toBe("Canonical");
   });
+  it("keeps only the edited project local, listing the projects the late refresh brings with it", async () => {
+    const { result, directoryService } = setup();
+    await waitFor(() => expect(result.current.directory.projects).toHaveLength(2));
+    const [original, other] = result.current.directory.projects;
+    const elsewhere: Project = { id: "elsewhere", name: "Made elsewhere", key: "ME", tone: "ok" };
+    let finish!: (projects: Project[]) => void;
+    vi.spyOn(directoryService, "projects").mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    act(() => { result.current.actions.reload(); });
+    await act(() => result.current.actions.updateProject(original.id, { name: "Canonical", tone: "info" }));
+    await act(async () => finish([original, other, elsewhere]));
+    expect(result.current.directory.projects.map((project) => project.name)).toEqual(["Canonical", other.name, "Made elsewhere"]);
+    expect(result.current.directory.projects[0].key).toBe(original.key);
+    act(() => result.current.actions.reload());
+    await waitFor(() => expect(result.current.state.load.status).toBe("ready"));
+    expect(result.current.directory.projects.map((project) => project.name)).toEqual(["Canonical", other.name]);
+  });
   it("ignores a save completing after the directory session changes", async () => {
     const oldDirectory = new FakeDirectoryService();
     let service = oldDirectory;

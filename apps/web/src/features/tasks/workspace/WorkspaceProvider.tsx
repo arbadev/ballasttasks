@@ -78,6 +78,21 @@ const NOW_REFRESH_MS = 60_000;
 /** What a failure that carried no message of its own is reported as: it says nothing a view does not already say. */
 export const LOAD_FAILED_WITHOUT_DETAIL = "Could not load the tasks.";
 
+/**
+ * The directory as the server listed it, except for the projects this client changed after the
+ * listing was asked for: those keep their local row, in the order the server gives, with a project
+ * created here and not yet listed kept at the end.
+ */
+function mergeProjects(current: Project[], listed: Project[], revision: number, changedAt: Map<string, number>): Project[] {
+  const newer = (id: string) => (changedAt.get(id) ?? 0) > revision;
+  const local = new Map(current.map((project) => [project.id, project]));
+  const listedIds = new Set(listed.map((project) => project.id));
+  return [
+    ...listed.map((project) => (newer(project.id) ? local.get(project.id) ?? project : project)),
+    ...current.filter((project) => !listedIds.has(project.id) && newer(project.id)),
+  ];
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const taskService = useTaskService();
   const directoryService = useDirectoryService();
@@ -91,6 +106,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const directoryRevision = useRef(0);
   const projectEditSequence = useRef(0);
   const savedProjectEdits = useRef(new Map<string, number>());
+  const projectChangedAt = useRef(new Map<string, number>());
   const directorySession = useRef(0);
   useEffect(() => {
     directorySession.current += 1;
@@ -104,7 +120,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     Promise.all([taskService.query ? Promise.resolve(null) : taskService.list(), directoryService.people(), directoryService.projects(), directoryService.currentUser()])
       .then(([tasks, people, projects, currentUser]) => {
         if (cancelled) return;
-        setDirectory((current) => ({ people, projects: directoryRevision.current === revision ? projects : current.projects, currentUser }));
+        setDirectory((current) => ({ people, projects: mergeProjects(current.projects, projects, revision, projectChangedAt.current), currentUser }));
         if (tasks) dispatch({ type: "tasksLoaded", tasks });
       })
       .catch((error: unknown) => {
@@ -195,10 +211,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (directorySession.current !== session || (savedProjectEdits.current.get(id) ?? 0) > sequence) return;
         savedProjectEdits.current.set(id, sequence);
         directoryRevision.current += 1;
+        projectChangedAt.current.set(id, directoryRevision.current);
         setDirectory((current) => ({ ...current, projects: current.projects.map((item) => item.id === id ? project : item) }));
       },
       addProject: (project) => {
         directoryRevision.current += 1;
+        projectChangedAt.current.set(project.id, directoryRevision.current);
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
         // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
         dispatch({ type: "scopeSelected", scope: "all" });
