@@ -369,12 +369,19 @@ for (const viewport of VIEWPORTS) {
       }
 
       const failures: string[] = [];
+      /**
+       * The one comparison whose two sides deliberately read differently. Its ratio and its
+       * size both follow from the approved sentence — a longer one wraps a line further and
+       * makes the region taller — so both are evidence about the reference, and neither is
+       * something this suite can hold the app to. Every other pair is the same words twice.
+       */
+      const supersededEvidence: string[] = [];
       for (const [region, pair] of untouched) {
         const id = `${region}-${size}-${state.name}`;
         const deviation = DEVIATIONS.find((d) => d.region === region && (!d.states || d.states.includes(state.name)));
         const held = structure.get(region);
         if (originalCopy && revised?.region === region) {
-          await measure(canvas, `${id}-original-copy`, { design: originalCopy, app: pair.app }, null, failures, "the reference's superseded sentence: diffed unmasked and reported, not held to a limit");
+          await measure(canvas, `${id}-original-copy`, { design: originalCopy, app: pair.app }, null, supersededEvidence, "the reference's superseded sentence: diffed unmasked and reported, neither limited nor gated");
         }
         if (held) {
           await measure(canvas, id, held, deviation?.maxRatio ?? MAX_RATIO, failures, "structure: placeholder glyphs transparent on both sides");
@@ -385,6 +392,7 @@ for (const viewport of VIEWPORTS) {
       }
 
       await context.close();
+      if (supersededEvidence.length) console.log(`${size} ${state.name}, superseded sentence: ${supersededEvidence.join("; ")}`);
       if (revised) {
         writeFileSync(join(RESULTS, `${size}-${state.name}-layout.json`), JSON.stringify(layouts, null, 2));
         expect.soft(layouts.app, `${size} ${state.name}: unchanged reference geometry, styles and controls`).toEqual(layouts.design);

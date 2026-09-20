@@ -403,7 +403,9 @@ in the same commit; the schema source is always given, the command has no defaul
   1% and 2/255 like every other region, and a wrong token or a shifted control there still
   fails. Exactly one visible node must carry the sentence being replaced, a control case proves
   an unrelated wrong surface in the same region is still rejected, and the design's original
-  sentence keeps its own unmasked `-original-copy` diff in the report, without a ceiling. Their
+  sentence keeps its own unmasked `-original-copy` diff in the report — evidence about the
+  reference, with no ceiling and no vote on whether the suite passes, since a longer approved
+  sentence moves that region's size as well as its pixels. Their
   geometry, styles and controls are also compared with the reference, at both desktop widths
   and at 375px against equal-width reference content (the reference has wider fixed gutters and
   a panel border). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
