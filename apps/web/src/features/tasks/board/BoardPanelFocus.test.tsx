@@ -191,6 +191,46 @@ describe("board-opened panel return over a served page", () => {
 });
 
 describe("the last task of a project", () => {
+  it("retires an unfinished board move's handoff when leaving for the list", async () => {
+    const service = new FakeQueryTaskService([alpha]);
+    await setupProject([], service);
+    const save = service.holdNext("move");
+    act(() => card("Alpha").focus());
+    fireEvent.keyDown(card("Alpha"), { key: "ArrowRight", shiftKey: true });
+    await waitFor(() => expect(service.calls).toContainEqual(["move", "alpha", "progress"]));
+
+    const list = screen.getByRole("radio", { name: "List" });
+    act(() => list.focus());
+    fireEvent.click(list);
+    expect(screen.queryByRole("region", { name: "Board" })).not.toBeInTheDocument();
+    await act(async () => save.release());
+    await waitFor(() => expect(screen.getByRole("list", { name: "Tasks" }).parentElement).toHaveAttribute("aria-busy", "false"));
+    expect(list).toHaveFocus();
+
+    // A later, unrelated list-panel deletion must not spend that abandoned board claim.
+    const row = screen.getByRole("button", { name: "Alpha" });
+    act(() => row.focus());
+    fireEvent.click(row);
+    await removeOpenTask();
+    expect(await service.get("alpha")).toBeNull();
+    expect(await screen.findByRole("textbox", { name: "Name the first task" })).not.toHaveFocus();
+  });
+
+  it("does not carry a consumed empty-project handoff into a later project visit", async () => {
+    await setupProject();
+    open();
+    await removeOpenTask();
+    expect(firstTaskField()).toHaveFocus();
+
+    const projectFilter = await project();
+    act(() => projectFilter.focus());
+    fireEvent.click(projectFilter); // Toggle this project off, showing all projects.
+    expect(screen.queryByRole("textbox", { name: "Name the first task" })).not.toBeInTheDocument();
+    act(() => projectFilter.blur());
+    fireEvent.click(await project());
+    expect(await screen.findByRole("textbox", { name: "Name the first task" })).not.toHaveFocus();
+  });
+
   it("hands the keyboard to the first-task field when deleting it takes the board away", async () => {
     const { taskService } = await setupProject();
     open();

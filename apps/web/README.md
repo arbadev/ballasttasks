@@ -283,8 +283,11 @@ filter that card away afterwards; the focus follows it each time. Moving the foc
 click on another control or on nothing at all — retires the handoff there and then. Deleting a
 project's last task takes the board away with whatever it was standing on, so the empty-project
 invitation that replaces it takes the keyboard over in its first-task field, and only where
-that removal left the focus nowhere. Unchanged closes still use the connected opener, and the
-board's direct-move and alert focus paths keep their own ownership.
+that removal left the focus nowhere. The shell consumes that claim in the same layout commit,
+even if a different view replaced the board: leaving for the list cannot leave a claim for an
+unrelated empty project later. No deferred first-task focus request survives the transition.
+Unchanged closes still use the connected opener, and the board's direct-move and alert focus
+paths keep their own ownership.
 
 A failed load is built from the same parts in both views — the danger badge, the heading, the
 detail line and a Retry carrying the design's refresh mark — each naming its own subject and

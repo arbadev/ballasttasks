@@ -31,8 +31,7 @@ function Shell() {
   const [focusQuickAdd, setFocusQuickAdd] = useState(false);
   const quickAddFocused = useCallback(() => setFocusQuickAdd(false), []);
   /** The other way round: the board went away owing the keyboard a place, and this state replaced it. */
-  const [focusFirstTask, setFocusFirstTask] = useState(false);
-  const firstTaskFocused = useCallback(() => setFocusFirstTask(false), []);
+  const firstTaskInput = useRef<HTMLInputElement>(null);
   const returnLost = useRef(false);
   const boardReturnLost = useCallback(() => {
     returnLost.current = true;
@@ -40,11 +39,14 @@ function Shell() {
 
   // Deleting a project's last task from its panel takes the board away with the card, neighbour
   // or heading it was returning to, and nothing in it outlives that. The invitation that replaces
-  // it takes the focus over, and only where the removal left the focus nowhere at all.
+  // it takes the focus over, and only where the removal left the focus nowhere at all. Consume
+  // the claim in this commit even when no empty project replaced the board (e.g. leaving for
+  // the list). Neither the claim nor a deferred focus request may survive that transition.
   useLayoutEffect(() => {
-    if (returnLost.current && emptyProject && document.activeElement === document.body) setFocusFirstTask(true);
+    const owed = returnLost.current;
     returnLost.current = false;
-  }, [emptyProject]);
+    if (owed && emptyProject && document.activeElement === document.body) firstTaskInput.current?.focus({ preventScroll: true });
+  });
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -70,8 +72,7 @@ function Shell() {
           <EmptyProject
             project={emptyProject}
             onFirstTask={() => setFocusQuickAdd(state.view === "list")}
-            focusFirstTask={focusFirstTask}
-            onFirstTaskFocused={firstTaskFocused}
+            inputRef={firstTaskInput}
           />
         ) : state.view === "list" ? (
           <ListView focusQuickAdd={focusQuickAdd} onQuickAddFocused={quickAddFocused} />
