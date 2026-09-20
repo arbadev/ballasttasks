@@ -141,6 +141,46 @@ describe("date save ownership across panel mounts", () => {
     expect(service.maxConcurrent).toBe(1);
   });
 
+  async function refuseADateWrite() {
+    const service = await setup();
+    fireEvent.change(dateInput(), { target: { value: due(9) } });
+    fireEvent.blur(dateInput());
+    await service.finish(0, false);
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+    expect(dateInput()).toHaveValue(due(3));
+    return service;
+  }
+
+  it("retires the date recovery once the banner reschedules the task", async () => {
+    const service = await refuseADateWrite();
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    await service.finish(1, true);
+    expect(dateInput()).toHaveValue(due(1));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+
+    // The obsolete Retry is gone for good, so it cannot put the older date back.
+    close();
+    openTask("t1");
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    expect(dateInput()).toHaveValue(due(1));
+    expect((await service.get("t1"))?.due).toBe(due(1));
+    expect(service.requests.map((r) => r.patch)).toEqual([{ due: due(9) }, { due: due(1) }]);
+  });
+
+  it("keeps the date recovery when a banner reschedule is refused", async () => {
+    const service = await refuseADateWrite();
+    fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+    await service.finish(1, false);
+    expect(dateInput()).toHaveValue(due(3));
+    const alert = properties().getByRole("alert");
+    expect(alert).toHaveTextContent("Could not save the due date.");
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await service.finish(2, true);
+    expect((await service.get("t1"))?.due).toBe(due(9));
+    expect(dateInput()).toHaveValue(due(9));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("preserves a newer complete date after reopening during a clear, and flushes text to its own task", async () => {
     const service = await setup();
     clearDate();

@@ -14,8 +14,9 @@ interface View<T> {
  * same owner. A mounted control subscribes; disposing that control does not dispose a save.
  *
  * Only matching answers release a draft. Writes run one at a time, newest queued value wins,
- * and failure is shown only when no newer edit supersedes it. Unsavable typing never writes;
- * flush restores the confirmed value, while store explicitly authorizes values such as null.
+ * and failure is shown unless a newer edit that will be written supersedes it, and retired once
+ * the stored value moves without this field asking. Unsavable typing never writes; flush
+ * restores the confirmed value, while store explicitly authorizes values such as null.
  */
 export class AutosaveMachine<T> {
   private view: View<T> = { draft: null, failed: null };
@@ -31,7 +32,12 @@ export class AutosaveMachine<T> {
   }
 
   configure(options: FieldOptions<T>) {
+    const before = this.options.saved;
     this.options = options;
+    // The stored value moved without this field asking for it - the urgency banner rescheduling
+    // the task, say. That answers the field's own outstanding failure: its recovery is about a
+    // value the reader has since moved past, and retrying it would undo the newer one.
+    if (this.view.failed && !Object.is(options.saved, before)) this.publish(this.view.draft, null);
   }
 
   getSnapshot = () => this.view;
@@ -54,7 +60,11 @@ export class AutosaveMachine<T> {
       this.inFlight = null;
       const next = this.queued;
       this.queued = null;
-      const final = !next && !this.pending;
+      // Only an edit that will actually be written supersedes this answer. A retained
+      // unsavable draft - an emptied box mid-retype - never reaches the queue, so letting it
+      // count would swallow this refusal and the change would vanish with nothing said.
+      const superseded = !!next || (this.pending !== null && this.options.savable?.(this.pending.value) !== false);
+      const final = !superseded;
       const draft = final && this.view.draft && Object.is(this.view.draft.value, value) ? null : this.view.draft;
       const failed = ok ? null : final ? { value } : this.view.failed;
       this.publish(draft, failed);

@@ -511,6 +511,59 @@ describe("property controls", () => {
     expect(properties().getByRole("meter", { name: "Importance" })).toHaveAttribute("aria-valuenow", "45");
   });
 
+  it("reports a refused importance save that an emptied box is waiting behind", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    const requests = deferUpdates(taskService);
+    await renderDetail({ taskService });
+    openTask("t1");
+    const input = properties().getByRole("spinbutton", { name: "Importance" });
+    fakeDebounce();
+
+    fireEvent.change(input, { target: { value: "45" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(requests.map((r) => r.patch)).toEqual([{ importance: 45 }]);
+
+    // Mid-retype the box is empty, which is not a number the task can hold: it never reaches
+    // the service, so it cannot stand in for the newer edit that would supersede the refusal.
+    fireEvent.change(input, { target: { value: "" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    expect(requests).toHaveLength(1);
+
+    await act(async () => requests[0].settle(false));
+    await settle();
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the importance. Your change was undone.");
+
+    fireEvent.blur(input);
+    await settle();
+    expect(input).toHaveValue(95);
+    fireEvent.click(within(properties().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ importance: 45 }, { importance: 45 }]);
+  });
+
+  it("still supersedes a refusal with a newer number the box did type", async () => {
+    const taskService = new FakeTaskService(seedTasks(NOW));
+    const requests = deferUpdates(taskService);
+    await renderDetail({ taskService });
+    openTask("t1");
+    const input = properties().getByRole("spinbutton", { name: "Importance" });
+    fakeDebounce();
+
+    fireEvent.change(input, { target: { value: "45" } });
+    await elapse(AUTOSAVE_DELAY_MS);
+    fireEvent.change(input, { target: { value: "60" } });
+    await act(async () => requests[0].settle(false));
+    await settle();
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    expect(input).toHaveValue(60);
+
+    await elapse(AUTOSAVE_DELAY_MS);
+    await act(async () => requests[1].settle(true));
+    await settle();
+    expect(requests.map((r) => r.patch)).toEqual([{ importance: 45 }, { importance: 60 }]);
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("a failed property save snaps the control back and explains", async () => {
     const taskService = new FlakyTaskService(seedTasks(NOW));
     await renderDetail({ taskService });
