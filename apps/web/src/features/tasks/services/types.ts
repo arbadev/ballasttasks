@@ -46,8 +46,10 @@ export interface TaskService {
   removeStep(id: string, stepId: string): Promise<Task>;
   /** Blank text is ignored. */
   addComment(id: string, text: string): Promise<Task>;
-  /** Logs "Attached <name>". */
-  /** File is supplied for upload-capable adapters; the in-memory adapter retains metadata only. */
+  /**
+   * Logs "Attached <name>". `file` is the bytes behind a file attachment, for upload-capable
+   * adapters; the in-memory adapter retains metadata only.
+   */
   addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;
   remove(id: string): Promise<void>;
 }

@@ -22,7 +22,7 @@ const VARIANTS = {
   quiet: "gap-1.5 rounded-bt-sm bg-transparent px-2.5 text-[12.5px] text-fg-3 transition-colors hover:bg-card hover:text-fg",
   /** Text only, turning red: Delete. */
   danger: "h-[34px] rounded-bt-sm bg-transparent px-2.5 text-[13px] text-fg-3 transition-colors hover:bg-danger-soft hover:text-danger",
-  /** The second, committing click of Delete. */
+  /** The committing click: Delete's second press, and "Clear date" on the emptied due date. */
   confirm: "h-[34px] rounded-bt-sm bg-danger-soft px-2.5 text-[13px] font-medium text-danger transition-[filter] hover:brightness-125",
   /** Sits on the attention banner and takes its colour. */
   banner: "h-7 gap-1.5 rounded-bt border border-current/35 bg-current/10 px-2.5 text-[12.5px] font-medium text-inherit transition-colors hover:bg-current/20",

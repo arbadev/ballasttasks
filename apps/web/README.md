@@ -107,15 +107,17 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 `<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
-card, the New task button) on close, so an opener needs nothing more than being focusable. While
-it is open it keeps the keyboard. A control that disables or unmounts itself under the reader's
-hands (a send button once its box is busy, a step's own Remove) leaves the focus on the
-document, but the browser keeps its navigation starting point where that control stood, so the
-next Tab carries on from there — usually still inside the panel. The dialog leaves that key
-alone and watches only where it lands: a landing outside is wrapped back to the panel's first
-stop, or its last when the key was Shift+Tab, the same edges `keepTabInside` wraps at from
-within. Nothing else moves the focus, so an opener, another dialog and the hand-back on close
-are all untouched.
+card, the New task button) on close, so an opener needs nothing more than being focusable. An
+opener that is gone by then — the task deleted or filtered away from inside the panel — takes
+no focus back, and the view it belonged to places it instead, as the list does for a row it
+completes. While it is open the panel keeps the keyboard. A control that disables or unmounts
+itself under the reader's hands (a send button once its box is busy, a step's own Remove)
+leaves the focus on the document, but the browser keeps its navigation starting point where
+that control stood, so the next Tab carries on from there — usually still inside the panel.
+The dialog leaves that key alone and watches only where it lands: a landing outside is wrapped
+back to the panel's first stop, or its last when the key was Shift+Tab, the same edges
+`keepTabInside` wraps at from within. Nothing else moves the focus, so an opener, another
+dialog and the hand-back on close are all untouched.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
@@ -129,12 +131,13 @@ are all untouched.
   values are `savable`: an emptied number box and an emptied date box are not, and a date
   reports itself empty while a segment is being retyped. Such a value is kept as typed, never
   sent, and `flush` (blur, unmount) puts the stored value back instead of saving it. Removing a
-  due date is its own action — "Clear date" under the emptied box — which calls `field.store`,
-  the one path that writes a value the control is not typing. `store` drops any half-typed edit
-  as it goes, so an abandoned one cannot land on top of it, and its failure uses the field's own
-  inline message and Retry. The date's existing machine is owned by `DetailSession`, not its
-  mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
-  and a reopened input subscribes to the same owner. Other fields keep their existing lifetimes.
+  due date is its own action — emptying the box asks, with "Clear date" beside a "Keep" that
+  restores it — and "Clear date" calls `field.store`, the one path that writes a value the
+  control is not typing. `store` drops any half-typed edit as it goes, so an abandoned one
+  cannot land on top of it, and its failure uses the field's own inline message and Retry. The
+  date's existing machine is owned by `DetailSession`, not its mounted input: its draft,
+  serialized writes and exact-null recovery survive close/switch, and a reopened input
+  subscribes to the same owner. Other fields keep their existing lifetimes.
 - **Everything that writes the due date shares one owner**, `useDueField(task)`: the date box,
   "Clear date" and the urgency banner's "Due tomorrow"/"+1 week". The banner passes its activity
   note to `store`, which carries it through the same queue, so a quick reschedule cannot be
@@ -297,7 +300,6 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   macOS popup arrows/Escape may not receive browser-automation input.
 - `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
   and a keyboard pass over the list's states raises no console error or warning.
-
 - `detail.visual.ts` compares the task panel with the design, region by region (header, banner,
   title, description, steps, attachments, activity, properties, footer), at both sizes, for a
   task with steps, attachments and comments, an empty new task, the drafting state, the proposed
