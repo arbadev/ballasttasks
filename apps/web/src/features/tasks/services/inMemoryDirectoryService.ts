@@ -31,9 +31,13 @@ export class InMemoryDirectoryService implements DirectoryService {
     if (this.latencyMs > 0) await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
     const existing = this.allProjects.find((project) => project.id === id);
     if (!existing) throw new Error("Project not found.");
-    const name = validateProjectName(input.name, this.allProjects.filter((project) => project.id !== id));
-    if (name) throw new ProjectRejectedError({ name });
-    const saved = { ...existing, name: normalizeName(input.name), tone: input.tone };
+    const saved = { ...existing };
+    if (input.name !== undefined) {
+      const name = validateProjectName(input.name, this.allProjects.filter((project) => project.id !== id));
+      if (name) throw new ProjectRejectedError({ name });
+      saved.name = normalizeName(input.name);
+    }
+    if (input.tone !== undefined) saved.tone = input.tone;
     this.allProjects = this.allProjects.map((project) => project.id === id ? saved : project);
     return saved;
   }

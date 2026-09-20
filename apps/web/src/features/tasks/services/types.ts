@@ -60,7 +60,8 @@ export interface TaskService {
   remove(id: string): Promise<void>;
 }
 
-export type ProjectEdit = Pick<NewProject, "name" | "tone">;
+/** What the editor changed: an absent field is left as it is stored. */
+export type ProjectEdit = Partial<Pick<NewProject, "name" | "tone">>;
 
 export interface NewProject {
   name: string;
@@ -89,6 +90,7 @@ export interface DirectoryService {
    * ProjectRejectedError when the name or key breaks a rule (see features/projects/model).
    */
   createProject(input: NewProject): Promise<Project>;
+  /** Applies the fields the edit carries and leaves the rest, including the key, alone. */
   updateProject(id: string, input: ProjectEdit): Promise<Project>;
 }
 

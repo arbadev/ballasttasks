@@ -9,9 +9,13 @@ export class HttpDirectoryService implements DirectoryService {
   async projects() { return (await this.client.get<Schemas["ProjectListResponse"]>("/projects")).items.map(projectFromApi); }
   async currentUser() { return personFromApi(await this.client.get<Schemas["UserResponse"]>("/auth/me")); }
   async updateProject(id: string, input: ProjectEdit) {
+    // A partial update: a colour the palette cannot show is only rewritten when it was chosen again.
+    const body: Schemas["ProjectUpdate"] = {};
+    if (input.name !== undefined) body.name = input.name;
+    if (input.tone !== undefined) body.color = input.tone === "accent" ? "acc" : input.tone;
     try {
       return projectFromApi(await this.client.request<Schemas["ProjectResponse"]>(`/projects/${encodeURIComponent(id)}`, {
-        method: "PATCH", body: { name: input.name, color: input.tone === "accent" ? "acc" : input.tone },
+        method: "PATCH", body,
       }));
     } catch (error) {
       if (error instanceof ApiError && error.status === 422) throw new ProjectRejectedError({ name: "Check the project name and colour." });

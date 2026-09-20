@@ -6,6 +6,7 @@ import {
   type Generation,
   type NewProject,
   type NewTask,
+  type ProjectEdit,
   type StepGenerationService,
   type TaskPatch,
   type TaskService,
@@ -112,14 +113,14 @@ export class FakeDirectoryService implements DirectoryService {
     });
     return { release, fail };
   }
-  async updateProject(id: string, input: Pick<NewProject, "name" | "tone">) {
+  async updateProject(id: string, input: ProjectEdit) {
     this.calls.push(["updateProject", id, input]);
     const gate = this.gate;
     this.gate = null;
     if (gate) await gate;
     const project = (await this.projects()).find((item) => item.id === id);
     if (!project) throw new Error("Project not found.");
-    const saved = { ...project, name: input.name, tone: input.tone };
+    const saved = { ...project, ...(input.name !== undefined && { name: input.name }), ...(input.tone !== undefined && { tone: input.tone }) };
     this.edited.set(id, saved);
     return saved;
   }

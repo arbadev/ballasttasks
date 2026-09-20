@@ -25,6 +25,21 @@ describe("HTTP project editing", () => {
     const project = await new HttpDirectoryService(client()).updateProject("project-id", { name: "Renamed", tone: "accent", key: "BAD" } as never);
     expect(project).toMatchObject({ name: "Renamed", tone: "accent", key: apiProject.key });
   });
+  it("leaves a stored colour the palette cannot show alone when only the name changed", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ name: "Renamed" });
+      return HttpResponse.json({ ...apiProject, name: "Renamed", color: null });
+    }));
+    const project = await new HttpDirectoryService(client()).updateProject("project-id", { name: "Renamed" });
+    expect(project).toMatchObject({ name: "Renamed", tone: "muted" });
+  });
+  it("sends the colour alone when the name was left as it is stored", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ color: "warn" });
+      return HttpResponse.json({ ...apiProject, color: "warn" });
+    }));
+    expect(await new HttpDirectoryService(client()).updateProject("project-id", { tone: "warn" })).toMatchObject({ name: apiProject.name, tone: "warn" });
+  });
 });
 
 describe("HTTP task adapter", () => {
