@@ -346,17 +346,26 @@ these tests register example accounts and write ordinary authenticated test data
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
-With the unchanged default auth policy (10 attempts per IP per 60 seconds), all seven checks
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), all eight checks
 in one command overbook credential setup: the three adapter checks need eight attempts,
-the two served query/Retry focus checks need six, and the two board-panel keyboard checks
-(desktop/mobile) need six. Select the three groups separately with
-`-- --grep-invert 'served (query-backed board focus|board panel return)'`,
-`-- --grep 'served query-backed board focus'`, and
-`-- --grep 'served board panel return'`, respectively. Let the configured auth window
+the two served query/Retry focus checks need six, the two board-panel keyboard checks
+(desktop/mobile) need six, and the mobile shell lifecycle check needs three. Select four groups
+separately with `-- --grep 'UTC|real atomic|real bearer'`,
+`-- --grep 'served query-backed board focus'`,
+`-- --grep 'served board panel return'`, and
+`-- --grep 'mobile shell handoff lifecycle'`, respectively. Let the configured auth window
 elapse after each group finishes before starting the next, without concurrent
 credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
 Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
 throttling, or blanket-retry the suite. No test or application request retries automatically.
+
+The mobile shell check configures mobile/touch before sign-in and measures a 375px viewport.
+It covers consumed empty-project revisits, a pending Board-to-List departure followed by an
+unrelated deletion, and deliberate pointer/keyboard departure during query/save settlement.
+Screenshots and JSON request/viewport evidence identify Playwright automation and the timing
+injection: only delivery of real successful HTTP responses is held, never their payload or
+application state. Keyboard/pointer actions drive the behavior; API setup, readback and cleanup
+are not substitutes for the gestures being asserted.
 
 Any change to an API response model is followed by `npm run gen:api -- <your-api-url>/openapi.json`
 in the same commit; the schema source is always given, the command has no default.
