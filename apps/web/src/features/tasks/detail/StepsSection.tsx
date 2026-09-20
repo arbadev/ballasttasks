@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import type { Task } from "../model/types";
 import { useTaskCommands } from "../workspace/WorkspaceProvider";
 import { ActionError, HIT_AREA, PanelButton, SECTION_LABEL } from "./controls";
-import { useComposer, useDetailSession } from "./DetailSession";
+import { composerKey, useComposer, useDetailSession } from "./DetailSession";
 import { StepGenerationPanel } from "./StepGenerationPanel";
 import type { StepGenerationView } from "./useStepGeneration";
 
@@ -15,7 +15,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
   const headingId = useId();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const box = useComposer(`step:${task.id}`, (text) => track(task.id, commands.addStep(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
+  const box = useComposer(composerKey("step", task.id), (text) => track(task.id, commands.addStep(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const total = task.steps.length;
   const done = task.steps.filter((s) => s.done).length;

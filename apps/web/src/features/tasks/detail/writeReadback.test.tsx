@@ -10,7 +10,7 @@ import { makeTask, NOW } from "@/test/tasks";
 import { HttpTaskService } from "../services/httpTaskService";
 import { TaskReadbackError } from "../services/types";
 import { WorkspaceProvider, useWorkspace } from "../workspace/WorkspaceProvider";
-import { DetailSessionProvider, useComposer } from "./DetailSession";
+import { composerKey, DetailSessionProvider, useComposer, useDetailSession } from "./DetailSession";
 import { TaskDetail } from "./TaskDetail";
 
 const base = "http://write-readback.test";
@@ -48,6 +48,7 @@ function setup(kind: Kind, failingRead: Read = "detail", rejectPost = false, cli
         comments_count: kind === "comment" ? stored.length : 0,
       }));
     }),
+    http.patch(`${base}/tasks/task-id`, () => HttpResponse.json(apiTask())),
     http.get(`${base}/tasks/task-id/activity`, () => {
       reads.push("activity");
       if (failRead("activity")) return HttpResponse.json({ detail: "Activity unavailable" }, { status: 503 });
@@ -156,6 +157,7 @@ async function renderPanel(kind: Kind, read: Read) {
   const fixture = setup(kind, read);
   const service = Object.assign(new FakeTaskService([makeTask({ id: "task-id", title: "Readback task" })]), {
     get: fixture.service.get.bind(fixture.service),
+    update: fixture.service.update.bind(fixture.service),
     addComment: fixture.service.addComment.bind(fixture.service),
     addStep: fixture.service.addStep.bind(fixture.service),
   });
@@ -208,5 +210,71 @@ describe("visible acknowledged-write recovery", () => {
     fireEvent.click(section().getByRole("button", { name: "Reload task" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(posts).toEqual(["Accepted once"]);
+  });
+});
+
+describe("acknowledged recovery settled by a canonical reload from elsewhere", () => {
+  it.each(["comment", "step"] as const)("a sibling save that reloads the task canonically settles the %s recovery", async (kind) => {
+    const { posts, stored, section, box } = await renderPanel(kind, "detail");
+    expect(await section().findByRole("alert")).toHaveTextContent(/was saved/i);
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "0" } });
+    expect(await section().findByText("Accepted once")).toBeVisible();
+    await waitFor(() => expect(section().queryByRole("alert")).not.toBeInTheDocument());
+    expect(box()).toHaveValue("Independent next draft");
+    expect(posts).toEqual(["Accepted once"]);
+    expect(stored).toEqual(["Accepted once"]);
+    // The box is the user's again: Enter sends the newer draft, and never the settled text.
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(posts).toEqual(["Accepted once", "Independent next draft"]));
+  });
+
+  it("keeps the acknowledged recovery when the sibling save is refused", async () => {
+    const { posts, section, box } = await renderPanel("comment", "detail");
+    expect(await section().findByRole("alert")).toHaveTextContent(/was saved/i);
+    server.use(http.patch(`${base}/tasks/task-id`, () => HttpResponse.json({ detail: "Refused" }, { status: 500 })));
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "0" } });
+    expect(await screen.findByText("Could not save the priority.")).toBeVisible();
+    expect(section().getByRole("alert")).toHaveTextContent(/was saved/i);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(posts).toEqual(["Accepted once"]);
+  });
+
+  it("does not let a reload already outstanding when the write was acknowledged settle it", async () => {
+    const { send, service } = setup("comment");
+    let land!: (task: unknown) => void;
+    const outstanding = new Promise<unknown>((resolve) => { land = resolve; });
+    const { result } = renderHook(
+      () => ({ session: useDetailSession(), box: useComposer(composerKey("comment", "task-id"), send, () => service.refresh("task-id")) }),
+      { wrapper: DetailSessionProvider },
+    );
+    // A save whose own readback was already in flight cannot have read what is posted next.
+    act(() => { void result.current.session.track("task-id", outstanding).catch(() => {}); });
+    act(() => result.current.box.setText("Accepted once"));
+    act(() => result.current.box.submit());
+    await waitFor(() => expect(result.current.box.refreshRequired).toBe(true));
+    await act(async () => { land(makeTask({ id: "task-id" })); await outstanding; });
+    expect(result.current.box.refreshRequired).toBe(true);
+    expect(result.current.box.busy).toBe(true);
+  });
+});
+
+describe("what the footer says across write and read phases", () => {
+  it("keeps an unsaved write's label when a read-only recovery succeeds", async () => {
+    const { result } = renderHook(() => useDetailSession(), { wrapper: DetailSessionProvider });
+    await act(async () => { await result.current.track("task-id", Promise.reject(new Error("Refused"))).catch(() => {}); });
+    expect(result.current.saveStatus("task-id")).toBe("failed");
+    await act(async () => { await result.current.track("task-id", Promise.resolve(makeTask({ id: "task-id" })), "refresh"); });
+    expect(result.current.saveStatus("task-id")).toBe("failed");
+    // A write that lands still settles the task, as it always did.
+    await act(async () => { await result.current.track("task-id", Promise.resolve(makeTask({ id: "task-id" }))); });
+    expect(result.current.saveStatus("task-id")).toBe("idle");
+  });
+
+  it("still clears a failed readback once the read succeeds", async () => {
+    const { result } = renderHook(() => useDetailSession(), { wrapper: DetailSessionProvider });
+    await act(async () => { await result.current.track("task-id", Promise.reject(new TaskReadbackError())).catch(() => {}); });
+    expect(result.current.saveStatus("task-id")).toBe("refresh");
+    await act(async () => { await result.current.track("task-id", Promise.resolve(makeTask({ id: "task-id" })), "refresh"); });
+    expect(result.current.saveStatus("task-id")).toBe("idle");
   });
 });

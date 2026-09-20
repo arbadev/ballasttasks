@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { Task } from "../model/types";
 import { TaskReadbackError } from "../services/types";
 import { AutosaveMachine, type FieldOptions } from "./autosaveMachine";
 
@@ -24,6 +25,13 @@ interface ComposerState {
 }
 
 const EMPTY_COMPOSER: ComposerState = { text: "", sending: null };
+
+/** The two boxes a task has. A composer's key names its box and the task the box belongs to. */
+export type ComposerKind = "comment" | "step";
+
+const COMPOSER_KINDS = ["comment", "step"] as const;
+
+export const composerKey = (kind: ComposerKind, taskId: string) => `${kind}:${taskId}`;
 
 /**
  * Every step and comment box, under its own key. One place holds both what is typed and what
@@ -49,6 +57,24 @@ class ComposerStore {
     this.listeners.forEach((listener) => listener());
   }
 
+  /**
+   * The acknowledged recoveries this task's boxes hold right now: exactly what a canonical read
+   * issued from this moment on is known to contain, and nothing a later send adds.
+   */
+  acknowledged(taskId: string): readonly Sending[] {
+    return COMPOSER_KINDS.flatMap((kind) => {
+      const sending = this.get(composerKey(kind, taskId)).sending;
+      return sending?.failed && sending.acknowledged ? [sending] : [];
+    });
+  }
+
+  /** Those exact recoveries are satisfied: the box takes sends again and keeps whatever is typed in it. */
+  settle(taskId: string, recoveries: readonly Sending[]): void {
+    for (const kind of COMPOSER_KINDS) {
+      this.update(composerKey(kind, taskId), (c) => (c.sending && recoveries.includes(c.sending) ? { ...c, sending: null } : c));
+    }
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -64,7 +90,10 @@ interface DetailSession {
    * Every save in the panel goes through here, under the id of the task it is saving, so the
    * footer can say saving, saved or not saved about exactly the task the reader is looking at.
    * A refused save leaves that task on "not saved"; an acknowledged write whose readback
-   * failed says "saved · reload needed". No other task's outcome clears or inherits it.
+   * failed says "saved · reload needed". No other task's outcome clears or inherits it, and a
+   * read-only phase never speaks for a write: it leaves "not saved" exactly as it found it.
+   * A save or read that answers with this task's own canonical detail settles the acknowledged
+   * composer recoveries that were already held when it started.
    */
   track<T>(taskId: string, save: Promise<T>, phase?: "write" | "refresh"): Promise<T>;
   composers: ComposerStore;
@@ -82,6 +111,15 @@ interface TaskSaves {
 }
 
 const SETTLED: TaskSaves = { inFlight: 0, refreshing: 0, failure: null };
+
+/**
+ * A full canonical reload of this very task: what a save or a read answers with when it has read
+ * the task's own detail back. A list summary, another task or a result that is no task is never one.
+ */
+function isCanonicalDetail(result: unknown, taskId: string): boolean {
+  const task = result as Task | null;
+  return !!task && typeof task === "object" && task.id === taskId && Array.isArray(task.activity) && task.detailLoaded !== false;
+}
 
 const DetailSessionContext = createContext<DetailSession | null>(null);
 
@@ -118,19 +156,23 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const track = useCallback(
     <T,>(taskId: string, save: Promise<T>, phase: "write" | "refresh" = "write"): Promise<T> => {
       const reading = phase === "refresh" ? 1 : 0;
+      const acknowledged = composers.acknowledged(taskId);
+      const settle = (s: TaskSaves, outcome: TaskSaves["failure"]): TaskSaves["failure"] =>
+        phase === "refresh" && s.failure === "failed" ? "failed" : outcome;
       record(taskId, (s) => ({ ...s, inFlight: s.inFlight + 1, refreshing: s.refreshing + reading }));
       return save.then(
         (result) => {
-          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: null }));
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: settle(s, null) }));
+          if (acknowledged.length > 0 && isCanonicalDetail(result, taskId)) composers.settle(taskId, acknowledged);
           return result;
         },
         (error: unknown) => {
-          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: reading || error instanceof TaskReadbackError ? "refresh" : "failed" }));
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: settle(s, reading || error instanceof TaskReadbackError ? "refresh" : "failed") }));
           throw error;
         },
       );
     },
-    [record],
+    [record, composers],
   );
 
   const setGenerationFailed = useCallback((taskId: string, failed: boolean) => {
