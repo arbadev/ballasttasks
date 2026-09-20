@@ -417,13 +417,13 @@ in the same commit; the schema source is always given, the command has no defaul
   colour and contrast, `prefers-reduced-motion`, no console error or warning across every state
   of the panel, and — at 375px, where the wording is longest — that the empty attachment area,
   the drafting panel and the proposal each name the real drafting inputs, no longer carry the
-  sentence they replaced, and wrap inside their region. Two behaviours are checked with real gestures rather than assertions on
-  the markup, because both turn on what the browser itself does: "Clear date" and "Keep" are
-  activated by pointer and by native Tab traversal of the date's segments, and each must leave
-  the focus back on the date box; and at 375px and 768px, with all four quick actions offered,
-  every banner action is measured against the panel's own box and hit-tested at its centre,
-  because the panel clips rather than scrolls, so an action past its edge draws nothing and
-  takes no click while the page still reports no overflow.
+  sentence they replaced, and wrap inside their region. Two behaviours are checked with real
+  gestures rather than assertions on the markup, because both turn on what the browser itself
+  does: "Clear date" and "Keep" are activated by pointer and by native Tab traversal of the
+  date's segments, and each must leave the focus back on the date box; and at 375px and 768px,
+  with all four quick actions offered, every banner action is measured against the panel's own
+  box and hit-tested at its centre, because the panel clips rather than scrolls, so an action
+  past its edge draws nothing and takes no click while the page still reports no overflow.
 
 Both servers are reused when already running. When two checkouts run the suite at once, give
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
