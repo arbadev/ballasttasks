@@ -396,7 +396,15 @@ in the same commit; the schema source is always given, the command has no defaul
   glyphs transparent on both sides (1% limit), and untouched (reported, not limited), because
   placeholders are `--fg-3` here and the browser default in the design. Deliberate differences
   are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
-  is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+  is empty today). Three corrected attachment/generation sentences have explicit `REVISED_COPY`
+  expectations: the empty attachment region of a new task and the steps region while drafting
+  or proposed, at both desktop widths. Only those six regions use committed revised-copy
+  baselines, still at 1% and 2/255; unmasked differences from the unchanged external design are
+  retained separately, not claimed to pass that old textual expectation. Their geometry,
+  styles and controls are also checked against the original reference, with mobile wrapping
+  checked at 375px against equal-width reference content (the reference has wider fixed gutters
+  and a panel border). All unaffected
+  comparisons stay unchanged. Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder

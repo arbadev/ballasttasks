@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { APP_URL, DESIGN_URL } from "../playwright.config";
@@ -32,9 +32,71 @@ type Region = keyof typeof REGIONS;
 /**
  * Where the app differs from the design on purpose. Each entry is compared like any other
  * region and reported, but held to its own ceiling instead of 1%, and carries the reason for
- * it here; nothing is masked or skipped. Empty: the panel matches the design everywhere.
+ * it here; nothing is masked or skipped. Empty: no tolerance exceptions. The three approved
+ * copy replacements below instead have localized baselines at the unchanged 1% ceiling.
  */
 const DEVIATIONS: { region: Region; states?: string[]; maxRatio: number; reason: string }[] = [];
+
+/** Only these three sentences supersede the design's unsupported attachment-reading claim.
+ * Keep the original diff, but check the affected full region against its revised-copy baseline
+ * at the same 1% ceiling. Geometry/styles/controls still compare with the unchanged design.
+ */
+const REVISED_COPY: Record<string, { region: Region; text: string; original: string }> = {
+  "new-task": {
+    region: "attachments",
+    text: "Drop files here, or paste a link — reference files and links aren't read when drafting steps.",
+    original: "Drop files here, or paste a link — PDFs, screenshots and threads the assistant can read.",
+  },
+  "generation-running": {
+    region: "steps",
+    text: "using the title, description and existing steps",
+    original: "reading the title, description and 0 attachments",
+  },
+  "generation-proposed": {
+    region: "steps",
+    text: "Drafted from the title, description and existing steps. Remove what doesn't fit — nothing is added until you say so.",
+    original: "Drafted from the title, description and attachments. Remove what doesn't fit — nothing is added until you say so.",
+  },
+};
+
+/** Compare corresponding visible controls and copy, not differing DOM tags or hidden pickers. */
+async function copyLayout(page: Page, state: string, side: "design" | "app") {
+  const copy = REVISED_COPY[state];
+  const controls = await page.locator(REGIONS[copy.region]).first().evaluate((section) => {
+    const origin = section.getBoundingClientRect();
+    const nodes = [section, ...section.querySelectorAll("button, input:not([type=file])")];
+    return nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        box: [box.x - origin.x, box.y - origin.y, box.width, box.height].map((n) => Math.round(n)),
+        fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
+        color: style.color, background: style.backgroundColor, radius: style.borderRadius,
+        padding: style.padding, borderWidth: style.borderWidth,
+      };
+    });
+  });
+  const message = page.getByText(side === "app" ? copy.text : copy.original, { exact: true });
+  await expect(message).toBeVisible();
+  const text = await message.evaluate((node, inline) => {
+    // The reference templates dynamic text inside an extra inline wrapper. Measure the
+    // corresponding flex item on both sides, not that wrapper's font-ink rectangle.
+    let item = node;
+    if (inline) while (item.parentElement && getComputedStyle(item.parentElement).display !== "flex") item = item.parentElement;
+    const box = item.getBoundingClientRect();
+    const section = item.closest("section")!.getBoundingClientRect();
+    const style = getComputedStyle(item);
+    return {
+      // An inline span's width follows the deliberately changed glyphs; its origin/height,
+      // section and surrounding controls still must match. Block text keeps its width too.
+      box: [box.x - section.x, box.y - section.y, ...(inline ? [] : [box.width]), box.height].map((n) => Math.round(n)),
+      fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
+      color: style.color, background: style.backgroundColor, radius: style.borderRadius,
+      padding: style.padding, borderWidth: style.borderWidth,
+    };
+  }, state === "generation-running");
+  return { controls, text };
+}
 
 /**
  * Placeholders are set in --fg-3 for contrast, where the design leaves the browser default.
@@ -182,6 +244,33 @@ async function measure(canvas: Page, id: string, pair: Pair, ceiling: number | n
   if (ceiling !== null && result.ratio > ceiling) failures.push(`${id}: ${(result.ratio * 100).toFixed(2)}% of pixels differ (max ${ceiling * 100}%)`);
 }
 
+for (const state of STATES.filter((state) => REVISED_COPY[state.name])) {
+  test(`revised ${state.name} copy preserves reference layout and wraps at 375px`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    const [design, app] = [await context.newPage(), await context.newPage()];
+    const layouts: Record<string, Awaited<ReturnType<typeof copyLayout>>> = {};
+    for (const [side, page] of [["design", design], ["app", app]] as const) {
+      await open(page, side === "design" ? `${DESIGN_URL}/${DESIGN_FILE}` : APP_URL, side === "design" ? "All tasks" : "13 tasks");
+      await state.reach(page);
+      // Open the unchanged reference on desktop: its list is not a mobile interaction target.
+      // Resizing the same reached state still exercises the real wrapping/layout at 375px.
+      // The reference keeps 24px gutters + a 1px panel border; the approved mobile app
+      // uses 16px gutters and no border. 392px reference and 375px app both give 343px
+      // content, so the wrapping comparison does not mistake old responsive differences
+      // for new copy drift. Neither reference source nor CSS is modified.
+      await page.setViewportSize({ width: side === "design" ? 392 : 375, height: 812 });
+      await parkPointer(page);
+      layouts[side] = await copyLayout(page, state.name, side);
+      const region = page.locator(REGIONS[REVISED_COPY[state.name].region]).first();
+      expect(await region.evaluate((el) => el.scrollWidth <= el.clientWidth), `${side}: copy and controls fit without horizontal scrolling`).toBe(true);
+      writeFileSync(join(RESULTS, `${state.name}-375-${side}.png`), await shoot(page, REGIONS[REVISED_COPY[state.name].region]));
+    }
+    writeFileSync(join(RESULTS, `${state.name}-mobile-layout.json`), JSON.stringify(layouts, null, 2));
+    expect(layouts.app, "original reference geometry/styles/controls at equal 343px content width").toEqual(layouts.design);
+    await context.close();
+  });
+}
+
 for (const viewport of VIEWPORTS) {
   const size = `${viewport.width}x${viewport.height}`;
 
@@ -195,9 +284,15 @@ for (const viewport of VIEWPORTS) {
       // One side at a time, so a state with a clock on it (the 2.2s draft) is captured whole.
       const untouched = new Map<Region, Pair>();
       const structure = new Map<Region, Pair>();
+      const revised = REVISED_COPY[state.name];
+      const layouts: Record<string, Awaited<ReturnType<typeof copyLayout>>> = {};
       for (const [side, page] of [["design", design], ["app", app]] as const) {
         await state.reach(page);
         await parkPointer(page);
+        if (revised) {
+          layouts[side] = await copyLayout(page, state.name, side);
+          if (side === "app") await expect(page.getByText(revised.text, { exact: true })).toBeVisible();
+        }
         const capture = async (into: Map<Region, Pair>, regions: Region[]) => {
           for (const region of regions) {
             const locator = page.locator(REGIONS[region]).first();
@@ -216,7 +311,17 @@ for (const viewport of VIEWPORTS) {
         const id = `${region}-${size}-${state.name}`;
         const deviation = DEVIATIONS.find((d) => d.region === region && (!d.states || d.states.includes(state.name)));
         const held = structure.get(region);
-        if (held) {
+        if (revised?.region === region) {
+          await measure(canvas, `${id}-original-copy`, held ?? pair, null, failures, "original design copy superseded; unmasked diff retained, not claimed under 1%");
+          if (held) await measure(canvas, `${id}-original-copy-with-placeholder`, pair, null, failures, "original copy and placeholders, untouched");
+          writeFileSync(join(RESULTS, `${id}-layout.json`), JSON.stringify(layouts, null, 2));
+          expect(layouts.app, `${id}: unchanged reference geometry, styles and controls`).toEqual(layouts.design);
+          const baseline = `${id}-revised-copy.png`;
+          expect(pair.app).toMatchSnapshot(baseline, { maxDiffPixelRatio: MAX_RATIO, threshold: 2 / 255 });
+          // Retain the original per-channel comparator too: Playwright's snapshot threshold
+          // is perceptual, not the design suite's strict 2/255 per-channel contract.
+          await measure(canvas, `${id}-revised-copy`, { design: readFileSync(test.info().snapshotPath(baseline)), app: pair.app }, MAX_RATIO, failures, "approved revised-copy baseline, original 1% and per-channel tolerance");
+        } else if (held) {
           await measure(canvas, id, held, deviation?.maxRatio ?? MAX_RATIO, failures, "structure: placeholder glyphs transparent on both sides");
           await measure(canvas, `${id}-with-placeholder`, pair, null, failures, "untouched: reported, not limited (placeholders are --fg-3 by ruling)");
         } else {
