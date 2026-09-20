@@ -6,7 +6,7 @@ import { relativeTime } from "../model/time";
 import type { Person, Task } from "../model/types";
 import { useDirectory, useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
 import { ActionError, BOX_INPUT, PanelButton, SECTION_LABEL } from "./controls";
-import { composerKey, useComposer, useDetailSession } from "./DetailSession";
+import { useComposer, useDetailSession } from "./DetailSession";
 
 const AVATAR_TONES = {
   neutral: "bg-card-2 text-fg-2",
@@ -32,7 +32,7 @@ export function ActivitySection({ task }: { task: Task }) {
   const { people, currentUser } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const box = useComposer(composerKey("comment", task.id), (text) => track(task.id, commands.addComment(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
+  const box = useComposer(task, "comment", (text) => track(task.id, commands.addComment(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const entries = [...task.activity].sort((a, b) => a.at - b.at);
   const person = (id: string) => people.find((p) => p.id === id) ?? (id === ASSISTANT.id ? ASSISTANT : null);

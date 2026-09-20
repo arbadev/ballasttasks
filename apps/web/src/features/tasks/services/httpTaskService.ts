@@ -1,6 +1,6 @@
 import { ApiError, type HttpTransport } from "@/lib/api/client";
 import type { Attachment, Task, TaskStatus } from "../model/types";
-import { TaskNotFoundError, TaskReadbackError, type NewTask, type TaskPatch, type TaskService } from "./types";
+import { TaskNotFoundError, TaskReadbackError, type AcknowledgedWrite, type NewTask, type TaskPatch, type TaskService } from "./types";
 import { apiStatus, attachmentFromApi, taskFromApi, type Schemas } from "./httpMapping";
 import type { TaskPage, TaskPageRequest } from "./query";
 
@@ -75,7 +75,7 @@ export class HttpTaskService implements TaskService {
         ...taskFromApi(row), detailLoaded: true,
         steps: row.steps.map((step) => ({ id: step.id, text: step.title, done: step.done })),
         attachments: row.attachments.map(attachmentFromApi),
-        activity: activity.reverse().map((entry) => ({ type: entry.kind, who: entry.actor.id, text: entry.text, at: Date.parse(entry.created_at) })),
+        activity: activity.reverse().map((entry) => ({ id: entry.id, type: entry.kind, who: entry.actor.id, text: entry.text, at: Date.parse(entry.created_at) })),
       };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null;
@@ -108,11 +108,11 @@ export class HttpTaskService implements TaskService {
     if (patch.prio !== undefined) body.priority = (["P0", "P1", "P2", "P3"] as const)[patch.prio];
     if (patch.importance !== undefined) body.importance = patch.importance;
     if (patch.project !== undefined) body.project_id = patch.project;
-    return this.change(id, () => this.client.request(pathFor(id), { method: "PATCH", body }));
+    return this.change(id, async () => { await this.client.request(pathFor(id), { method: "PATCH", body }); });
   }
 
   move(id: string, status: TaskStatus): Promise<Task> {
-    return this.change(id, () => this.client.request(pathFor(id), { method: "PATCH", body: { status: apiStatus(status) } }));
+    return this.change(id, async () => { await this.client.request(pathFor(id), { method: "PATCH", body: { status: apiStatus(status) } }); });
   }
 
   toggleDone(id: string): Promise<Task> {
@@ -123,7 +123,12 @@ export class HttpTaskService implements TaskService {
   }
 
   addStep(id: string, text: string): Promise<Task> {
-    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/steps`, { method: "POST", body: { title: text.trim() } }) : Promise.resolve(), !!text.trim());
+    const title = text.trim();
+    return this.change(id, async () => {
+      if (!title) return;
+      const row = await this.client.request<Schemas["StepResponse"]>(`${pathFor(id)}/steps`, { method: "POST", body: { title } });
+      return { taskId: id, kind: "step", childId: row.id };
+    });
   }
 
   toggleStep(id: string, stepId: string): Promise<Task> {
@@ -136,29 +141,34 @@ export class HttpTaskService implements TaskService {
   }
 
   removeStep(id: string, stepId: string): Promise<Task> {
-    return this.change(id, () => this.client.request(`${pathFor(id)}/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" }));
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" }); });
   }
 
   acceptSteps(id: string, titles: string[]): Promise<Task> {
-    return this.change(id, () => this.client.request(`${pathFor(id)}/steps/bulk`, { method: "POST", body: { titles } }));
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/steps/bulk`, { method: "POST", body: { titles } }); });
   }
 
   addComment(id: string, text: string): Promise<Task> {
-    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/comments`, { method: "POST", body: { text: text.trim() } }) : Promise.resolve(), !!text.trim());
+    const body = text.trim();
+    return this.change(id, async () => {
+      if (!body) return;
+      const row = await this.client.request<Schemas["ActivityEntryResponse"]>(`${pathFor(id)}/comments`, { method: "POST", body: { text: body } });
+      return { taskId: id, kind: "comment", childId: row.id };
+    });
   }
 
   addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task> {
     if (attachment.kind !== "link" && file) return this.uploadAttachment(id, file);
     if (attachment.kind !== "link" || !attachment.url) return Promise.reject(new Error("Choose a file to upload, or enter an absolute link URL."));
-    return this.change(id, () => this.client.request(`${pathFor(id)}/attachments/links`, {
-      method: "POST", body: { name: attachment.name, url: attachment.url },
-    }));
+    return this.change(id, async () => {
+      await this.client.request(`${pathFor(id)}/attachments/links`, { method: "POST", body: { name: attachment.name, url: attachment.url } });
+    });
   }
 
   uploadAttachment(id: string, file: File): Promise<Task> {
     const body = new FormData();
     body.append("file", file);
-    return this.change(id, () => this.client.request(`${pathFor(id)}/attachments/files`, { method: "POST", body }));
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/attachments/files`, { method: "POST", body }); });
   }
 
   downloadAttachment(id: string, attachmentId: string): Promise<Blob> {
@@ -166,7 +176,7 @@ export class HttpTaskService implements TaskService {
   }
 
   removeAttachment(id: string, attachmentId: string): Promise<Task> {
-    return this.change(id, () => this.client.request(`${pathFor(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" }));
+    return this.change(id, async () => { await this.client.request(`${pathFor(id)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" }); });
   }
 
   remove(id: string): Promise<void> {
@@ -179,15 +189,15 @@ export class HttpTaskService implements TaskService {
     return task;
   }
 
-  private change(id: string, write: () => Promise<unknown>, recoverReadback = false): Promise<Task> {
+  private change(id: string, write: () => Promise<AcknowledgedWrite | void>): Promise<Task> {
     return this.serial(id, async () => {
-      await write(); // A rejection here is never treated as an acknowledged write.
+      const saved = await write(); // A rejection here is never treated as an acknowledged write.
       try {
         return await this.require(id);
       } catch (error) {
-        // Preserve session teardown/fencing; only the composer append contract opts in.
+        // Preserve session teardown/fencing; only a write that named the row it stored opts in.
         if (error instanceof ApiError && (error.kind === "session" || error.status === 401)) throw error;
-        if (recoverReadback) throw new TaskReadbackError();
+        if (saved) throw new TaskReadbackError(saved);
         throw error;
       }
     });

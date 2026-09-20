@@ -13,9 +13,19 @@ export class TaskNotFoundError extends Error {
   }
 }
 
-/** A composer write was acknowledged, but its canonical read failed. Never resend it. */
+/** The row a composer append created: which task, which box, and the id the server gave it. */
+export interface AcknowledgedWrite {
+  taskId: string;
+  kind: "comment" | "step";
+  childId: string;
+}
+
+/**
+ * A composer write was acknowledged, but its canonical read failed. Never resend it: `saved`
+ * names the row the server stored, so seeing that row is what ends the recovery.
+ */
 export class TaskReadbackError extends Error {
-  constructor() {
+  constructor(readonly saved: AcknowledgedWrite) {
     super("The change was saved, but the task could not be reloaded.");
     this.name = "TaskReadbackError";
   }

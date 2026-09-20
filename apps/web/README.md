@@ -225,12 +225,13 @@ dialog and the hand-back on close are all untouched.
   the service reports `TaskReadbackError`, the panel says the change **was saved**, and
   **Reload task** repeats only the read, never the acknowledged POST. This recovery survives
   close/reopen and repeated read failures, retains independent/newer drafts, and removes a
-  task deleted meanwhile. Saved text is not restored as an unsent draft. Any save or read of the
-  same task that answers with its canonical detail also settles the recoveries that were already
-  held when it started, so the box frees itself without a redundant read; a refusal, a summary,
-  another task's result or a reload that was already outstanding never does. The footer distinguishes
-  “saved · reload needed” from a genuinely refused write's “not saved”, and a read-only recovery
-  never clears “not saved”. This is not a promise
+  task deleted meanwhile. Saved text is not restored as an unsent draft. The error names the row
+  the server stored (task, box and child id), so the recovery also ends by itself the moment that
+  very row appears in the task's own canonical detail — whichever reload brought it, including the
+  workspace's own. Nothing else settles it: not a list summary, not another task's or another
+  row's id, and never a genuine refusal. The footer distinguishes “saved · reload needed” from a
+  genuinely refused write's “not saved”, stops asking for a reload once no box is still waiting for
+  its row, and a read-only recovery never clears “not saved”. This is not a promise
   of exactly-once writes after an unacknowledged response or a change to sibling mutation contracts.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
