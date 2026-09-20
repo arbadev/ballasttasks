@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient } from "@/lib/api/client";
 import { server } from "@/test/server";
-import { apiPerson, apiProject, apiTask } from "@/test/httpFixtures";
+import { apiPerson, apiProject, apiTask, apiTaskPage } from "@/test/httpFixtures";
 import { HttpTaskService } from "./httpTaskService";
 import { HttpDirectoryService } from "./httpDirectoryService";
 import { ProjectRejectedError, TaskNotFoundError } from "./types";
@@ -21,7 +21,7 @@ describe("HTTP task adapter", () => {
     server.use(
       http.get(`${base}/tasks`, ({ request }) => {
         expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({ scope: "mine", project_id: "project-id", status: "in_progress", due: "week", priority: "P0", q: "hello %_", signal: "needs_owner", sort: "due_date", limit: "50", offset: "50" });
-        return HttpResponse.json({ items: [apiTask()], total: 123, limit: 50, offset: 50 });
+        return HttpResponse.json(apiTaskPage([apiTask()], { total: 123, offset: 50, statusTotals: { in_progress: 123 } }));
       }),
       http.get(`${base}/tasks/summary`, ({ request }) => {
         expect(Object.fromEntries(new URL(request.url).searchParams)).toEqual({ project_id: "project-id" });
@@ -33,18 +33,18 @@ describe("HTTP task adapter", () => {
     expect(page.tasks).toHaveLength(1);
   });
 
-  it("ignores only status on the board, obtains complete column/header totals and detects done-only projects", async () => {
-    const counts: Record<string, number> = { todo: 6, in_progress: 4, testing: 3, done: 8 };
+  it("ignores only status on the board, takes column/header totals from the list and detects done-only projects", async () => {
+    const statusTotals = { todo: 6, in_progress: 4, testing: 3, done: 8 };
     server.use(
       http.get(`${base}/tasks`, ({ request }) => {
         const params = new URL(request.url).searchParams;
         if (!params.has("q")) {
           expect(params.get("status")).toBe("all");
-          return HttpResponse.json({ items: [apiTask({ status: "done" })], total: 8, limit: 1, offset: 0 });
+          return HttpResponse.json(apiTaskPage([apiTask({ status: "done" })], { total: 8, limit: 1, statusTotals: { done: 8 } }));
         }
         expect(params.get("q")).toBe("needle");
-        const total = params.get("status") === "all" ? 21 : counts[params.get("status")!];
-        return HttpResponse.json({ items: [], total, limit: Number(params.get("limit")), offset: 0 });
+        expect(params.get("status")).toBe("all");
+        return HttpResponse.json(apiTaskPage([], { total: 21, limit: Number(params.get("limit")), statusTotals }));
       }),
       http.get(`${base}/tasks/summary`, () => HttpResponse.json({ counts: { all: 0, mine: 0, overdue: 0 }, projects: [{ ...apiProject, open_tasks: 0 }], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } })),
     );
@@ -52,32 +52,35 @@ describe("HTTP task adapter", () => {
     expect(page).toMatchObject({ total: 21, headerTotal: 13, columns: { todo: 6, progress: 4, testing: 3, done: 8 }, projectHasTasks: true });
   });
 
-  it("answers board columns from a complete page and counts per status only when the page is truncated", async () => {
+  it("reads full board column totals from one list request, on a page that holds them all and on a paginated one", async () => {
     const listed: string[] = [];
-    const rows = [apiTask({ id: "a", status: "todo" }), apiTask({ id: "b", status: "in_progress" }), apiTask({ id: "c", status: "todo" })];
-    let truncated = false;
+    const rows = Array.from({ length: 60 }, (_, index) => apiTask({ id: `t${index}`, status: index % 3 === 0 ? "testing" : "todo" }));
+    const statusTotals = { todo: 40, in_progress: 0, testing: 20, done: 0 };
     server.use(
       http.get(`${base}/tasks`, ({ request }) => {
         const params = new URL(request.url).searchParams;
-        const status = params.get("status")!;
-        listed.push(status);
-        if (status === "all") return HttpResponse.json({ items: truncated ? rows.slice(0, 2) : rows, total: rows.length, limit: truncated ? 2 : 50, offset: 0 });
-        const matched = rows.filter((row) => row.status === status);
-        return HttpResponse.json({ items: matched.slice(0, 1), total: matched.length, limit: 1, offset: 0 });
+        listed.push(`status=${params.get("status")}&limit=${params.get("limit")}`);
+        const limit = Number(params.get("limit"));
+        const offset = Number(params.get("offset"));
+        return HttpResponse.json(apiTaskPage(rows.slice(offset, offset + limit), { total: rows.length, limit, offset, statusTotals }));
       }),
-      http.get(`${base}/tasks/summary`, () => HttpResponse.json({ counts: { all: 3, mine: 0, overdue: 0 }, projects: [apiProject], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } })),
+      http.get(`${base}/tasks/summary`, () => HttpResponse.json({ counts: { all: 60, mine: 0, overdue: 0 }, projects: [apiProject], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } })),
     );
     const service = new HttpTaskService(client());
-    const complete = await service.query({ query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0 });
-    expect(complete.columns).toEqual({ todo: 2, progress: 1, testing: 0, done: 0 });
-    expect(listed).toEqual(["all"]);
+    const request = { query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0 } as const;
 
-    truncated = true;
+    // 60 matching rows do not fit the 50-row page the workspace asks for.
+    const paginated = await service.query(request);
+    expect(paginated.tasks).toHaveLength(50);
+    expect(paginated.total).toBe(60);
+    expect(paginated.columns).toEqual({ todo: 40, progress: 0, testing: 20, done: 0 });
+    expect(paginated.headerTotal).toBe(60);
+    expect(listed).toEqual(["status=all&limit=50"]);
+
     listed.length = 0;
-    const partial = await service.query({ query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0, limit: 2 });
-    // The same totals, but a truncated page cannot answer them: the server still counts each column.
-    expect(partial.columns).toEqual({ todo: 2, progress: 1, testing: 0, done: 0 });
-    expect([...listed].sort()).toEqual(["all", "done", "in_progress", "testing", "todo"]);
+    const whole = await service.query({ ...request, limit: 200 });
+    expect(whole.columns).toEqual({ todo: 40, progress: 0, testing: 20, done: 0 });
+    expect(listed).toEqual(["status=all&limit=200"]);
   });
 
   it("spends five requests on a board save and its canonical refresh", async () => {
@@ -89,7 +92,7 @@ describe("HTTP task adapter", () => {
       http.get(`${base}/tasks/task-id/activity`, () => { requests.push("GET /tasks/task-id/activity"); return HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 }); }),
       http.get(`${base}/tasks`, ({ request }) => {
         requests.push(`GET /tasks?status=${new URL(request.url).searchParams.get("status")}`);
-        return HttpResponse.json({ items: [row], total: 1, limit: 50, offset: 0 });
+        return HttpResponse.json(apiTaskPage([row]));
       }),
       http.get(`${base}/tasks/summary`, () => { requests.push("GET /tasks/summary"); return HttpResponse.json({ counts: { all: 1, mine: 0, overdue: 0 }, projects: [apiProject], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } }); }),
     );
@@ -110,7 +113,7 @@ describe("HTTP task adapter", () => {
       expect(url.searchParams.get("limit")).toBe("200");
       const offset = Number(url.searchParams.get("offset"));
       pages.push(offset);
-      return HttpResponse.json({ items: [apiTask({ id: `t${offset}`, key: `IN-0${offset + 1}`, steps_total: 3, steps_done: 1, attachments_count: 2, status: "in_progress" })], total: 2, limit: 200, offset });
+      return HttpResponse.json(apiTaskPage([apiTask({ id: `t${offset}`, key: `IN-0${offset + 1}`, steps_total: 3, steps_done: 1, attachments_count: 2, status: "in_progress" })], { total: 2, limit: 200, offset, statusTotals: { in_progress: 2 } }));
     }));
     const tasks = await new HttpTaskService(client()).list();
     expect(pages).toEqual([0, 1]);

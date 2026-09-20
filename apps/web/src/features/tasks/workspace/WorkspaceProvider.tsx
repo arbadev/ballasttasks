@@ -53,6 +53,8 @@ export interface TaskCommands {
   removeAttachment?(id: string, attachmentId: string): Promise<Task>;
   /** Also discards the step generation in flight for the task, as the design does. */
   remove(id: string): Promise<void>;
+  /** Drops a task the server no longer has, with its generation. Deletes nothing. */
+  forget(id: string): Promise<void>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
   sync(task: Task): void;
 }
@@ -240,6 +242,15 @@ export function useTaskCommands(): TaskCommands {
     [dispatch],
   );
 
+  const forget = useCallback(
+    async (id: string) => {
+      dispatch({ type: "taskRemoved", id });
+      if (stepGeneration.forget) stepGeneration.forget(id);
+      else if (stepGeneration.current()?.taskId === id) await stepGeneration.discard();
+    },
+    [dispatch, stepGeneration],
+  );
+
   return useMemo<TaskCommands>(
     () => ({
       create: async (input, options) => {
@@ -260,14 +271,13 @@ export function useTaskCommands(): TaskCommands {
       removeAttachment: service.removeAttachment ? async (id, attachmentId) => saved(await service.removeAttachment!(id, attachmentId)) : undefined,
       remove: async (id) => {
         await service.remove(id);
-        dispatch({ type: "taskRemoved", id });
-        if (stepGeneration.forget) stepGeneration.forget(id);
-        else if (stepGeneration.current()?.taskId === id) await stepGeneration.discard();
+        await forget(id);
       },
+      forget,
       sync: (task) => {
         saved(task);
       },
     }),
-    [service, stepGeneration, saved, dispatch, project],
+    [service, stepGeneration, saved, forget, dispatch, project],
   );
 }

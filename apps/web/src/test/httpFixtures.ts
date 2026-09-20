@@ -10,3 +10,19 @@ export const apiTask = (patch: Partial<Schemas["TaskDetailResponse"]> = {}): Sch
 });
 export const apiPerson = { id: "user-id", full_name: "Test Person", initials: "TP", role_label: null };
 export const apiProject = { id: "project-id", name: "Inbox", key: "IN", color: "acc", open_tasks: 1, created_at: "2026-09-19T00:00:00Z", updated_at: "2026-09-19T00:00:00Z" };
+
+/** A `TaskListResponse`: `status_totals` counts every matching task, so pass them for a truncated page. */
+export const apiTaskPage = (
+  items: Schemas["TaskResponse"][],
+  page: { total?: number; limit?: number; offset?: number; statusTotals?: Partial<Schemas["StatusTotalsResponse"]> } = {},
+): Schemas["TaskListResponse"] => {
+  const counted: Schemas["StatusTotalsResponse"] = { todo: 0, in_progress: 0, testing: 0, done: 0 };
+  for (const item of items) counted[item.status] += 1;
+  return {
+    items,
+    total: page.total ?? items.length,
+    limit: page.limit ?? 50,
+    offset: page.offset ?? 0,
+    status_totals: { ...counted, ...page.statusTotals },
+  };
+};

@@ -87,6 +87,7 @@ services:
       args:
         # NEXT_PUBLIC_* values are inlined into the browser bundle at build time.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set in .env}
+        NEXT_PUBLIC_SERVICE_MODE: ${NEXT_PUBLIC_SERVICE_MODE:-http}
     ports:
       - "3000:3000"
     depends_on:

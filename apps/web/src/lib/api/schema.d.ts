@@ -957,6 +957,23 @@ export interface components {
             /** Providers */
             providers: components["schemas"]["SsoProvider"][];
         };
+        /**
+         * StatusTotalsResponse
+         * @description The design's four board columns: the matching tasks by status, whatever the page.
+         *
+         *     The same filters as ``total``, narrowed to one status; ``status`` itself still applies,
+         *     so a list asked for one status reports zero in the other three.
+         */
+        StatusTotalsResponse: {
+            /** Todo */
+            todo: number;
+            /** In Progress */
+            in_progress: number;
+            /** Testing */
+            testing: number;
+            /** Done */
+            done: number;
+        };
         /** StepCreate */
         StepCreate: {
             /**
@@ -1182,7 +1199,8 @@ export interface components {
         };
         /**
          * TaskListResponse
-         * @description An envelope: ``total`` is how many tasks match the filters, whatever the page.
+         * @description An envelope: ``total`` is how many tasks match the filters, whatever the page, and
+         *     ``status_totals`` is that same set by status.
          */
         TaskListResponse: {
             /** Items */
@@ -1193,6 +1211,7 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            status_totals: components["schemas"]["StatusTotalsResponse"];
         };
         /**
          * TaskPriority

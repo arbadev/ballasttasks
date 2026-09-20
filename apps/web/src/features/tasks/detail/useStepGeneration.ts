@@ -49,7 +49,11 @@ export function useStepGeneration(taskId: string): StepGenerationView {
     },
     reload: () => {
       void tasks.get(taskId).then(async (task) => {
-        if (!task) return;
+        if (!task) {
+          await commands.forget(taskId);
+          setGenerationFailed(taskId, false);
+          return;
+        }
         commands.sync(task);
         if (service.forget) service.forget(taskId);
         else if (service.current()?.taskId === taskId) await service.discard();

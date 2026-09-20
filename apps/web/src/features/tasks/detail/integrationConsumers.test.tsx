@@ -87,6 +87,21 @@ describe("detail integration consumers", () => {
     expect(screen.getByRole("button", { name: "Generate steps" })).toBeEnabled();
   });
 
+  it("closes the panel when the reload finds the task deleted, and deletes nothing itself", async () => {
+    const service = new FakeTaskService([buildTask({ id: "t1" })]);
+    const get = vi.spyOn(service, "get").mockResolvedValue(null);
+    const remove = vi.spyOn(service, "remove");
+    const { generation } = await setup(service);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    act(() => generation.emit({ taskId: "t1", phase: "error", recovery: "reload", message: "This generation expired or its task was deleted. Reload the task." }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload task" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(get).toHaveBeenCalledOnce();
+    expect(remove).not.toHaveBeenCalled();
+    expect(generation.calls).toEqual([["discard"]]);
+  });
+
   it("downloads authenticated bytes via the command and removes only after the service confirms", async () => {
     const attachment = { id: "file-id", kind: "pdf" as const, name: "proof.pdf", meta: "PDF · 8 bytes" };
     const task = buildTask({ id: "t1", attachments: [attachment] });

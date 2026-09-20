@@ -85,11 +85,12 @@ To run the same checks on every commit: `pre-commit install` (or once, by hand: 
 ## How the API contract reaches the frontend
 
 ```text
-Pydantic response model -> OpenAPI schema -> npm run gen:api (openapi-typescript) -> schema.d.ts -> service -> component
+Pydantic response model -> OpenAPI schema -> npm run gen:api -- <your-api-url>/openapi.json (openapi-typescript) -> schema.d.ts -> service -> component
 ```
 
 1. Change the Pydantic response model in `apps/api`.
-2. Run `npm run gen:api` in `apps/web` to regenerate `schema.d.ts`. Never edit that file by hand.
+2. Run `npm run gen:api -- <your-api-url>/openapi.json` in `apps/web` to regenerate `schema.d.ts`.
+   The schema source is always given explicitly. Never edit that file by hand.
 3. Fix whatever the TypeScript compiler now reports.
 4. Commit the API change, the regenerated types and the frontend fix **together**.
 

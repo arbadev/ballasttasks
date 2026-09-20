@@ -6,7 +6,7 @@ repository contract suite. Nothing here knows the date: ``today`` travels next t
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
@@ -92,10 +92,17 @@ class TaskQuery:
             raise ValueError("offset must not be negative")
 
 
+def every_status(counted: Mapping[TaskStatus, int]) -> dict[TaskStatus, int]:
+    """The four statuses, so a reader never has to read "missing" as zero."""
+    return {status: counted.get(status, 0) for status in TaskStatus}
+
+
 @dataclass(frozen=True, slots=True)
 class TaskPage:
     items: Sequence[Task]
     total: int  # how many tasks match the filter, whatever the page
+    # The same matching tasks by status, whatever the page: the design's four board columns.
+    status_totals: Mapping[TaskStatus, int]
 
 
 @dataclass(frozen=True, slots=True)

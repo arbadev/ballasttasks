@@ -52,10 +52,10 @@ The HTTP workspace uses the API's filters, sorting, search and limit/offset page
 not client filtering over the first page. Page/filter changes discard stale requests;
 mutations reload canonical query results and counts. Sidebar counts describe the whole
 workspace; Attention counts describe open work in the selected project, as in the design.
-Board queries ignore only the status filter, with per-column totals fetched from the API;
-the header still describes the list's status filter. Pagination is across all columns.
-A board page that already holds all `total` matching rows partitions into those same totals,
-so the four per-status count requests are spent only on a truncated page.
+Board queries ignore only the status filter; the header still describes the list's status
+filter, and pagination is across all columns. The four column totals are the list response's
+own `status_totals`, which counts every matching task by status whatever the page holds, so
+a board query is two requests (list and summary) however many pages of tasks match.
 Already-loaded views stay mounted during refresh (marked busy), preserving pending gestures
 and focus, and sidebar counts keep their last server values rather than blanking. Full-scope column totals do not hide optimistic cards or imply every card is on
 this page; columns with off-page rows say so.
@@ -323,7 +323,8 @@ credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` 
 Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
 throttling, or blanket-retry the suite. No test or application request retries automatically.
 
-Any change to an API response model is followed by `npm run gen:api` in the same commit.
+Any change to an API response model is followed by `npm run gen:api -- <your-api-url>/openapi.json`
+in the same commit; the schema source is always given, the command has no default.
 
 ## Visual tests
 

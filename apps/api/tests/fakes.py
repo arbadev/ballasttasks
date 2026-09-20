@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import replace
 from datetime import date
@@ -26,6 +27,7 @@ from app.application.task_query import (
     TaskScope,
     TaskSignal,
     TaskSort,
+    every_status,
 )
 from app.domain.attachment import Attachment
 from app.domain.attention import WEEK_DAYS, Attention, assess
@@ -177,7 +179,11 @@ class InMemoryTaskRepository:
         found = [t for t in self._tasks.values() if _matches(t, query.filter, today)]
         ordered = _sorted(found, query.sort, today)
         page = ordered[query.offset : query.offset + query.limit]
-        return TaskPage(items=[replace(task) for task in page], total=len(found))
+        return TaskPage(
+            items=[replace(task) for task in page],
+            total=len(found),
+            status_totals=every_status(Counter(task.status for task in found)),
+        )
 
     async def count_open(self, *, viewer_id: uuid.UUID, today: date) -> TaskCounts:
         open_tasks = [t for t in self._tasks.values() if t.is_open]

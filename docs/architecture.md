@@ -275,7 +275,7 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 
 ### Frontend: `apps/web/src/app/providers.tsx`
 
-- Builds session-scoped HTTP services through `client.ts` by default and provides them through React context. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects the in-memory design fixtures; failures never silently switch modes. The existing workspace is the single data owner, with server-side queries, pagination and counts.
+- Builds session-scoped HTTP services through `client.ts` by default and provides them through React context. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects the in-memory design fixtures; failures never silently switch modes. Like `NEXT_PUBLIC_API_URL`, it is inlined at build time, so compose passes it as a build argument (`http` unless set). The existing workspace is the single data owner, with server-side queries, pagination and counts.
 - Components and hooks read the service interface from context. They never import `client.ts` or call `fetch`.
 - `config.ts` is the only application module that reads `process.env` (`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SERVICE_MODE`). Test tooling (`playwright.config.ts`, `apps/web/visual/`) reads its own variables.
 - Password registration/login and the SSO callback establish a memory-only bearer session. Full reload/new tab requires sign-in again, without losing PostgreSQL data. Logout/401 disposes session services, unmounts the workspace and fences late responses. No browser credential persistence, refresh token or cookie-session subsystem is added. See [web integration](../apps/web/README.md#authentication-and-http-integration) for the service and polling contracts.
@@ -296,7 +296,7 @@ flowchart LR
 
 Rules:
 
-- Any API response change updates the Pydantic model, runs `npm run gen:api`, fixes the frontend types, and lands in the same commit.
+- Any API response change updates the Pydantic model, runs `npm run gen:api -- <your-api-url>/openapi.json` (the schema source is always given; there is no default endpoint), fixes the frontend types, and lands in the same commit.
 - `schema.d.ts` is generated. It is never edited by hand.
 - `client.ts` is the only module that calls `fetch`. Services wrap it and return the generated types.
 
