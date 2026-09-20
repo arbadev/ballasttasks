@@ -3,6 +3,7 @@ import { TasksApp } from "../shell/TasksApp";
 import { TaskDetail } from "../detail/TaskDetail";
 import { BoardView } from "../board/BoardView";
 import { ListView } from "../list/ListView";
+import { Sidebar } from "../shell/Sidebar";
 import { EmptyProject, useEmptyProject } from "@/features/projects/EmptyProject";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithServices } from "@/test/renderWithServices";
@@ -175,6 +176,41 @@ describe("server-query workspace", () => {
     await waitFor(() => expect(service.query).toHaveBeenCalledTimes(2));
     await act(async () => answer({ ...page("refreshed"), tasks: [next] }));
     expect(await screen.findByRole("button", { name: next.title })).toHaveFocus();
+  });
+
+  it("keeps the last server sidebar counts through an in-flight refresh, then replaces them", async () => {
+    const service = new QueryService();
+    const first = { ...page("first"), sidebar: { all: 200, mine: 40, overdue: 3, byProject: { ballast: 7 } } };
+    service.query.mockResolvedValue(first);
+    let firstAnswer!: (value: TaskPage) => void;
+    service.query.mockImplementationOnce(() => new Promise((resolve) => { firstAnswer = resolve; }));
+    renderWithServices(
+      <WorkspaceProvider><Sidebar id="sidebar" open onNavigate={() => {}} /><InvitationProbe /></WorkspaceProvider>,
+      { taskService: service },
+    );
+    const views = () => within(screen.getByRole("navigation", { name: "Views" }));
+    const projects = () => within(screen.getByRole("navigation", { name: "Projects" }));
+    await waitFor(() => expect(service.query).toHaveBeenCalledTimes(1));
+    // Before any server page there is nothing to show: the counts are blank, not a guess.
+    expect(screen.getByRole("button", { name: "All tasks" })).toBeInTheDocument();
+    await act(async () => firstAnswer(first));
+    expect(views().getByRole("button", { name: /All tasks/ })).toHaveTextContent("200");
+    expect(views().getByRole("button", { name: /Overdue/ })).toHaveTextContent("3");
+    expect(projects().getByRole("button", { name: /Ballast Tasks/ })).toHaveTextContent("7");
+
+    let answer!: (value: TaskPage) => void;
+    service.query.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const count = service.query.mock.calls.length;
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(service.query.mock.calls.length).toBeGreaterThan(count));
+    expect(views().getByRole("button", { name: /All tasks/ })).toHaveTextContent("200");
+    expect(views().getByRole("button", { name: /Overdue/ })).toHaveTextContent("3");
+    expect(projects().getByRole("button", { name: /Ballast Tasks/ })).toHaveTextContent("7");
+
+    await act(async () => answer({ ...first, sidebar: { all: 150, mine: 20, overdue: 1, byProject: { ballast: 4 } } }));
+    expect(views().getByRole("button", { name: /All tasks/ })).toHaveTextContent("150");
+    expect(views().getByRole("button", { name: /Overdue/ })).toHaveTextContent("1");
+    expect(projects().getByRole("button", { name: /Ballast Tasks/ })).toHaveTextContent("4");
   });
 
   it("renders server totals and global/project counts, with working page controls", async () => {

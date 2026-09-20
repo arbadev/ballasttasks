@@ -54,8 +54,10 @@ mutations reload canonical query results and counts. Sidebar counts describe the
 workspace; Attention counts describe open work in the selected project, as in the design.
 Board queries ignore only the status filter, with per-column totals fetched from the API;
 the header still describes the list's status filter. Pagination is across all columns.
+A board page that already holds all `total` matching rows partitions into those same totals,
+so the four per-status count requests are spent only on a truncated page.
 Already-loaded views stay mounted during refresh (marked busy), preserving pending gestures
-and focus. Full-scope column totals do not hide optimistic cards or imply every card is on
+and focus, and sidebar counts keep their last server values rather than blanking. Full-scope column totals do not hide optimistic cards or imply every card is on
 this page; columns with off-page rows say so.
 Selected-task detail/activity is loaded separately, not once per list row. The complete
 `TaskService.list()` remains a legacy/demo capability, not the HTTP workspace's data path.

@@ -23,17 +23,11 @@ export class HttpTaskService implements TaskService {
     params.set("offset", String(offset));
     // The design's Attention strip describes open work in the project, independent of toolbar/scope.
     const summaryParams = new URLSearchParams(query.project === "all" ? {} : { project_id: query.project });
-    const [page, summary, columnEntries] = await Promise.all([
+    const [page, summary] = await Promise.all([
       this.client.get<Schemas["TaskListResponse"]>(`/tasks?${params}`),
       this.client.get<Schemas["TaskSummaryResponse"]>(`/tasks/summary${summaryParams.size ? `?${summaryParams}` : ""}`),
-      board ? Promise.all((["todo", "progress", "testing", "done"] as const).map(async (status) => {
-        const countParams = new URLSearchParams(params);
-        countParams.set("status", apiStatus(status)); countParams.set("limit", "1"); countParams.set("offset", "0");
-        const count = await this.client.get<Schemas["TaskListResponse"]>(`/tasks?${countParams}`);
-        return [status, count.total] as const;
-      })) : Promise.resolve(null),
     ]);
-    const columns = columnEntries ? Object.fromEntries(columnEntries) as Record<TaskStatus, number> : undefined;
+    const columns = board ? await this.columnTotals(params, page) : undefined;
     const headerTotal = columns ? query.status === "all" ? page.total : query.status === "open"
       ? columns.todo + columns.progress + columns.testing : columns[query.status] : page.total;
     let projectHasTasks: boolean | undefined;
@@ -49,6 +43,27 @@ export class HttpTaskService implements TaskService {
       sidebar: { ...summary.counts, byProject: Object.fromEntries(summary.projects.map((p) => [p.id, p.open_tasks])) },
       signals: { overdue: summary.signals.overdue, critical: summary.signals.p0_at_risk, soon: summary.signals.due_soon, unassigned: summary.signals.needs_owner },
     };
+  }
+
+  /**
+   * The board's four column totals. The board page is fetched across every status, so a page
+   * that already holds all `total` matching rows partitions into the same numbers the server
+   * would return; only a truncated page needs a per-status count request.
+   */
+  private async columnTotals(params: URLSearchParams, page: Schemas["TaskListResponse"]): Promise<Record<TaskStatus, number>> {
+    const statuses = ["todo", "progress", "testing", "done"] as const;
+    if (page.offset === 0 && page.items.length === page.total) {
+      const totals: Record<TaskStatus, number> = { todo: 0, progress: 0, testing: 0, done: 0 };
+      for (const row of page.items) totals[row.status === "in_progress" ? "progress" : row.status] += 1;
+      return totals;
+    }
+    const entries = await Promise.all(statuses.map(async (status) => {
+      const countParams = new URLSearchParams(params);
+      countParams.set("status", apiStatus(status)); countParams.set("limit", "1"); countParams.set("offset", "0");
+      const count = await this.client.get<Schemas["TaskListResponse"]>(`/tasks?${countParams}`);
+      return [status, count.total] as const;
+    }));
+    return Object.fromEntries(entries) as Record<TaskStatus, number>;
   }
 
   async list(): Promise<Task[]> {

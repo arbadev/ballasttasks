@@ -12,7 +12,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 - **Network**: `client.ts` is the only `fetch` caller. Components depend on service interfaces from context, never on the client.
 - **Web UI**: colours, radii, shadows, fonts and animations come from the design tokens in `apps/web/src/app/globals.css` through their Tailwind names, never raw values. Time comes from `useNow()` (the injected clock), never `Date.now()`. Task mutations go through `useTaskCommands()`, which keeps service and workspace state in step. Folder ownership and the hook/action/service contract: "Building on the shell" in `apps/web/README.md`. Matching the design: Tailwind's `text-xs`/`text-sm` also set a line height (the design inherits 1.5, so use `text-[12px]` or an explicit `leading-*`), and `transition-colors` also animates `outline-color` (name the properties the design transitions); both slip under the 1% pixel limit, so measure geometry, not just the diff. "No console warnings" includes Chrome's Issues panel, which Playwright's console listener cannot see: check with chrome-devtools-axi.
 - **Generated files** (`schema.d.ts`, lockfiles) are never edited by hand.
-- **Contract change in one commit**: update the Pydantic model, run `npm run gen:api`, fix frontend types, commit together.
+- **Contract change in one commit**: update the Pydantic model, run `npm run gen:api -- <your-api-url>/openapi.json` (the schema source is always given explicitly; there is no default endpoint), fix frontend types, commit together.
 - **PostgreSQL only**, including tests. No SQLite. A table = an ORM model in `infrastructure/db/models/` plus one Alembic revision (`--autogenerate`, then reviewed by hand).
 - **Tasks reference users and a project**: `tasks.created_by` and `tasks.assignee_id` are foreign keys to `users.id`, and `tasks.project_id` to `projects.id` (see "Tasks reference users" and "Projects and task keys" in `docs/architecture.md`), so anything that writes a task row, tests and seed data included, stores its users first and gives the row a project, a unique `key`, a priority and an importance (`apps/api/tests/postgres.py`: `INSERT_USER`, `user_row`, `TASK_PROJECT_COLUMNS`; entities: `apps/api/tests/builders.py`). The Inbox project (`DEFAULT_PROJECT_ID`) exists in every migrated database. Task use cases learn about users only through the `UserDirectory` port.
 - **Task keys** (`BT-04`) come only from `ProjectRepository.allocate_task_key` and never change; a project's key never changes either ([ADR 0005](docs/decisions/0005-task-keys-and-urgency.md)).
@@ -41,7 +41,7 @@ Authority for everything below: [docs/architecture.md](docs/architecture.md). De
 | `uv run lint-imports` | `apps/api` | Layer import contracts |
 | `npm run test` | `apps/web` | Web tests |
 | `npm run test:visual` | `apps/web` | Playwright: responsive, keyboard and console checks, project creation against committed baselines; with `BT_DESIGN_DIR` set, pixel comparison against the design snapshot (kept outside the repo) |
-| `npm run gen:api` | `apps/web` | Regenerate `schema.d.ts` from the API's OpenAPI schema |
+| `npm run gen:api -- <your-api-url>/openapi.json` | `apps/web` | Regenerate `schema.d.ts` from the OpenAPI schema at the URL you pass; the command has no default source |
 
 ## Repo map
 

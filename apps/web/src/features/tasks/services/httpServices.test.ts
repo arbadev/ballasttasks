@@ -52,6 +52,56 @@ describe("HTTP task adapter", () => {
     expect(page).toMatchObject({ total: 21, headerTotal: 13, columns: { todo: 6, progress: 4, testing: 3, done: 8 }, projectHasTasks: true });
   });
 
+  it("answers board columns from a complete page and counts per status only when the page is truncated", async () => {
+    const listed: string[] = [];
+    const rows = [apiTask({ id: "a", status: "todo" }), apiTask({ id: "b", status: "in_progress" }), apiTask({ id: "c", status: "todo" })];
+    let truncated = false;
+    server.use(
+      http.get(`${base}/tasks`, ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        const status = params.get("status")!;
+        listed.push(status);
+        if (status === "all") return HttpResponse.json({ items: truncated ? rows.slice(0, 2) : rows, total: rows.length, limit: truncated ? 2 : 50, offset: 0 });
+        const matched = rows.filter((row) => row.status === status);
+        return HttpResponse.json({ items: matched.slice(0, 1), total: matched.length, limit: 1, offset: 0 });
+      }),
+      http.get(`${base}/tasks/summary`, () => HttpResponse.json({ counts: { all: 3, mine: 0, overdue: 0 }, projects: [apiProject], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } })),
+    );
+    const service = new HttpTaskService(client());
+    const complete = await service.query({ query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0 });
+    expect(complete.columns).toEqual({ todo: 2, progress: 1, testing: 0, done: 0 });
+    expect(listed).toEqual(["all"]);
+
+    truncated = true;
+    listed.length = 0;
+    const partial = await service.query({ query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0, limit: 2 });
+    // The same totals, but a truncated page cannot answer them: the server still counts each column.
+    expect(partial.columns).toEqual({ todo: 2, progress: 1, testing: 0, done: 0 });
+    expect([...listed].sort()).toEqual(["all", "done", "in_progress", "testing", "todo"]);
+  });
+
+  it("spends five requests on a board save and its canonical refresh", async () => {
+    const requests: string[] = [];
+    const row = apiTask({ status: "todo" });
+    server.use(
+      http.patch(`${base}/tasks/task-id`, () => { requests.push("PATCH /tasks/task-id"); return HttpResponse.json(row); }),
+      http.get(`${base}/tasks/task-id`, () => { requests.push("GET /tasks/task-id"); return HttpResponse.json(row); }),
+      http.get(`${base}/tasks/task-id/activity`, () => { requests.push("GET /tasks/task-id/activity"); return HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 }); }),
+      http.get(`${base}/tasks`, ({ request }) => {
+        requests.push(`GET /tasks?status=${new URL(request.url).searchParams.get("status")}`);
+        return HttpResponse.json({ items: [row], total: 1, limit: 50, offset: 0 });
+      }),
+      http.get(`${base}/tasks/summary`, () => { requests.push("GET /tasks/summary"); return HttpResponse.json({ counts: { all: 1, mine: 0, overdue: 0 }, projects: [apiProject], signals: { overdue: 0, p0_at_risk: 0, due_soon: 0, needs_owner: 0 } }); }),
+    );
+    const service = new HttpTaskService(client());
+    const saved = await service.update("task-id", { title: "Edited" });
+    expect(saved.detailLoaded).toBe(true);
+    const page = await service.query({ query: DEFAULT_QUERY, sort: "importance", board: true, offset: 0 });
+    expect(page.columns).toEqual({ todo: 1, progress: 0, testing: 0, done: 0 });
+    expect(requests).toHaveLength(5);
+    expect(requests.filter((call) => call.startsWith("GET /tasks?"))).toEqual(["GET /tasks?status=all"]);
+  });
+
   it("loads every list page with all statuses and preserves keys/tallies without fake children", async () => {
     const pages: number[] = [];
     server.use(http.get(`${base}/tasks`, ({ request }) => {
