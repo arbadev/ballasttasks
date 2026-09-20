@@ -33,7 +33,7 @@ export function StepTitle({ taskId, step }: { taskId: string; step: Step }) {
     setOpened(false);
   };
   return <div className="min-w-0 flex-1">
-    {editing ? <div className="flex flex-col gap-2" onKeyDown={(e) => {
+    {editing ? <div data-renaming="" className="flex flex-col gap-2" onKeyDown={(e) => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); }
     }}>
       <input autoFocus aria-label="Step title" name={`step-title-${step.id}`} value={box.text}

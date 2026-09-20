@@ -60,6 +60,34 @@ test("step rename and order have independent keyboard targets without changing t
   await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName("Keyboard revised");
 });
 
+test("a click inside an open rename input lands in the input and moves no step", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(APP_URL);
+  await page.getByText(rich, { exact: true }).click();
+  const section = page.getByRole("region", { name: "Steps" });
+  const down = section.getByRole("button", { name: `Move step down: ${first}` });
+  await expect(down).toHaveCount(1);
+  await section.getByRole("button", { name: `Rename step: ${first}` }).click();
+  const input = section.getByRole("textbox", { name: "Step title" });
+  await expect(input).toBeFocused();
+  await expect(down).toHaveCount(0);
+  await expect(section.getByRole("button", { name: `Move step up: ${second}` })).toHaveCount(1);
+  const box = (await input.boundingBox())!;
+  const caret: [number, number] = [box.x + box.width - 20, box.y + 6];
+  expect(await input.evaluate((el, [x, y]) => el === document.elementFromPoint(x, y), caret)).toBe(true);
+  await page.mouse.click(caret[0], caret[1]);
+  await expect(input).toBeFocused();
+  await expect(section.getByRole("status")).toHaveCount(0);
+  await expect(section.getByRole("checkbox").nth(0)).toHaveAccessibleName(first);
+  await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName(second);
+  await page.keyboard.press("Escape");
+  await expect(section.getByRole("button", { name: `Rename step: ${first}` })).toBeFocused();
+  await hit(down);
+  await down.click();
+  await expect(section.getByRole("checkbox").nth(0)).toHaveAccessibleName(second);
+  await expect(section.getByRole("checkbox").nth(1)).toHaveAccessibleName(first);
+});
+
 test("coarse-pointer step moves are visible, 44px, non-overlapping and tappable at 375px", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
@@ -70,7 +98,7 @@ test("coarse-pointer step moves are visible, 44px, non-overlapping and tappable 
   await page.getByText(rich, { exact: true }).tap();
   const section = page.getByRole("region", { name: "Steps" });
   const down = section.getByRole("button", { name: `Move step down: ${first}` });
-  await expect(down).toHaveCSS("opacity", "1");
+  await expect(down.locator("xpath=..")).toHaveCSS("opacity", "1");
   await hit(down, true);
   const row = down.locator("xpath=../..");
   await expect(row.getByRole("checkbox")).toBeChecked();

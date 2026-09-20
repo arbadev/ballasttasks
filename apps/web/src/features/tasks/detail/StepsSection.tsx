@@ -88,7 +88,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
               >
                 <X aria-hidden="true" size={14} strokeWidth={2} />
               </button>
-              <div className="absolute top-1 right-8 flex rounded-bt-sm bg-panel opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 pointer-coarse:static pointer-coarse:w-full pointer-coarse:opacity-100">
+              <div className="absolute top-1 right-8 flex rounded-bt-sm bg-panel opacity-0 group-hover/step:opacity-100 group-focus-within/step:opacity-100 group-has-[[data-renaming]]/step:hidden pointer-coarse:static pointer-coarse:w-full pointer-coarse:opacity-100">
                 {([{ offset: -1, label: "up", Icon: ArrowUp }, { offset: 1, label: "down", Icon: ArrowDown }] as const).map(({ offset, label, Icon }) => <button
                   key={label} type="button" aria-label={`Move step ${label}: ${step.text}`}
                   disabled={order !== "idle" || (offset === -1 ? i === 0 : i === total - 1)}
