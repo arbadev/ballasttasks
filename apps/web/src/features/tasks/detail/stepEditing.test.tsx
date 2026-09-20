@@ -306,6 +306,61 @@ describe("ordinary panel step editing through workspace commands", () => {
     expect(input()).toHaveAttribute("aria-invalid", "true");
     release(); await settle();
     expect(names()).toEqual(["First", "Sent", "Third"]);
+    expect(input()).toHaveValue("");
+    fireEvent.click(section().getByRole("button", { name: "Cancel step rename" }));
     expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+    expect(names()).toEqual(["First", "Sent", "Third"]);
+  });
+
+  it("leaves a draft emptied on purpose open, focused and editable when the save it replaced lands", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let release!: () => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("Second");
+    fireEvent.change(input(), { target: { value: "Sent" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.change(input(), { target: { value: "" } });
+    expect(input()).toHaveFocus();
+    release(); await settle();
+    expect(names()).toEqual(["First", "Sent", "Third"]);
+    expect(input()).toHaveValue("");
+    expect(input()).toHaveFocus();
+    expect(section().getByRole("button", { name: "Save step title" })).toBeDisabled();
+    taskService.renameStep = original;
+    fireEvent.change(input(), { target: { value: "Typed after the save" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(names()).toEqual(["First", "Typed after the save", "Third"]);
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+  });
+
+  it("says why a refused rename takes no further save, and takes none until it is resolved", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let sends = 0;
+    let refuse = true;
+    taskService.renameStep = (id, stepId, text) => {
+      sends += 1;
+      return refuse ? Promise.reject(new Error("refused")) : original(id, stepId, text);
+    };
+    openTask("edit"); edit("First");
+    fireEvent.change(input(), { target: { value: "Refused" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(section().getByRole("alert")).toHaveTextContent(
+      "Could not rename the step. Your text is kept. Retry or dismiss the failed save before saving another edit.",
+    );
+    fireEvent.change(input(), { target: { value: "Corrected" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(sends).toBe(1);
+    expect(names()).toEqual(["First", "Second", "Third"]);
+    refuse = false;
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(sends).toBe(2);
+    expect(names()).toEqual(["Corrected", "Second", "Third"]);
   });
 });

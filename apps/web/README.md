@@ -226,8 +226,11 @@ dialog and the hand-back on close are all untouched.
   removing the step. The session's composer holds pending/refused renames and independent
   newer drafts across close/reopen. A rename edits in place, so the composer keeps the title it
   sent in the field, valid, and gives it up only when that same send lands untouched: closing
-  the panel, reopening it or visiting another task mid-save finds the title still there, and a
-  draft the reader emptied on purpose stays empty. Move up/down buttons have a reserved slot of
+  the panel, reopening it or visiting another task mid-save finds the title still there. The
+  session also owns which step is open for editing, so a draft the reader emptied on purpose
+  stays an open, empty draft — through the save it replaced landing and through close/reopen —
+  until Escape or Cancel closes it. A refused rename holds the box: it says so and takes no
+  further save until Retry or Dismiss resolves it. Move up/down buttons have a reserved slot of
   their own between the title and Remove — they appear on row hover/keyboard focus without ever
   covering or reflowing the title, and take their own line with 44px targets on coarse
   pointers. First/last boundaries are disabled.

@@ -72,6 +72,9 @@ interface DetailSession {
   dateField(taskId: string, options: FieldOptions<string | null>): AutosaveMachine<string | null>;
   generationFailed(taskId: string): boolean;
   setGenerationFailed(taskId: string, failed: boolean): void;
+  /** A step title the reader has open for editing, empty field and all, until they close it. */
+  renamingStep(taskId: string, stepId: string): boolean;
+  setRenamingStep(taskId: string, stepId: string, open: boolean): void;
 }
 
 /** One task's saves: how many are running, and whether the last one to answer failed. */
@@ -95,6 +98,7 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [stepOrders] = useState(() => new StepOrderStore());
   const [dateFields] = useState(() => new Map<string, AutosaveMachine<string | null>>());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
+  const [openRenames, setOpenRenames] = useState<ReadonlySet<string>>(() => new Set());
 
   const dateField = useCallback((taskId: string, options: FieldOptions<string | null>) => {
     let field = dateFields.get(taskId);
@@ -142,6 +146,17 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setRenamingStep = useCallback((taskId: string, stepId: string, open: boolean) => {
+    setOpenRenames((current) => {
+      const key = `${taskId}:${stepId}`;
+      if (current.has(key) === open) return current;
+      const next = new Set(current);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
   const value = useMemo<DetailSession>(
     () => ({
       saveStatus: (taskId) => {
@@ -155,8 +170,10 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       dateField,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
+      renamingStep: (taskId, stepId) => openRenames.has(`${taskId}:${stepId}`),
+      setRenamingStep,
     }),
-    [saves, track, composers, stepOrders, dateField, failedGenerations, setGenerationFailed],
+    [saves, track, composers, stepOrders, dateField, failedGenerations, setGenerationFailed, openRenames, setRenamingStep],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;
