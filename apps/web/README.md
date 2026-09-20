@@ -20,6 +20,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `inMemory*` files implement them over one shared store seeded from the design. |
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
 | `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
+| `src/features/tasks/detail/` | The task side panel: `TaskDetail` (dialog, focus, Escape) around one component per section. `useAutosaveField` is the autosave rule for every field, `DetailSession` holds what must outlive the open panel (saves in flight, unsent drafts, failed generations), `model/` the pure parts (banner text, task key, link parsing). |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
@@ -38,14 +39,14 @@ and labels as the design, but serialisable and the shape an API date column has.
 ## Building on the shell
 
 The shell mounts three views. Each is owned by one slice, which keeps whatever it needs
-**inside its own folder**. The list and board are built (see "The board" below); the
-detail panel is still a placeholder, replaced by its slice:
+**inside its own folder**. The list, board and detail panel are built (see "The board" and
+"The task panel" below):
 
 | Folder (owner) | Mounted as | Contents |
 | --- | --- | --- |
 | `src/features/tasks/list/` | `<ListView />` when the view is `list`, in every load state: it draws its own skeleton and load error | Built: the task rows and the quick-add input. |
 | `src/features/tasks/board/` | `<BoardView />` when the view is `board`, in every load state; it shows its own loading skeleton and load error | Built: the four status columns, with drag, keyboard and touch moves. |
-| `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | The side panel: fields, steps, generated steps, attachments, activity. |
+| `src/features/tasks/detail/` | `<TaskDetail />`, always mounted; renders when a task is selected | Built: see "The task panel" below. |
 
 Everything else (`model/`, `services/`, `workspace/`, `shell/`, `components/ui/`) is shared.
 If a slice needs a change there, keep it additive (a new export, a new prop with a default)
@@ -89,7 +90,7 @@ than `useTaskService()` directly.
 | `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
-| `addAttachment(id, attachment)` | `addAttachment` | Detail attachments. |
+| `addAttachment(id, attachment, file?)` | `addAttachment` | Detail attachments. File bytes are passed to the adapter; the in-memory service stores only metadata. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
@@ -101,6 +102,76 @@ than `useTaskService()` directly.
 services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026); wrap the view in
 `WorkspaceProvider`, or render `<TasksApp />` to drive it through the real shell.
 `FakeTaskService.calls` records what the UI asked for.
+
+## The task panel
+
+`<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
+the panel moves focus inside on open and hands it back to whatever was focused (the row, the
+card, the New task button) on close, so an opener needs nothing more than being focusable. An
+opener that is gone by then — the task deleted or filtered away from inside the panel — takes
+no focus back, and the view it belonged to places it instead: the list remembers the control a
+row was opened from until that panel closes, and gives the focus to the row's own control if it
+is back, else the row that took its place, else the quick-add, the same as for a row it
+completes. While it is open the panel keeps the keyboard. A control that disables or unmounts
+itself under the reader's hands (a send button once its box is busy, a step's own Remove)
+leaves the focus on the document, but the browser keeps its navigation starting point where
+that control stood, so the next Tab carries on from there — usually still inside the panel.
+The dialog leaves that key alone and watches only where it lands: a landing outside is wrapped
+back to the panel's first stop, or its last when the key was Shift+Tab, the same edges
+`keepTabInside` wraps at from within. Nothing else moves the focus, so an opener, another
+dialog and the hand-back on close are all untouched.
+
+- **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
+  saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
+  another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
+  that carries the rejected value. The control goes back to the stored value only when the refused
+  write is still what it shows; a newer edit typed since stays on screen and settles the usual way,
+  on commit or blur. That recovery is retired when the field sends a replacement of its own — when
+  that value is actually on its way, not while it is still being typed and could yet be emptied —
+  or once the stored value moves without the field asking (something else wrote the task while no
+  control was mounted), so its Retry cannot undo the newer value; a value the field stored itself
+  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`.
+- **A value the field cannot hold is never written by leaving it.** A field may declare which
+  values are `savable`: an emptied number box and an emptied date box are not, and a date
+  reports itself empty while a segment is being retyped. Such a value is kept as typed and never
+  sent — so it never retires a reported failure — and `flush` (blur, unmount) puts the stored
+  value back instead of saving it. Removing a due date is its own action — emptying the box asks,
+  with "Clear date" beside a "Keep" that restores it. Focus moves within that date editor do
+  not settle the input before its controls activate; leaving the editor still flushes normally.
+  "Clear date" calls `field.store`, the
+  one path that writes a value the control is not typing. The prompt asks about one stored date:
+  it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
+  moving the box to a different one takes it away, with no write of its own either way — its
+  "Clear date" acts only on the date it asked about, never on a different one the box is
+  showing; a later write of that same date stays within its reach. `store` drops any
+  half-typed edit as it goes, so an abandoned one cannot land on top of it, and its failure uses
+  the field's own inline message and Retry. The date's machine is owned by `DetailSession`, not
+  its mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
+  and a reopened input subscribes to the same owner. Other fields are owned by their mount.
+- **Everything that writes the due date shares one owner**, `useDueField(task)`: the date box,
+  "Clear date" and the urgency banner's "Due tomorrow"/"+1 week". The banner passes its activity
+  note to `store`, which carries it through the same queue, so a quick reschedule cannot be
+  undone by an older typed date that was still in flight, and a refused one says so under the
+  date box with a Retry that re-sends that date and that note. A write releases only the draft
+  it was made from, so an answer arriving while the reader is mid-retype leaves the box alone.
+- **The step and comment boxes send one thing at a time.** `useComposer` holds what is typed and
+  the send it is waiting on in one record per task and box, so both survive the panel closing
+  mid-send and the box that opens again sees how that send ended. While a send runs the box says
+  so and takes no second one; the next draft can be typed and is kept. A refused send is held
+  with its exact text until Retry or Dismiss — the send controls stay unavailable and say so
+  meanwhile, and nothing dismisses it implicitly. It is put back in the box only if the box is
+  empty, and it keeps that text as its own however many refusals it takes, so a newer draft is
+  never overwritten and a Retry that lands clears only text the failure itself put there.
+- **A new task** (one the workspace had not seen before it was selected) opens with its title
+  focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
+- **Step generation** belongs to its task: the service holds the run, the session holds a failed
+  start, and both are still there after another task has been opened and closed.
+- **Attachments**: links retain their full validated URL and open in a new tab (URL plus optional
+  title, validated by `model/linkAttachment.ts`). "Attach file" opens a labelled native picker;
+  dropping a file works too. PDF, PNG, JPG, GIF and WEBP files up to 10 MB show uploading metadata
+  until the service settles; invalid files or failed saves show an inline error. The in-memory
+  adapter keeps metadata only, never file bytes; a future HTTP adapter receives the original file.
+- **Escape** closes the innermost thing: the link form or the delete prompt first, then the panel.
 
 ## The board
 
@@ -239,13 +310,34 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   macOS popup arrows/Escape may not receive browser-automation input.
 - `list.responsive.visual.ts` needs no design: at 375px every row reflows inside the viewport,
   and a keyboard pass over the list's states raises no console error or warning.
+- `detail.visual.ts` compares the task panel with the design, region by region (header, banner,
+  title, description, steps, attachments, activity, properties, footer), at both sizes, for a
+  task with steps, attachments and comments, an empty new task, the drafting state, the proposed
+  steps, and each property control open. Regions are clipped to what the panel's scroll area
+  shows. A region holding a placeholder is compared twice: for structure with the placeholder
+  glyphs transparent on both sides (1% limit), and untouched (reported, not limited), because
+  placeholders are `--fg-3` here and the browser default in the design. Deliberate differences
+  are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
+  is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+- `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
+  control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
+  path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
+  colour and contrast, `prefers-reduced-motion`, and no console error or warning across every
+  state of the panel. Two behaviours are checked with real gestures rather than assertions on
+  the markup, because both turn on what the browser itself does: "Clear date" and "Keep" are
+  activated by pointer and by native Tab traversal of the date's segments, and each must leave
+  the focus back on the date box; and at 375px and 768px, with all four quick actions offered,
+  every banner action is measured against the panel's own box and hit-tested at its centre,
+  because the panel clips rather than scrolls, so an action past its edge draws nothing and
+  takes no click while the page still reports no overflow.
 
 Both servers are reused when already running. When two checkouts run the suite at once, give
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each
 other's app.
 
 Screenshots, diffs and each suite's measured percentages (the report file named in its entry
-above) land in the git-ignored `visual-results/`. Run `npx playwright install chromium` once beforehand.
+above) land in the git-ignored `visual-results/` (the panel's under `visual-results/detail/`).
+Run `npx playwright install chromium` once beforehand.
 
 ## Docker
 

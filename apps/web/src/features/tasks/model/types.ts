@@ -15,12 +15,14 @@ export interface Step {
 
 export type AttachmentKind = "pdf" | "image" | "link";
 
-export interface Attachment {
-  kind: AttachmentKind;
+export type Attachment = {
   name: string;
   /** Secondary line: size and type for files, the host for links. */
   meta: string;
-}
+} & (
+  | { kind: "link"; url: string }
+  | { kind: "pdf" | "image"; url?: string }
+);
 
 export type ActivityType = "log" | "comment";
 
