@@ -147,6 +147,7 @@ than `useTaskService()` directly.
 | `uploadAttachment`, `downloadAttachment`, `removeAttachment` | same names | Optional capabilities for older demo doubles; HTTP implements all three. Upload/removal synchronize workspace state; download returns an authenticated blob, never a credential-bearing URL. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `forget(id)` | none | A task the server no longer has: drops it from the workspace with its step generation, deleting nothing. The generation panel's "Reload task" uses it when the reload finds the task gone. |
+| `refresh(id)` | `refresh` (or `get` for older adapters) | Read-only recovery after an acknowledged comment/step write: reloads canonical detail/activity and updates the workspace, or forgets a deleted task. HTTP orders this read after outstanding task writes. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
 **Step generation** (`useStepGenerationService()` from `@/app/providers`): `start(taskId)`,
@@ -220,6 +221,13 @@ dialog and the hand-back on close are all untouched.
   meanwhile, and nothing dismisses it implicitly. It is put back in the box only if the box is
   empty, and it keeps that text as its own however many refusals it takes, so a newer draft is
   never overwritten and a Retry that lands clears only text the failure itself put there.
+  A successful comment/step POST followed by failed detail/activity readback is different:
+  the service reports `TaskReadbackError`, the panel says the change **was saved**, and
+  **Reload task** repeats only the read, never the acknowledged POST. This recovery survives
+  close/reopen and repeated read failures, retains independent/newer drafts, and removes a
+  task deleted meanwhile. Saved text is not restored as an unsent draft. The footer distinguishes
+  “saved · reload needed” from a genuinely refused write's “not saved”. This is not a promise
+  of exactly-once writes after an unacknowledged response or a change to sibling mutation contracts.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed

@@ -13,6 +13,14 @@ export class TaskNotFoundError extends Error {
   }
 }
 
+/** A composer write was acknowledged, but its canonical read failed. Never resend it. */
+export class TaskReadbackError extends Error {
+  constructor() {
+    super("The change was saved, but the task could not be reloaded.");
+    this.name = "TaskReadbackError";
+  }
+}
+
 export interface NewTask {
   title: string;
   /** Defaults to To Do. */
@@ -34,6 +42,8 @@ export interface TaskService {
   /** Real workspace queries and pages on the server; never treats a page as the complete list. */
   query?(request: TaskPageRequest): Promise<TaskPage>;
   get(id: string): Promise<Task | null>;
+  /** Read-only recovery ordered after outstanding writes; older adapters may use get. */
+  refresh?(id: string): Promise<Task | null>;
   create(input: NewTask): Promise<Task>;
   /**
    * The server owns activity wording: assignment, due-date and priority changes log events.
@@ -44,11 +54,11 @@ export interface TaskService {
   move(id: string, status: TaskStatus): Promise<Task>;
   /** Completes an open task; reopens a done one to To Do. */
   toggleDone(id: string): Promise<Task>;
-  /** Blank text is ignored. */
+  /** Blank text is ignored. TaskReadbackError means saved: recover by reading, never re-add. */
   addStep(id: string, text: string): Promise<Task>;
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
-  /** Blank text is ignored. */
+  /** Blank text is ignored. TaskReadbackError means saved: recover by reading, never re-post. */
   addComment(id: string, text: string): Promise<Task>;
   /** Logs "Attached <name>". File-capable adapters receive the original bytes, not metadata alone. */
   addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;

@@ -1,15 +1,18 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { TaskReadbackError } from "../services/types";
 import { AutosaveMachine, type FieldOptions } from "./autosaveMachine";
 
-export type SaveStatus = "idle" | "saving" | "failed";
+export type SaveStatus = "idle" | "saving" | "refreshing" | "refresh" | "failed";
 
 /** The send a step or comment box is waiting on. */
 interface Sending {
   text: string;
-  /** The send came back refused; the text is kept here so a Retry can send exactly it. */
+  /** The send or its readback needs explicit recovery; acknowledged selects read-only recovery. */
   failed: boolean;
+  /** The write was acknowledged: recovery must only read, even if another read fails. */
+  acknowledged: boolean;
   /** This send's failure put its text back in the box, and nothing has been typed since. */
   restored: boolean;
 }
@@ -60,10 +63,10 @@ interface DetailSession {
   /**
    * Every save in the panel goes through here, under the id of the task it is saving, so the
    * footer can say saving, saved or not saved about exactly the task the reader is looking at.
-   * A save that fails leaves that task alone on "not saved" until one of its own succeeds;
-   * no other task's outcome clears it, and none of them inherits it.
+   * A refused save leaves that task on "not saved"; an acknowledged write whose readback
+   * failed says "saved · reload needed". No other task's outcome clears or inherits it.
    */
-  track<T>(taskId: string, save: Promise<T>): Promise<T>;
+  track<T>(taskId: string, save: Promise<T>, phase?: "write" | "refresh"): Promise<T>;
   composers: ComposerStore;
   /** One date field owner per task, including its pending write and exact-null recovery. */
   dateField(taskId: string, options: FieldOptions<string | null>): AutosaveMachine<string | null>;
@@ -74,10 +77,11 @@ interface DetailSession {
 /** One task's saves: how many are running, and whether the last one to answer failed. */
 interface TaskSaves {
   inFlight: number;
-  failed: boolean;
+  refreshing: number;
+  failure: "failed" | "refresh" | null;
 }
 
-const SETTLED: TaskSaves = { inFlight: 0, failed: false };
+const SETTLED: TaskSaves = { inFlight: 0, refreshing: 0, failure: null };
 
 const DetailSessionContext = createContext<DetailSession | null>(null);
 
@@ -105,22 +109,23 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
     setSaves((current) => {
       const next = new Map(current);
       const after = step(current.get(taskId) ?? SETTLED);
-      if (after.inFlight === 0 && !after.failed) next.delete(taskId);
+      if (after.inFlight === 0 && !after.failure) next.delete(taskId);
       else next.set(taskId, after);
       return next;
     });
   }, []);
 
   const track = useCallback(
-    <T,>(taskId: string, save: Promise<T>): Promise<T> => {
-      record(taskId, (s) => ({ ...s, inFlight: s.inFlight + 1 }));
+    <T,>(taskId: string, save: Promise<T>, phase: "write" | "refresh" = "write"): Promise<T> => {
+      const reading = phase === "refresh" ? 1 : 0;
+      record(taskId, (s) => ({ ...s, inFlight: s.inFlight + 1, refreshing: s.refreshing + reading }));
       return save.then(
         (result) => {
-          record(taskId, (s) => ({ inFlight: s.inFlight - 1, failed: false }));
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: null }));
           return result;
         },
         (error: unknown) => {
-          record(taskId, (s) => ({ inFlight: s.inFlight - 1, failed: true }));
+          record(taskId, (s) => ({ inFlight: s.inFlight - 1, refreshing: s.refreshing - reading, failure: reading || error instanceof TaskReadbackError ? "refresh" : "failed" }));
           throw error;
         },
       );
@@ -143,7 +148,7 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       saveStatus: (taskId) => {
         const task = saves.get(taskId);
         if (!task) return "idle";
-        return task.inFlight > 0 ? "saving" : task.failed ? "failed" : "idle";
+        return task.inFlight > 0 ? task.refreshing === task.inFlight ? "refreshing" : "saving" : task.failure ?? "idle";
       },
       track,
       composers,
@@ -169,9 +174,12 @@ export interface Composer {
   setText(text: string): void;
   /** A send is running: the box takes one at a time and says so while it waits. */
   sending: boolean;
-  /** The text of a send that was refused, kept for Retry until it is retried or dismissed. */
+  refreshing: boolean;
+  /** Acknowledged write: show read-only recovery, never a refused-send Retry or Dismiss. */
+  refreshRequired: boolean;
+  /** The original text awaiting either send retry or acknowledged read recovery. */
   failed: string | null;
-  /** This box cannot take a send: one is running, or one was refused and is still held. */
+  /** This box cannot take a send while its current write or readback needs recovery. */
   busy: boolean;
   /** Sends what is in the box. Does nothing while this box is `busy`. */
   submit(): void;
@@ -181,40 +189,46 @@ export interface Composer {
 
 /**
  * A step or comment box and the one send it is waiting on, both kept under the task's own key
- * so they come back with the task and survive the panel closing mid-send. The box sends one
- * thing at a time: while a send runs the box says so and takes no second one, and a send that
- * is refused is held, still blocking, until it is retried or dismissed — there is no implicit
+ * so they come back with the task and survive the panel closing mid-send. A known acknowledged
+ * write switches permanently to read-only recovery; its saved text is never an unsent draft.
+ * The box sends one thing at a time: while a send runs the box says so and takes no second one.
+ * A send that is refused is held, still blocking, until it is retried or dismissed — there is no implicit
  * way past it. The box stays the user's to type in throughout; text is only ever taken back
  * out of it when a failure put it there and nothing has been typed over it since, however
  * many refusals that took, so no send can erase what the user wrote or post the same thing
  * twice.
  */
-export function useComposer(key: string, send: (text: string) => Promise<unknown>): Composer {
+export function useComposer(key: string, send: (text: string) => Promise<unknown>, refresh: () => Promise<unknown>): Composer {
   const { composers } = useDetailSession();
   const read = useCallback(() => composers.get(key), [composers, key]);
   const subscribe = useCallback((listener: () => void) => composers.subscribe(listener), [composers]);
   const state = useSyncExternalStore(subscribe, read, read);
-  const latest = useRef(send);
+  const latest = useRef({ send, refresh });
 
   useEffect(() => {
-    latest.current = send;
+    latest.current = { send, refresh };
   });
 
   const run = useCallback(
-    (value: string) => {
-      composers.update(key, (c) => ({ ...c, sending: { text: value, failed: false, restored: c.sending?.restored ?? false } }));
-      latest.current(value).then(
+    (value: string, acknowledged = false) => {
+      composers.update(key, (c) => ({ ...c, sending: { text: value, failed: false, acknowledged, restored: c.sending?.restored ?? false } }));
+      const pending = acknowledged ? latest.current.refresh() : latest.current.send(value);
+      pending.then(
         () =>
           composers.update(key, (c) => ({
             text: c.sending?.restored && c.text === c.sending.text ? "" : c.text,
             sending: null,
           })),
-        () =>
+        (error: unknown) =>
           composers.update(key, (c) => {
-            // Still this send's text in the box: either it was empty, or an earlier refusal of
-            // the same send put the text there and nothing has been typed over it since.
+            if (acknowledged || error instanceof TaskReadbackError) {
+              // The original text is saved, not an unsent draft. Retire only text a prior
+              // genuine refusal restored; independent edits remain the user's throughout.
+              const text = c.sending?.restored && c.text === value ? "" : c.text;
+              return { text, sending: { text: value, failed: true, acknowledged: true, restored: false } };
+            }
             const restored = c.text === "" || (c.sending?.restored === true && c.text === value);
-            return { text: restored ? value : c.text, sending: { text: value, failed: true, restored } };
+            return { text: restored ? value : c.text, sending: { text: value, failed: true, acknowledged: false, restored } };
           }),
       );
     },
@@ -241,17 +255,19 @@ export function useComposer(key: string, send: (text: string) => Promise<unknown
   const retry = useCallback(() => {
     const held = composers.get(key).sending;
     if (!held?.failed) return;
-    run(held.text);
+    run(held.text, held.acknowledged);
   }, [composers, key, run]);
 
   const dismiss = useCallback(() => {
-    composers.update(key, (c) => (c.sending?.failed ? { ...c, sending: null } : c));
+    composers.update(key, (c) => (c.sending?.failed && !c.sending.acknowledged ? { ...c, sending: null } : c));
   }, [composers, key]);
 
   return {
     text: state.text,
     setText,
-    sending: state.sending !== null && !state.sending.failed,
+    sending: state.sending !== null && !state.sending.failed && !state.sending.acknowledged,
+    refreshing: state.sending !== null && !state.sending.failed && state.sending.acknowledged,
+    refreshRequired: state.sending?.acknowledged ?? false,
     failed: state.sending?.failed ? state.sending.text : null,
     busy: state.sending !== null,
     submit,

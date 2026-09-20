@@ -1,6 +1,6 @@
 import { ApiError, type HttpTransport } from "@/lib/api/client";
 import type { Attachment, Task, TaskStatus } from "../model/types";
-import { TaskNotFoundError, type NewTask, type TaskPatch, type TaskService } from "./types";
+import { TaskNotFoundError, TaskReadbackError, type NewTask, type TaskPatch, type TaskService } from "./types";
 import { apiStatus, attachmentFromApi, taskFromApi, type Schemas } from "./httpMapping";
 import type { TaskPage, TaskPageRequest } from "./query";
 
@@ -83,6 +83,10 @@ export class HttpTaskService implements TaskService {
     }
   }
 
+  refresh(id: string): Promise<Task | null> {
+    return this.serial(id, () => this.get(id));
+  }
+
   async create(input: NewTask): Promise<Task> {
     const row = await this.client.request<Schemas["TaskResponse"]>("/tasks", {
       method: "POST", body: {
@@ -119,7 +123,7 @@ export class HttpTaskService implements TaskService {
   }
 
   addStep(id: string, text: string): Promise<Task> {
-    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/steps`, { method: "POST", body: { title: text.trim() } }) : Promise.resolve());
+    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/steps`, { method: "POST", body: { title: text.trim() } }) : Promise.resolve(), !!text.trim());
   }
 
   toggleStep(id: string, stepId: string): Promise<Task> {
@@ -140,7 +144,7 @@ export class HttpTaskService implements TaskService {
   }
 
   addComment(id: string, text: string): Promise<Task> {
-    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/comments`, { method: "POST", body: { text: text.trim() } }) : Promise.resolve());
+    return this.change(id, () => text.trim() ? this.client.request(`${pathFor(id)}/comments`, { method: "POST", body: { text: text.trim() } }) : Promise.resolve(), !!text.trim());
   }
 
   addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task> {
@@ -175,8 +179,18 @@ export class HttpTaskService implements TaskService {
     return task;
   }
 
-  private change(id: string, write: () => Promise<unknown>): Promise<Task> {
-    return this.serial(id, async () => { await write(); return this.require(id); });
+  private change(id: string, write: () => Promise<unknown>, recoverReadback = false): Promise<Task> {
+    return this.serial(id, async () => {
+      await write(); // A rejection here is never treated as an acknowledged write.
+      try {
+        return await this.require(id);
+      } catch (error) {
+        // Preserve session teardown/fencing; only the composer append contract opts in.
+        if (error instanceof ApiError && (error.kind === "session" || error.status === 401)) throw error;
+        if (recoverReadback) throw new TaskReadbackError();
+        throw error;
+      }
+    });
   }
 
   /** Serializes read/modify/write gestures and canonical reloads for one task, not other tasks. */

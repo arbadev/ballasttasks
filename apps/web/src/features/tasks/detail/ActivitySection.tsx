@@ -32,7 +32,7 @@ export function ActivitySection({ task }: { task: Task }) {
   const { people, currentUser } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const box = useComposer(`comment:${task.id}`, (text) => track(task.id, commands.addComment(task.id, text)));
+  const box = useComposer(`comment:${task.id}`, (text) => track(task.id, commands.addComment(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const entries = [...task.activity].sort((a, b) => a.at - b.at);
   const person = (id: string) => people.find((p) => p.id === id) ?? (id === ASSISTANT.id ? ASSISTANT : null);
@@ -100,11 +100,16 @@ export function ActivitySection({ task }: { task: Task }) {
           Posting comment… the box takes the next one when this lands.
         </p>
       )}
-      {box.failed !== null && (
+      {box.refreshing && <p role="status" className="m-0 text-[12px] text-fg-3">Reloading the saved comment…</p>}
+      {box.failed !== null && (box.refreshRequired ? (
+        <ActionError onRetry={box.retry} retryLabel="Reload task">
+          The comment was saved, but the task could not be reloaded. Reload to see it; no comment will be sent again.
+        </ActionError>
+      ) : (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
           Could not post the comment. It is kept, and neither Enter nor Comment sends until you retry or dismiss it.
         </ActionError>
-      )}
+      ))}
     </section>
   );
 }

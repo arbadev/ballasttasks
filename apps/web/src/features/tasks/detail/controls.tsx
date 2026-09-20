@@ -89,12 +89,12 @@ const ERROR_ACTION = "cursor-pointer rounded-bt-sm border-0 bg-transparent p-0 t
  * The inline message under something that failed: what happened, and a way to try it again.
  * `onDismiss` is for a failure that is held until it is dealt with, such as an unsent step.
  */
-export function ActionError({ children, onRetry, onDismiss }: { children: ReactNode; onRetry: () => void; onDismiss?: () => void }) {
+export function ActionError({ children, onRetry, onDismiss, retryLabel = "Retry" }: { children: ReactNode; onRetry: () => void; onDismiss?: () => void; retryLabel?: string }) {
   return (
     <p role="alert" className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-danger">
       <span>{children}</span>
       <button type="button" onClick={onRetry} className={ERROR_ACTION}>
-        Retry
+        {retryLabel}
       </button>
       {onDismiss && (
         <button type="button" onClick={onDismiss} className={ERROR_ACTION}>
