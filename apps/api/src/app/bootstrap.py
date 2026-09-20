@@ -76,6 +76,7 @@ from app.application.use_cases.redeem_sso_code import RedeemSsoCode
 from app.application.use_cases.register_user import RegisterUser
 from app.application.use_cases.remove_attachment import RemoveAttachment
 from app.application.use_cases.reorder_steps import ReorderSteps
+from app.application.use_cases.seed_demo import SeedDemo
 from app.application.use_cases.sign_in_with_identity import SignInWithIdentity
 from app.application.use_cases.start_sso_sign_in import StartSsoSignIn
 from app.application.use_cases.step_generations import StepGenerations
@@ -160,6 +161,18 @@ class RequestScope:
     one_time_store: OneTimeStore
     # Every rule that depends on "now" reads this clock; tests pin it.
     clock: Clock = utc_now
+
+    @property
+    def seed_demo(self) -> SeedDemo:
+        return SeedDemo(
+            self.users,
+            self.projects,
+            self.tasks,
+            self.password_hasher,
+            self.activity,
+            self.activity_feed,
+            clock=self.clock,
+        )
 
     @property
     def register_user(self) -> RegisterUser:
@@ -307,6 +320,7 @@ def _request_scope_factory(
     token_service: TokenService,
     identity_providers: Mapping[str, IdentityProvider],
     one_time_store: OneTimeStore,
+    clock: Clock,
     file_storage: FileStorage,
     max_file_bytes: int,
 ) -> RequestScopeFactory:
@@ -337,6 +351,7 @@ def _request_scope_factory(
                 identities=SqlAlchemyUserIdentityRepository(session),
                 identity_providers=identity_providers,
                 one_time_store=one_time_store,
+                clock=clock,
             )
 
     return request_scope
@@ -507,7 +522,9 @@ def build_worker(settings: Settings) -> Celery:
     return celery_app
 
 
-def build_container(settings: Settings, *, celery_app: Celery | None = None) -> Container:
+def build_container(
+    settings: Settings, *, clock: Clock = utc_now, celery_app: Celery | None = None
+) -> Container:
     # First, before any handle is opened: a provider that is enabled without what it needs
     # stops the process here, with a message naming the variable.
     file_storage = build_file_storage(settings.storage)
@@ -543,6 +560,7 @@ def build_container(settings: Settings, *, celery_app: Celery | None = None) -> 
             ),
             identity_providers,
             one_time_store,
+            clock,
             file_storage,
             settings.storage.max_bytes,
         ),
