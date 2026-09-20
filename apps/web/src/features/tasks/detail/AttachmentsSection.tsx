@@ -166,7 +166,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
 
       {count === 0 && !adding && (
         <p data-testid="attachments-empty" className="m-0 mt-2.5 rounded-bt border border-dashed border-line-2 px-3.5 py-[18px] text-[12.5px] text-fg-3">
-          Drop files here, or paste a link — PDFs, screenshots and threads the assistant can read.
+          Drop files here, or paste a link — reference files and links aren&apos;t read when drafting steps.
         </p>
       )}
     </section>

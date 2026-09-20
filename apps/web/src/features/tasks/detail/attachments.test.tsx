@@ -24,12 +24,14 @@ describe("attachments", () => {
     expect(items().map((li) => within(li).getByRole("img").getAttribute("aria-label"))).toEqual(["PDF", "Image", "Link"]);
   });
 
-  it("shows the design's empty state for files and links", async () => {
+  it("explains that files and links are references, not inputs to drafting steps", async () => {
     await renderDetail({ tasks: [makeTask({ id: "t1" })] });
     openTask("t1");
     expect(section().getByTestId("attachment-count")).toHaveTextContent("0");
     expect(section().queryByRole("list", { name: "Attachments" })).not.toBeInTheDocument();
-    expect(section().getByTestId("attachments-empty")).toHaveTextContent("Drop files here, or paste a link — PDFs, screenshots and threads the assistant can read.");
+    expect(section().getByTestId("attachments-empty")).toHaveTextContent("Drop files here, or paste a link — reference files and links aren't read when drafting steps.");
+    expect(section().getByRole("button", { name: "Attach file" })).toBeEnabled();
+    expect(section().getByRole("button", { name: "Add link" })).toBeEnabled();
   });
 
   it("cancelling the file picker adds nothing", async () => {
