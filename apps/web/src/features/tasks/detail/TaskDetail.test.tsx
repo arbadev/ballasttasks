@@ -386,6 +386,55 @@ describe("closing the panel, from a list row", () => {
     expect(document.body).not.toHaveFocus();
   });
 
+  /**
+   * The row click records where the focus was before React renders it, so an effect still owed
+   * from an earlier commit runs in between - during the click's own render, after the entry was
+   * written. Its closure reads the selection as it stood before the click, which is the same
+   * "nothing selected" the entry is waiting for when the panel closes, so a list that did not
+   * wait to see that panel open would spend the entry here and leave the focus on the document
+   * when the panel goes. The load below is resolved outside React's act environment and given
+   * one task to render and commit in: its effects are owed to a later one, which is where the
+   * click lands. That is the interleaving the intermittent failure reported against this suite
+   * came from; it happens under load, in single-file runs as well as parallel ones.
+   */
+  it("hands focus on when the click that opened the panel ran an effect owed from before it", async () => {
+    const taskService = new FakeTaskService(threeTasks);
+    let listed!: (tasks: Task[]) => void;
+    taskService.list = () => new Promise<Task[]>((resolve) => { listed = resolve; });
+    renderWithServices(
+      <WorkspaceProvider>
+        <ListView />
+        <TaskDetail />
+      </WorkspaceProvider>,
+      { taskService },
+    );
+
+    const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const inAct = env.IS_REACT_ACT_ENVIRONMENT;
+    env.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      listed(threeTasks);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const alpha = rowTitles()[0];
+      alpha.focus();
+      alpha.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    } finally {
+      env.IS_REACT_ACT_ENVIRONMENT = inAct;
+    }
+    await act(async () => {});
+    expect(screen.getByRole("dialog")).toHaveAccessibleName("Alpha");
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));
+    await settle();
+    expect(rowTitles()).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId("detail-backdrop"));
+    await settle();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(rowTitles()[0]).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+  });
+
   it("falls back to the quick-add when completing the only row empties the list", async () => {
     await openFirstRow([threeTasks[0]]);
     fireEvent.click(screen.getByRole("button", { name: "Mark complete" }));

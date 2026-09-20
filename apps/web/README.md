@@ -121,8 +121,10 @@ dialog and the hand-back on close are all untouched.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
-  another task opening), so typed text is never dropped. A failed save puts the control back on
-  the saved value with an inline message and a Retry that carries the rejected value. That recovery
+  another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
+  that carries the rejected value. The control goes back to the stored value only when the refused
+  write is still what it shows; a newer edit typed since stays on screen and settles the usual way,
+  on commit or blur. That recovery
   is retired when the field sends a replacement of its own — when that value is actually on its
   way, not while it is still being typed and could yet be emptied — or once the stored value
   moves without the field asking (something else wrote the task while no control was mounted),
