@@ -31,6 +31,8 @@ export type Attachment = {
 export type ActivityType = "log" | "comment";
 
 export interface ActivityEntry {
+  /** Server identity, absent in demo fixtures and never synthesized in the browser. */
+  id?: string;
   type: ActivityType;
   /** Person id of the author. */
   who: string;

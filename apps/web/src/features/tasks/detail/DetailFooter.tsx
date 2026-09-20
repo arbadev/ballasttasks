@@ -10,7 +10,7 @@ import { useNow, useTaskCommands } from "../workspace/WorkspaceProvider";
 import { PanelButton } from "./controls";
 import { useDetailSession, type SaveStatus } from "./DetailSession";
 
-const SAVE_TEXT: Record<Exclude<SaveStatus, "idle">, string> = { saving: "saving…", failed: "not saved" };
+const SAVE_TEXT: Record<Exclude<SaveStatus, "idle">, string> = { saving: "saving…", refreshing: "reloading…", refresh: "saved · reload needed", failed: "not saved" };
 
 /** Complete or reopen, delete (asked twice, there is no undo), and the autosave indicator. */
 export function DetailFooter({ task }: { task: Task }) {
