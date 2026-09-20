@@ -19,6 +19,95 @@ function session(url: string) {
   return { client, auth, tasks: new HttpTaskService(client), directory: new HttpDirectoryService(client) };
 }
 
+test.describe("served query-backed board focus", () => {
+  const web = process.env.BT_HTTP_WEB_URL;
+  test.skip(!web, "Set BT_HTTP_WEB_URL to the same task-owned HTTP application's URL for browser contracts.");
+
+  for (const focusOwner of ["retry", "unrelated input"] as const) {
+    test(`authoritative target satisfaction preserves ${focusOwner} focus at the settled query boundary`, async ({ page }) => {
+      expect(["127.0.0.1", "localhost"]).toContain(new URL(web!).hostname);
+      const { auth, tasks } = session(base!);
+      const email = `focus-${randomUUID()}@example.test`;
+      const password = randomUUID();
+      await auth.register(email, "Focus Contract", password);
+      const task = await tasks.create({ title: `Focus boundary ${randomUUID()}` });
+      try {
+        await page.clock.install();
+        await page.goto(web!);
+        await page.getByRole("textbox", { name: "Email", exact: true }).fill(email);
+        await page.getByRole("textbox", { name: "Password", exact: true }).fill(password);
+        await page.getByRole("button", { name: "Sign in", exact: true }).click();
+        const search = page.getByRole("searchbox", { name: "Search tasks" });
+        await search.fill(task.title);
+        await page.getByText("Board", { exact: true }).click();
+        const board = page.getByRole("region", { name: "Board", exact: true });
+        const card = board.getByRole("button", { name: task.title, exact: true });
+        await expect(card).toBeVisible();
+        await expect(board).toHaveAttribute("aria-busy", "false");
+        // A genuine transport refusal, as with the native Offline keyboard move.
+        const taskUrl = `${base}/tasks/${task.id}`;
+        await page.route(taskUrl, (route) => route.request().method() === "PATCH" ? route.abort("internetdisconnected") : route.continue());
+        await card.press("Shift+ArrowRight");
+        const retry = board.getByRole("button", { name: `Retry moving "${task.title}"`, exact: true });
+        await expect(retry).toBeVisible();
+        await page.unroute(taskUrl);
+        // Ordinary keyboard navigation establishes Retry ownership; it never activates Retry.
+        for (let stops = 0; stops < 16 && !(await retry.evaluate((el) => el === document.activeElement)); stops++) {
+          await page.keyboard.press("Shift+Tab");
+        }
+        await expect(retry).toBeFocused();
+        if (focusOwner === "unrelated input") await search.click();
+        const focus = focusOwner === "retry" ? retry : search;
+        await expect(focus).toBeFocused();
+        // Record DOM focus lifetime, not implementation state, to expose the first divergence.
+        await page.evaluate(({ id, title }) => {
+          const events: object[] = [];
+          for (const type of ["focusin", "focusout"]) document.addEventListener(type, (event) => {
+            const target = event.target as HTMLElement;
+            const related = (event as FocusEvent).relatedTarget as HTMLElement | null;
+            events.push({ type, tag: target.tagName, label: target.getAttribute("aria-label"), connected: target.isConnected, relatedTag: related?.tagName ?? null });
+          }, true);
+          const boundary = new Promise<{ cardFocused: boolean; searchFocused: boolean }>((resolve) => {
+            const observer = new MutationObserver(() => {
+              const card = document.querySelector(`[data-card-open="${id}"]`);
+              const retry = [...document.querySelectorAll("button")].some((button) => button.getAttribute("aria-label") === `Retry moving "${title}"`);
+              if (!card || card.closest("[data-column]")?.getAttribute("data-column") !== "progress" || retry || document.querySelector('[aria-label="Board"][aria-busy="true"]')) return;
+              observer.disconnect();
+              const result = { cardFocused: card === document.activeElement, searchFocused: document.activeElement === document.querySelector('[aria-label="Search tasks"]') };
+              events.push({ type: "query-settled", focusTag: document.activeElement?.tagName, ...result });
+              resolve(result);
+            });
+            observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+          });
+          Object.assign(window, { boardFocusEvents: events, boardFocusBoundary: boundary });
+        }, { id: task.id, title: task.title });
+        // A separate authenticated client changes canonical status. The UI learns only through
+        // its real minute-tick query, not a workspace command or injected React state.
+        await tasks.move(task.id, "progress");
+        const refreshed = page.waitForResponse((response) => response.url().startsWith(`${base}/tasks?`) && response.request().method() === "GET");
+        await page.clock.fastForward(60_000);
+        await refreshed;
+        const boundary = await page.evaluate(() => (window as unknown as { boardFocusBoundary: Promise<{ cardFocused: boolean; searchFocused: boolean }> }).boardFocusBoundary);
+        const moved = board.getByRole("region", { name: "In Progress", exact: true }).getByRole("button", { name: task.title, exact: true });
+        await expect(moved).toBeVisible();
+        await expect(retry).toHaveCount(0);
+        await expect(board).toHaveAttribute("aria-busy", "false");
+        console.log(JSON.stringify(await page.evaluate(() => ({
+          focusOwnerTag: document.activeElement?.tagName,
+          focusOwnerLabel: document.activeElement?.getAttribute("aria-label"),
+          events: (window as unknown as { boardFocusEvents: object[] }).boardFocusEvents,
+        }))));
+        // Do not wait for focus to become correct: the independent query boundary settled.
+        expect(focusOwner === "retry" ? boundary.cardFocused : boundary.searchFocused).toBe(true);
+        expect((await tasks.get(task.id))?.status).toBe("progress");
+      } finally {
+        await tasks.remove(task.id);
+        auth.logout();
+      }
+    });
+  }
+});
+
 test("UTC quick-action date survives a fresh authenticated read without shifting entered dates or null", async () => {
   expect(["127.0.0.1", "localhost"]).toContain(new URL(base!).hostname);
   const { client, auth, tasks } = session(base!);

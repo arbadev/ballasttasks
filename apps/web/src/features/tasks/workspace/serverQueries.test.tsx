@@ -83,6 +83,52 @@ describe("server-query workspace", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(screen.getByRole("textbox", { name: "Name the first task" })).toHaveValue("Unsubmitted work");
   });
+  it.each(["retry", "unrelated input"])("retires an externally satisfied Retry after the clock-driven server refresh without losing %s focus", async (focusOwner) => {
+    // The full shell, real query/reducer lifecycle and injected minute tick mirror HTTP mode.
+    // Only the interval is virtual: query/React settlement is observed, not slept through.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let now = 1_790_000_000_000;
+      const task = makeTask({ id: "external-focus", title: "Externally moved task", status: "todo" });
+      const service = new QueryService([task]);
+      const initial = { ...page("initial"), tasks: [task], total: 1, headerTotal: 1, columns: { todo: 1, progress: 0, testing: 0, done: 0 } };
+      service.query.mockResolvedValue(initial);
+      const move = vi.spyOn(service, "move").mockRejectedValueOnce(new Error("offline"));
+      renderWithServices(<TasksApp />, { taskService: service, clock: () => now });
+      fireEvent.click(await screen.findByRole("radio", { name: "Board" }));
+      const board = await screen.findByRole("region", { name: "Board" });
+      await waitFor(() => expect(board).toHaveAttribute("aria-busy", "false"));
+      const card = within(board).getByRole("button", { name: task.title });
+      card.focus();
+      fireEvent.keyDown(card, { key: "ArrowRight", shiftKey: true });
+      const retry = await within(board).findByRole("button", { name: `Retry moving "${task.title}"` });
+      retry.focus();
+      const unrelated = screen.getByRole("searchbox", { name: "Search tasks" });
+      if (focusOwner === "unrelated input") unrelated.focus();
+      const focused = focusOwner === "retry" ? retry : unrelated;
+      expect(focused).toHaveFocus();
+
+      let answer!: (value: TaskPage) => void;
+      service.query.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+      const count = service.query.mock.calls.length;
+      now += 60_000;
+      await act(async () => vi.advanceTimersByTimeAsync(60_000));
+      await waitFor(() => expect(service.query).toHaveBeenCalledTimes(count + 1));
+      expect(service.query).toHaveBeenLastCalledWith(expect.objectContaining({ board: true }));
+      expect(board).toHaveAttribute("aria-busy", "true");
+      expect(focused).toHaveFocus();
+      await act(async () => answer({ ...initial, tasks: [{ ...task, status: "progress" }], columns: { todo: 0, progress: 1, testing: 0, done: 0 } }));
+      // The settled boundary does not depend on focus being right.
+      expect(board).toHaveAttribute("aria-busy", "false");
+      expect(retry).not.toBeInTheDocument();
+      const moved = within(screen.getByRole("region", { name: "In Progress" })).getByRole("button", { name: task.title });
+      expect(move).toHaveBeenCalledTimes(1); // external readback never retries a refused write
+      expect(focusOwner === "retry" ? moved : unrelated).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the moved card focused across an asynchronous authoritative page refresh", async () => {
     const task = makeTask({ id: "focus", title: "Query-backed move", status: "todo" });
     const service = new QueryService([task]);

@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-/** Node-only real HTTP contracts. Never starts, reuses or modifies an application stack. */
+/** Real HTTP contracts, plus optional browser journeys when BT_HTTP_WEB_URL is explicit.
+ * Never starts, reuses or modifies an application stack's configuration/lifecycle. */
 export default defineConfig({
   testDir: "./visual",
   testMatch: "http-api.contract.ts",
