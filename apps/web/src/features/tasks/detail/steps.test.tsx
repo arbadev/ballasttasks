@@ -428,17 +428,17 @@ describe("step generation", () => {
     expect(generation.calls).toEqual([["start", "t1"]]);
     const running = steps().getByRole("status", { name: "Drafting steps" });
     expect(running).toHaveTextContent("Drafting steps");
-    expect(running).toHaveTextContent("reading the title, description and 2 attachments");
+    expect(running).toHaveTextContent("using the title, description and existing steps");
     expect(running).toHaveTextContent("background job · keep editing, the draft lands here");
     expect(steps().getByRole("button", { name: "Generate steps" })).toBeDisabled();
   });
 
-  it("counts a single attachment in the singular", async () => {
+  it.each(["t3", "t4"])("describes only task-text inputs regardless of attachments on %s", async (id) => {
     await renderDetail();
-    openTask("t3");
+    openTask(id);
     fireEvent.click(steps().getByRole("button", { name: "Generate steps" }));
     await settle();
-    expect(steps().getByRole("status", { name: "Drafting steps" })).toHaveTextContent("and 1 attachment");
+    expect(steps().getByRole("status", { name: "Drafting steps" })).toHaveTextContent("using the title, description and existing steps");
   });
 
   it("shows the proposal, lets steps be removed one by one, and adds what is left", async () => {
@@ -452,8 +452,10 @@ describe("step generation", () => {
     const proposal = within(steps().getByRole("group", { name: "Proposed steps" }));
     expect(proposal.getByText("Assistant drafted 3 steps")).toBeInTheDocument();
     expect(proposal.getByText("proposed")).toBeInTheDocument();
-    expect(proposal.getByText(/nothing is added until you say so/)).toBeInTheDocument();
+    expect(proposal.getByText("Drafted from the title, description and existing steps. Remove what doesn't fit — nothing is added until you say so.")).toBeInTheDocument();
     expect(steps().getByRole("button", { name: "Generate steps" })).toBeEnabled();
+    expect(steps().queryByRole("list", { name: "Steps" })).not.toBeInTheDocument();
+    expect(generation.calls).not.toContainEqual(["accept"]);
 
     fireEvent.click(proposal.getByRole("button", { name: `Remove proposed step: ${DRAFT[1]}` }));
     await settle();
