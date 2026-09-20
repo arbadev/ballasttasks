@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FakeTaskService } from "@/test/fakeServices";
 import { NOW, due } from "@/test/tasks";
 import type { Task } from "../model/types";
@@ -287,6 +287,44 @@ describe("date save ownership across panel mounts", () => {
     // Leaving the field is what settles it: an empty box is not a date the task can hold.
     fireEvent.blur(dateInput());
     expect(dateInput()).toHaveValue(due(3));
+  });
+
+  it("does not let a queued date success release a newer focused incomplete draft", async () => {
+    const service = await setup();
+    vi.useFakeTimers();
+    try {
+      clearDate(); // A is the explicit null write, held at the service.
+      fireEvent.change(dateInput(), { target: { value: due(9) } });
+      // Unlike the preceding control, B's debounce really expires before C is typed.
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }]);
+      expect(dateInput()).toHaveFocus();
+      fireEvent.change(dateInput(), { target: { value: "" } }); // C: an unfinished segment.
+
+      await service.finish(0, false);
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }, { due: due(9) }]);
+      expect(service.requests[1].done).toBe(false);
+      expect(dateInput()).toHaveValue("");
+      expect(dateInput()).toHaveFocus();
+      expect((await service.get("t1"))?.due).toBe(due(3));
+
+      await service.finish(1, true);
+      expect((await service.get("t1"))?.due).toBe(due(9));
+      expect(dateInput()).toHaveValue("");
+      expect(dateInput()).toHaveFocus();
+      expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+      expect(service.maxConcurrent).toBe(1);
+
+      // Only normal settling releases C; it never authorizes another null write.
+      fireEvent.blur(dateInput());
+      expect(dateInput()).toHaveValue(due(9));
+      close();
+      openTask("t1");
+      expect(dateInput()).toHaveValue(due(9));
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: null }, { due: due(9) }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("preserves a newer complete date after reopening during a clear, and flushes text to its own task", async () => {
