@@ -43,7 +43,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
       : [moveControls.current.get(moveKey(moved.stepId, moved.label)), moveControls.current.get(moveKey(moved.stepId, moved.label === "up" ? "down" : "up"))];
     controls.find((control) => !!control && !control.disabled)?.focus();
   }, [order, task.id]);
-  const box = useComposer(`step:${task.id}`, (text) => track(task.id, commands.addStep(task.id, text)));
+  const box = useComposer(task, "step", (text) => track(task.id, commands.addStep(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const total = task.steps.length;
   const done = task.steps.filter((s) => s.done).length;
@@ -130,7 +130,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
       {order === "pending" && <p role="status" className="m-0 text-[12px] text-fg-3">Updating steps…</p>}
       {order === "failed" && <div role="alert" className="flex flex-wrap items-center gap-2 text-[12px] text-danger">
         <span>The last step move was not confirmed. Reload steps before moving again.</span>
-        <PanelButton ref={reloadControl} variant="secondary" className="px-2 py-1" onClick={() => { handBack.current = true; stepOrders.run(task.id, () => commands.refreshTask(task.id), true); }}>Reload steps</PanelButton>
+        <PanelButton ref={reloadControl} variant="secondary" className="px-2 py-1" onClick={() => { handBack.current = true; stepOrders.run(task.id, () => commands.refresh(task.id), true); }}>Reload steps</PanelButton>
       </div>}
 
       <div className="flex items-center gap-2.5 py-1.5">
@@ -153,13 +153,18 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           Adding step… the box takes the next one when this lands.
         </p>
       )}
-      {box.failed !== null && (
+      {box.refreshing && <p role="status" className="m-0 text-[12px] text-fg-3">Reloading the saved step…</p>}
+      {box.failed !== null && (box.refreshRequired ? (
+        <ActionError onRetry={box.retry} retryLabel="Reload task">
+          The step was saved, but the task could not be reloaded. Reload to see it; no step will be added again.
+        </ActionError>
+      ) : (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
           Could not add the step. It is kept, and Enter adds nothing until you retry or dismiss it.
         </ActionError>
-      )}
+      ))}
 
-      <StepGenerationPanel generation={generation} attachmentCount={task.attachments.length} />
+      <StepGenerationPanel generation={generation} />
     </section>
   );
 }

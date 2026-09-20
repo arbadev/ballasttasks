@@ -46,6 +46,17 @@ describe("step editing adapters", () => {
     expect(writes).toHaveLength(2);
   });
 
+  it("never fabricates an append receipt when rename or reorder readback fails", async () => {
+    server.use(
+      http.patch(`${base}/tasks/task-id/steps/a`, () => HttpResponse.json({ id: "a", title: "Renamed" })),
+      http.put(`${base}/tasks/task-id/steps/order`, () => HttpResponse.json({ items: [] })),
+      http.get(`${base}/tasks/task-id`, () => HttpResponse.json({ detail: "read unavailable" }, { status: 503 })),
+    );
+    const service = httpService();
+    await expect(service.renameStep("task-id", "a", "Renamed")).rejects.toMatchObject({ status: 503 });
+    await expect(service.reorderSteps("task-id", ["a"])).rejects.toMatchObject({ status: 503 });
+  });
+
   it("propagates a stale permutation refusal once, without filtering, retrying or reporting success", async () => {
     const put = vi.fn(() => HttpResponse.json({ detail: "exact permutation required" }, { status: 422 }));
     server.use(http.put(`${base}/tasks/task-id/steps/order`, put));

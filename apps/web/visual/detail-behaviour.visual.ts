@@ -553,3 +553,66 @@ test("no console errors or warnings across the panel's states", async ({ page })
 
   expect(problems).toEqual([]);
 });
+
+/**
+ * The three sentences that used to claim the assistant reads attached files. Checked in the
+ * app alone, at the narrowest width, where the corrected wording is longest: each says what
+ * drafting actually takes, no longer says what it replaced, and still wraps inside its region.
+ */
+const CORRECTED_COPY = [
+  {
+    what: "the empty attachment area of a new task",
+    region: "Attachments",
+    text: "Drop files here, or paste a link — reference files and links aren't read when drafting steps.",
+    superseded: "Drop files here, or paste a link — PDFs, screenshots and threads the assistant can read.",
+    running: false,
+    reach: async (page: Page) => {
+      await page.getByRole("button", { name: "New task" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+    },
+  },
+  {
+    what: "the drafting panel",
+    region: "Steps",
+    text: "using the title, description and existing steps",
+    // JWT authentication carries no attachment, so this is what the old wording rendered.
+    superseded: "reading the title, description and 0 attachments",
+    running: true,
+    reach: async (page: Page) => {
+      await openTask(page, BARE_TASK);
+      await page.getByRole("button", { name: "Generate steps" }).click();
+      await expect(page.getByRole("status", { name: "Drafting steps" })).toBeVisible();
+    },
+  },
+  {
+    what: "the proposal",
+    region: "Steps",
+    text: "Drafted from the title, description and existing steps. Remove what doesn't fit — nothing is added until you say so.",
+    superseded: "Drafted from the title, description and attachments. Remove what doesn't fit — nothing is added until you say so.",
+    running: false,
+    reach: async (page: Page) => {
+      await openTask(page, BARE_TASK);
+      await page.getByRole("button", { name: "Generate steps" }).click();
+      await expect(page.getByRole("group", { name: "Proposed steps" })).toBeVisible({ timeout: 10_000 });
+    },
+  },
+];
+
+for (const copy of CORRECTED_COPY) {
+  test(`at 375px ${copy.what} names the real drafting inputs and fits`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    await openApp(page);
+    await copy.reach(page);
+    const region = page.getByRole("region", { name: copy.region });
+
+    await expect(region.getByText(copy.text, { exact: true })).toBeVisible();
+    await expect(region.getByText(copy.superseded, { exact: true }), "the claim it replaced is gone").toHaveCount(0);
+    expect(await region.evaluate((el) => el.scrollWidth - el.clientWidth), "the region scrolls sideways").toBeLessThanOrEqual(0);
+    expect(await overflow(page), "the page scrolls sideways").toBeLessThanOrEqual(0);
+    // The draft lasts 2.2s: say so, rather than reporting on a state that had already moved on.
+    if (copy.running) await expect(page.getByRole("status", { name: "Drafting steps" }), "left the running state before it was checked").toBeVisible();
+    await page.screenshot({ path: join(RESULTS, `behaviour-375-${copy.region.toLowerCase()}-${copy.running ? "running" : "copy"}.png`) });
+    await context.close();
+  });
+}

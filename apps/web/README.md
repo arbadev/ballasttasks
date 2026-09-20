@@ -23,7 +23,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/detail/` | The task side panel: `TaskDetail` (dialog, focus, Escape) around one component per section. `useAutosaveField` is the autosave rule for every field, `DetailSession` holds what must outlive the open panel (saves in flight, unsent drafts, failed generations), `model/` the pure parts (banner text, task key, link parsing). |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
-| `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
+| `src/features/projects/` | Project creation and editing: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts and the "Edit project" pencil the header mounts for the selected project, their dialogs, the colour picker both share (`ui/ProjectColour.tsx`), and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`; edits through `actions.updateProject` (name and colour only, see "Workspace actions"). |
 | `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `AuthBoundary` that gates the workspace on a session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
@@ -128,6 +128,7 @@ All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 | --- | --- |
 | `selectTask(id)` | List rows and board cards, to open the detail panel. |
 | `clearSelection()` | Detail: close button, backdrop, Escape. |
+| `updateProject(id, { name, tone })` | Project editor: PATCHes only mutable metadata and synchronizes the acknowledged canonical response into the directory without changing tasks, counts or scope. Older in-flight directory reads cannot overwrite that save; no second read can mislabel an acknowledged write as refused. |
 | `addProject(project)` | Project creation, after `DirectoryService.createProject` resolves: lists the project in the sidebar and selects it in a clean view (scope All tasks; Attention signal, filters and search reset; sort and view kept). |
 | `selectScope`, `toggleProject`, `setStatusFilter`, `setDueFilter`, `setPriorityFilter`, `setSort`, `setSearch`, `toggleSignal`, `clearSignal`, `setView`, `reload` | The shell. Available to the views, rarely needed. |
 
@@ -141,13 +142,13 @@ than `useTaskService()` directly.
 | `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
 | `update(id, patch, note?)` | `update` | Detail fields. The API owns assignment/due-date/priority event wording; legacy `note` is ignored, never posted as a comment or invented event. |
-| `addStep`, `toggleStep`, `removeStep`, `renameStep`, `reorderSteps` | same names | Detail steps; rename keeps identity/completion, order sends every current ID exactly once. |
-| `refreshTask(id)` | `get` | Read-only recovery after a refused/stale step order; syncs canonical children or forgets a missing task. |
+| `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
 | `addAttachment(id, attachment, file?)` | `addAttachment` | Link with its full absolute URL, or file metadata and original bytes for upload-capable adapters. Demo retains metadata only. |
 | `uploadAttachment`, `downloadAttachment`, `removeAttachment` | same names | Optional capabilities for older demo doubles; HTTP implements all three. Upload/removal synchronize workspace state; download returns an authenticated blob, never a credential-bearing URL. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
 | `forget(id)` | none | A task the server no longer has: drops it from the workspace with its step generation, deleting nothing. The generation panel's "Reload task" uses it when the reload finds the task gone. |
+| `refresh(id)` | `refresh` (or `get` for older adapters) | Read-only recovery after an acknowledged comment/step write: reloads canonical detail/activity and updates the workspace, or forgets a deleted task. HTTP orders this read after outstanding task writes. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
 **Step generation** (`useStepGenerationService()` from `@/app/providers`): `start(taskId)`,
@@ -180,7 +181,7 @@ back to the panel's first stop, or its last when the key was Shift+Tab, the same
 `keepTabInside` wraps at from within. Nothing else moves the focus, so an opener, another
 dialog and the hand-back on close are all untouched.
 
-- **Task fields autosave, no Save button.** Each task field is a `useAutosaveField`: the edit shows at once, text
+- **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
   another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
   that carries the rejected value. The control goes back to the stored value only when the refused
@@ -189,7 +190,8 @@ dialog and the hand-back on close are all untouched.
   that value is actually on its way, not while it is still being typed and could yet be emptied —
   or once the stored value moves without the field asking (something else wrote the task while no
   control was mounted), so its Retry cannot undo the newer value; a value the field stored itself
-  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`.
+  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`; the
+  two states an acknowledged write with a failed readback adds are under the box bullet below.
 - **A value the field cannot hold is never written by leaving it.** A field may declare which
   values are `savable`: an emptied number box and an emptied date box are not, and a date
   reports itself empty while a segment is being retyped. Such a value is kept as typed and never
@@ -221,30 +223,35 @@ dialog and the hand-back on close are all untouched.
   meanwhile, and nothing dismisses it implicitly. It is put back in the box only if the box is
   empty, and it keeps that text as its own however many refusals it takes, so a newer draft is
   never overwritten and a Retry that lands clears only text the failure itself put there.
-- **Rename and reorder steps.** Activate a step's title to edit inline; Enter/Save submits a
-  trimmed 1–200-character title, and Escape/Cancel abandons the draft without ticking or
-  removing the step. The session's composer holds pending/refused renames and independent
-  newer drafts across close/reopen. A rename edits in place, so the composer keeps the title it
-  sent in the field, valid, and gives it up only when that same send lands untouched: closing
-  the panel, reopening it or visiting another task mid-save finds the title still there. The
-  session also owns which step is open for editing, so a draft the reader emptied on purpose
-  stays an open, empty draft — through the save it replaced landing and through close/reopen —
-  until Escape or Cancel closes it. A refused rename holds the box: it says so and takes no
-  further save until Retry or Dismiss resolves it. Move up/down buttons have a reserved slot of
-  their own between the title and Remove — they appear on row hover/keyboard focus without ever
-  covering or reflowing the title, and take their own line with 44px targets on coarse
-  pointers. First/last boundaries are disabled.
-  Reordering sends the exact current-ID permutation, preserving completion and identity;
-  neither operation invents activity. If membership changed concurrently or order cannot be
-  confirmed, moving stops and **Reload steps** performs a canonical read, never resubmits
-  the stale permutation. A failed reload retains recovery and drafts. The alert speaks about
-  that refused move, not about what is on screen: a later canonical read (ticking a step, say)
-  can bring the list up to date, and the message and the block on moving still stand until the
-  reader reloads deliberately. The reload is a read, so it never reports itself as a save and
-  never clears another field's "not saved". Keyboard order survives a move: the control that
-  was activated takes the focus back when the move settles, the opposite arrow takes it at a
-  boundary, **Reload steps** takes it when the move was refused and the row's control takes it
-  again after the reload — unless the reader moved the focus somewhere themselves.
+  A successful comment/step POST followed by failed detail/activity readback is different:
+  the service reports `TaskReadbackError`, the panel says the change **was saved**, and
+  **Reload task** repeats only the read, never the acknowledged POST. This recovery survives
+  close/reopen and repeated read failures, retains independent/newer drafts, and removes a
+  task deleted meanwhile. Saved text is not restored as an unsent draft. The error names the row
+  the server stored (task, box and child id), so the recovery also ends by itself the moment that
+  very row appears in the task's own canonical detail — whichever reload brought it, including the
+  workspace's own. Nothing else settles it: not a list summary, not another task's or another
+  row's id, and never a genuine refusal. The footer says `reloading…` while that read runs,
+  distinguishes “saved · reload needed” from a genuinely refused write's “not saved”, stops asking
+  for a reload once no box is still waiting for its row, and a read-only recovery never clears
+  “not saved”. This is not a promise of exactly-once writes after an unacknowledged response or a
+  change to sibling mutation contracts.
+- **Rename and reorder steps.** Activate a title to edit inline; Enter/Save sends a trimmed
+  1–200-character title. Escape/Cancel cancels a local edit; while a send is pending, Escape
+  closes the panel instead. The session-owned per-step rename record holds submitted text,
+  independent newer drafts and an explicitly open empty editor across close/reopen and task
+  switches. It is separate from the acknowledged append composer: no append receipts or
+  aliases. A refusal blocks another save until Retry or Dismiss; Retry sends the held title,
+  not a newer draft. Existing-step drafts survive refusals, but externally deleted steps have
+  no draft-recovery UI. The session ends at sign-out.
+  Move up/down sends an exact current-ID permutation, preserves completion and disables the
+  boundaries. Finish or Cancel a rename before moving that row. Controls occupy a reserved
+  in-flow slot between title and Remove; coarse pointers have visible 44px targets. A failed
+  move requires explicit **Reload steps** before another move, even if another read already
+  updated the list. Reload uses the serialized canonical workspace refresh, not save tracking;
+  it must not clear a sibling failure. Historical “not saved” can remain until a later write.
+  A settled move returns focus to its control (opposite direction at a boundary), a refusal to
+  Reload and a successful reload back to the row, unless the reader deliberately moved focus.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
@@ -405,6 +412,13 @@ in the same commit; the schema source is always given, the command has no defaul
   styles so every colour, font, radius and shadow in the dialog and the empty state is a design
   token. After a deliberate visual change, re-record the baselines and the full-page screenshots
   next to them with `npx playwright test projects --update-snapshots`.
+- `project-edit.visual.ts` needs no design and compares no baseline: at 1440px and 375px it
+  opens "Edit project" from the header pencil with the keyboard, and checks that the Name field
+  takes the focus, the Key is read-only and keeps the project's key, Tab and the arrow keys reach
+  and change the colour swatches, every control stays inside the viewport, saving a rename reaches
+  the breadcrumb and hands the focus back to the pencil, reopening shows the saved name and
+  colour, Escape closes and returns the focus, and the console stays silent. Its screenshots are
+  recorded for review only.
 - `filters.visual.ts` needs no design: it measures each filter control's focus-ring geometry
   (the ring encloses the whole `Select`, label included) at 1440px and 375px, immediately under
   normal and reduced motion. It drives pointer focus, Tab, native type-ahead and Enter, plus
@@ -421,24 +435,38 @@ in the same commit; the schema source is always given, the command has no defaul
   glyphs transparent on both sides (1% limit), and untouched (reported, not limited), because
   placeholders are `--fg-3` here and the browser default in the design. Deliberate differences
   are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
-  is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
-- `step-editing.visual.ts` checks keyboard rename/cancel/save and exact move boundaries,
-  that a hovered row's move controls neither cover nor reflow the title (including the wrapped
-  one at 768px, where a click at the end of a line opens the rename editor and moves nothing),
-  real browser touch taps with 44px non-overlapping targets at 375px, completion preservation,
-  close/reopen, overflow and console silence. Screenshots go to `visual-results/step-editing/`;
-  the existing `detail.visual.ts` still holds the untouched resting panel to its 1% limit.
+  is empty today). Three sentences supersede the design's claim that drafting reads attached
+  files (`REVISED_COPY`): the empty attachment area of a new task, and the steps region while
+  drafting and while a draft is proposed. The design file is never edited — it is rendered, and
+  that one sentence is replaced in the rendered DOM, so the whole region still has to match at
+  1% and 2/255 like every other region, and a wrong token or a shifted control there still
+  fails. Exactly one visible node must carry the sentence being replaced, a control case proves
+  an unrelated wrong surface in the same region is still rejected, and the design's original
+  sentence keeps its own unmasked `-original-copy` diff in the report — evidence about the
+  reference, with no ceiling and no vote on whether the suite passes, since a longer approved
+  sentence moves that region's size as well as its pixels — and so does the reference's own
+  layout before the replacement, which is measured and written to the run's `*-layout.json`
+  as evidence beside it. What is enforced is the reference carrying the same words: geometry,
+  styles and controls are compared after the replacement, at both desktop widths and at 375px
+  against equal-width reference content (the reference has wider fixed gutters and a panel
+  border). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
+- `step-editing.visual.ts` covers keyboard rename/cancel/save, exact move boundaries, title
+  and move-control non-overlap (including wrapped tablet text), real browser touch taps at
+  375px, completion, reopen, overflow and console silence. Evidence goes to
+  `visual-results/step-editing/`; unchanged design regions retain their 1% thresholds.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder
-  colour and contrast, `prefers-reduced-motion`, and no console error or warning across every
-  state of the panel. Two behaviours are checked with real gestures rather than assertions on
-  the markup, because both turn on what the browser itself does: "Clear date" and "Keep" are
-  activated by pointer and by native Tab traversal of the date's segments, and each must leave
-  the focus back on the date box; and at 375px and 768px, with all four quick actions offered,
-  every banner action is measured against the panel's own box and hit-tested at its centre,
-  because the panel clips rather than scrolls, so an action past its edge draws nothing and
-  takes no click while the page still reports no overflow.
+  colour and contrast, `prefers-reduced-motion`, no console error or warning across every state
+  of the panel, and — at 375px, where the wording is longest — that the empty attachment area,
+  the drafting panel and the proposal each name the real drafting inputs, no longer carry the
+  sentence they replaced, and wrap inside their region. Two behaviours are checked with real
+  gestures rather than assertions on the markup, because both turn on what the browser itself
+  does: "Clear date" and "Keep" are activated by pointer and by native Tab traversal of the
+  date's segments, and each must leave the focus back on the date box; and at 375px and 768px,
+  with all four quick actions offered, every banner action is measured against the panel's own
+  box and hit-tested at its centre, because the panel clips rather than scrolls, so an action
+  past its edge draws nothing and takes no click while the page still reports no overflow.
 
 Both servers are reused when already running. When two checkouts run the suite at once, give
 each its own pair with `BT_VISUAL_APP_PORT` and `BT_VISUAL_DESIGN_PORT`, or they screenshot each

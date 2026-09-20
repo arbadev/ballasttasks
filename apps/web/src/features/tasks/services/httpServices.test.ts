@@ -16,6 +16,32 @@ const detail = (task = apiTask()) => server.use(
   http.get(`${base}/tasks/task-id/activity`, () => HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })),
 );
 
+describe("HTTP project editing", () => {
+  it("PATCHes only mutable fields and uses the acknowledged canonical response without a readback", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ name: "Renamed", color: "acc" });
+      return HttpResponse.json({ ...apiProject, name: "Renamed", color: "acc" });
+    }));
+    const project = await new HttpDirectoryService(client()).updateProject("project-id", { name: "Renamed", tone: "accent", key: "BAD" } as never);
+    expect(project).toMatchObject({ name: "Renamed", tone: "accent", key: apiProject.key });
+  });
+  it("leaves a stored colour the palette cannot show alone when only the name changed", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ name: "Renamed" });
+      return HttpResponse.json({ ...apiProject, name: "Renamed", color: null });
+    }));
+    const project = await new HttpDirectoryService(client()).updateProject("project-id", { name: "Renamed" });
+    expect(project).toMatchObject({ name: "Renamed", tone: "muted" });
+  });
+  it("sends the colour alone when the name was left as it is stored", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ color: "warn" });
+      return HttpResponse.json({ ...apiProject, color: "warn" });
+    }));
+    expect(await new HttpDirectoryService(client()).updateProject("project-id", { tone: "warn" })).toMatchObject({ name: apiProject.name, tone: "warn" });
+  });
+});
+
 describe("HTTP task adapter", () => {
   it("sends filters, sort, search and offsets to the API and uses full-workspace summary counts", async () => {
     server.use(
@@ -103,6 +129,38 @@ describe("HTTP task adapter", () => {
     expect(page.columns).toEqual({ todo: 1, progress: 0, testing: 0, done: 0 });
     expect(requests).toHaveLength(5);
     expect(requests.filter((call) => call.startsWith("GET /tasks?"))).toEqual(["GET /tasks?status=all"]);
+  });
+
+  it("orders read-only recovery after another outstanding write to the same task", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    let title = "Before";
+    const reads: string[] = [];
+    server.use(
+      http.patch(`${base}/tasks/task-id`, async () => {
+        started();
+        await wait;
+        title = "Saved newest title";
+        return HttpResponse.json(apiTask({ title }));
+      }),
+      http.get(`${base}/tasks/task-id`, () => {
+        reads.push(title);
+        return HttpResponse.json(apiTask({ title }));
+      }),
+      http.get(`${base}/tasks/task-id/activity`, () => HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })),
+    );
+    const service = new HttpTaskService(client());
+    const writing = service.update("task-id", { title: "Saved newest title" });
+    await ready;
+    const recovering = service.refresh("task-id");
+    await Promise.resolve();
+    expect(reads).toEqual([]);
+    release();
+    await writing;
+    expect(await recovering).toMatchObject({ title: "Saved newest title" });
+    expect(reads).toEqual(["Saved newest title", "Saved newest title"]);
   });
 
   it("loads every list page with all statuses and preserves keys/tallies without fake children", async () => {

@@ -1,11 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { TaskPageRequest } from "../services/query";
 import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
 import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
-import type { NewTask, TaskPatch } from "../services/types";
+import type { NewTask, TaskPatch, ProjectEdit } from "../services/types";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
 
 export interface WorkspaceActions {
@@ -28,6 +28,7 @@ export interface WorkspaceActions {
   reloadDetail(): void;
   /** Puts a project the directory just created into the sidebar and shows it with the filters and search reset; sort and view are kept. */
   addProject(project: Project): void;
+  updateProject(id: string, input: ProjectEdit): Promise<void>;
 }
 
 export interface Directory {
@@ -47,7 +48,6 @@ export interface TaskCommands {
   renameStep(id: string, stepId: string, text: string): Promise<Task>;
   reorderSteps(id: string, stepIds: string[]): Promise<Task>;
   /** Canonical read only, including after a stale step permutation was refused. */
-  refreshTask(id: string): Promise<Task | null>;
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
@@ -59,6 +59,8 @@ export interface TaskCommands {
   remove(id: string): Promise<void>;
   /** Drops a task the server no longer has, with its generation. Deletes nothing. */
   forget(id: string): Promise<void>;
+  /** Read-only recovery of an acknowledged write; forgets a task deleted meanwhile. */
+  refresh(id: string): Promise<Task | null>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
   sync(task: Task): void;
 }
@@ -81,6 +83,21 @@ const NOW_REFRESH_MS = 60_000;
 /** What a failure that carried no message of its own is reported as: it says nothing a view does not already say. */
 export const LOAD_FAILED_WITHOUT_DETAIL = "Could not load the tasks.";
 
+/**
+ * The directory as the server listed it, except for the projects this client changed after the
+ * listing was asked for: those keep their local row, in the order the server gives, with a project
+ * created here and not yet listed kept at the end.
+ */
+function mergeProjects(current: Project[], listed: Project[], revision: number, changedAt: Map<string, number>): Project[] {
+  const newer = (id: string) => (changedAt.get(id) ?? 0) > revision;
+  const local = new Map(current.map((project) => [project.id, project]));
+  const listedIds = new Set(listed.map((project) => project.id));
+  return [
+    ...listed.map((project) => (newer(project.id) ? local.get(project.id) ?? project : project)),
+    ...current.filter((project) => !listedIds.has(project.id) && newer(project.id)),
+  ];
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const taskService = useTaskService();
   const directoryService = useDirectoryService();
@@ -91,14 +108,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => clock());
   const [attempt, setAttempt] = useState(0);
   const [detailAttempt, setDetailAttempt] = useState(0);
+  const directoryRevision = useRef(0);
+  const projectEditSequence = useRef(0);
+  const savedProjectEdits = useRef(new Map<string, number>());
+  const projectChangedAt = useRef(new Map<string, number>());
+  const directorySession = useRef(0);
+  useEffect(() => {
+    directorySession.current += 1;
+    return () => { directorySession.current += 1; };
+  }, [directoryService]);
   const selected = state.tasks.find((task) => task.id === state.selectedId);
 
   useEffect(() => {
     let cancelled = false;
+    const revision = directoryRevision.current;
     Promise.all([taskService.query ? Promise.resolve(null) : taskService.list(), directoryService.people(), directoryService.projects(), directoryService.currentUser()])
       .then(([tasks, people, projects, currentUser]) => {
         if (cancelled) return;
-        setDirectory({ people, projects, currentUser });
+        setDirectory((current) => ({ people, projects: mergeProjects(current.projects, projects, revision, projectChangedAt.current), currentUser }));
         if (tasks) dispatch({ type: "tasksLoaded", tasks });
       })
       .catch((error: unknown) => {
@@ -182,7 +209,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "loadStarted" });
         setAttempt((n) => n + 1);
       },
+      updateProject: async (id, input) => {
+        const session = directorySession.current;
+        const sequence = ++projectEditSequence.current;
+        const project = await directoryService.updateProject(id, input);
+        if (directorySession.current !== session || (savedProjectEdits.current.get(id) ?? 0) > sequence) return;
+        savedProjectEdits.current.set(id, sequence);
+        directoryRevision.current += 1;
+        projectChangedAt.current.set(id, directoryRevision.current);
+        setDirectory((current) => ({ ...current, projects: current.projects.map((item) => item.id === id ? project : item) }));
+      },
       addProject: (project) => {
+        directoryRevision.current += 1;
+        projectChangedAt.current.set(project.id, directoryRevision.current);
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
         // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
         dispatch({ type: "scopeSelected", scope: "all" });
@@ -194,7 +233,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "projectToggled", project: project.id });
       },
     }),
-    [],
+    [directoryService],
   );
 
   const value = useMemo(() => ({ state, dispatch, actions, directory, now }), [state, actions, directory, now]);
@@ -268,12 +307,6 @@ export function useTaskCommands(): TaskCommands {
       addStep: async (id, text) => saved(await service.addStep(id, text)),
       renameStep: async (id, stepId, text) => saved(await service.renameStep(id, stepId, text)),
       reorderSteps: async (id, stepIds) => saved(await service.reorderSteps(id, stepIds)),
-      refreshTask: async (id) => {
-        const task = await service.get(id);
-        if (task) return saved(task);
-        await forget(id);
-        return null;
-      },
       toggleStep: async (id, stepId) => saved(await service.toggleStep(id, stepId)),
       removeStep: async (id, stepId) => saved(await service.removeStep(id, stepId)),
       addComment: async (id, text) => saved(await service.addComment(id, text)),
@@ -286,6 +319,12 @@ export function useTaskCommands(): TaskCommands {
         await forget(id);
       },
       forget,
+      refresh: async (id) => {
+        const task = await (service.refresh ? service.refresh(id) : service.get(id));
+        if (task) return saved(task);
+        await forget(id);
+        return null;
+      },
       sync: (task) => {
         saved(task);
       },

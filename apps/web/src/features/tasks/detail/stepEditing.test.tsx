@@ -54,6 +54,31 @@ describe("ordinary panel step editing through workspace commands", () => {
     expect(taskService.calls.filter((c) => c[0] === "renameStep")).toEqual([]);
   });
 
+  it("lets pending Escape close the panel and keeps an open empty newer draft through settlement", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let release!: () => void;
+    taskService.renameStep = (id, stepId, text) => new Promise<void>((yes) => { release = yes; }).then(() => original(id, stepId, text));
+    openTask("edit"); edit("First");
+    fireEvent.change(input(), { target: { value: "Saved via Escape" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.change(input(), { target: { value: "" } });
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    openTask("edit");
+    expect(input()).toHaveValue("");
+    expect(input()).toHaveAttribute("aria-busy", "true");
+    // Reopening intentionally focuses the panel; the reader chooses the retained draft again.
+    input().focus();
+    release(); await settle();
+    expect(input()).toHaveValue("");
+    expect(input()).toHaveFocus();
+    expect((await taskService.get("edit"))!.steps[0].text).toBe("Saved via Escape");
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(section().queryByRole("textbox", { name: "Step title" })).not.toBeInTheDocument();
+  });
+
   it("keeps a refused rename and an independent newer draft through close/reopen", async () => {
     const { taskService } = await renderDetail({ tasks: [task] });
     const original = taskService.renameStep.bind(taskService);
@@ -73,6 +98,25 @@ describe("ordinary panel step editing through workspace commands", () => {
     await settle();
     expect(input()).toHaveValue("Newer draft");
     expect((await taskService.get("edit"))!.steps[0]).toEqual({ id: "a", text: "Rejected", done: true });
+  });
+
+  it("keeps an explicitly empty newer rename draft on refusal and a held-title retry", async () => {
+    const { taskService } = await renderDetail({ tasks: [task] });
+    const original = taskService.renameStep.bind(taskService);
+    let reject!: () => void;
+    taskService.renameStep = () => new Promise((_yes, no) => { reject = () => no(new Error("refused")); });
+    openTask("edit"); edit("First");
+    fireEvent.change(input(), { target: { value: "Held title" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    fireEvent.change(input(), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Close task" }));
+    reject(); await settle(); openTask("edit");
+    expect(input()).toHaveValue("");
+    taskService.renameStep = original;
+    fireEvent.click(within(section().getByRole("alert")).getByRole("button", { name: "Retry" }));
+    await settle();
+    expect(input()).toHaveValue("");
+    expect((await taskService.get("edit"))!.steps[0].text).toBe("Held title");
   });
 
   it("moves with accessible buttons, disables boundaries, sends all IDs and keeps completion", async () => {
@@ -349,7 +393,7 @@ describe("ordinary panel step editing through workspace commands", () => {
     fireEvent.keyDown(input(), { key: "Enter" });
     await settle();
     expect(section().getByRole("alert")).toHaveTextContent(
-      "Could not rename the step. Your text is kept. Retry or dismiss the failed save before saving another edit.",
+      "Could not rename the step. Retry or dismiss the failed save before saving another edit.",
     );
     fireEvent.change(input(), { target: { value: "Corrected" } });
     fireEvent.keyDown(input(), { key: "Enter" });

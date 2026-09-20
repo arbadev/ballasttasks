@@ -6,6 +6,7 @@ import {
   type Generation,
   type NewProject,
   type NewTask,
+  type ProjectEdit,
   type StepGenerationService,
   type TaskPatch,
   type TaskService,
@@ -96,6 +97,7 @@ export class FakeTaskService implements TaskService {
 export class FakeDirectoryService implements DirectoryService {
   readonly calls: unknown[][] = [];
   private readonly created: Project[] = [];
+  private readonly edited = new Map<string, Project>();
   private gate: Promise<void> | null = null;
 
   constructor(
@@ -105,7 +107,7 @@ export class FakeDirectoryService implements DirectoryService {
     return this.data.people ?? [...SEED_PEOPLE];
   }
   async projects() {
-    return [...(this.data.projects ?? SEED_PROJECTS), ...this.created];
+    return [...(this.data.projects ?? SEED_PROJECTS), ...this.created].map((project) => this.edited.get(project.id) ?? project);
   }
   async currentUser() {
     return (this.data.people ?? SEED_PEOPLE)[0];
@@ -119,6 +121,17 @@ export class FakeDirectoryService implements DirectoryService {
       fail = reject;
     });
     return { release, fail };
+  }
+  async updateProject(id: string, input: ProjectEdit) {
+    this.calls.push(["updateProject", id, input]);
+    const gate = this.gate;
+    this.gate = null;
+    if (gate) await gate;
+    const project = (await this.projects()).find((item) => item.id === id);
+    if (!project) throw new Error("Project not found.");
+    const saved = { ...project, ...(input.name !== undefined && { name: input.name }), ...(input.tone !== undefined && { tone: input.tone }) };
+    this.edited.set(id, saved);
+    return saved;
   }
   /** Stores whatever it is given: the rules are the model's, tested there. */
   async createProject(input: NewProject) {

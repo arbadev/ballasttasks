@@ -10,7 +10,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const SHIMMER = "block h-2.5 animate-bt-shimmer rounded-[4px] bg-linear-90/srgb from-card-2 from-25% via-line-2 via-50% to-card-2 to-75% bg-[length:200%_100%]";
 
 /** The inline AI surface under the checklist: drafting, the proposal, or a failed start. */
-export function StepGenerationPanel({ generation: view, attachmentCount }: { generation: StepGenerationView; attachmentCount: number }) {
+export function StepGenerationPanel({ generation: view }: { generation: StepGenerationView }) {
   const { generation, failed } = view;
 
   if (generation?.phase === "error" || (failed && !generation)) {
@@ -30,7 +30,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
         <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <Sparkles aria-hidden="true" size={14} strokeWidth={2} className="animate-bt-pulse text-acc" />
           <span className="font-medium">Drafting steps</span>
-          <span className="text-fg-3">reading the title, description and {plural(attachmentCount, "attachment")}</span>
+          <span className="text-fg-3">using the title, description and existing steps</span>
         </div>
         <div aria-hidden="true" className="flex flex-col gap-[9px]">
           <span className={cn(SHIMMER, "w-[72%]")} />
@@ -59,7 +59,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
           <span className="ml-auto inline-flex h-5 items-center rounded-bt-sm bg-acc-soft px-[7px] font-mono text-[10.5px] tracking-[.04em] text-acc">proposed</span>
         </div>
         <p className="m-0 mb-1.5 text-[12.5px] text-fg-2">
-          Drafted from the title, description and attachments. Remove what doesn&apos;t fit — nothing is added until you say so.
+          Drafted from the title, description and existing steps. Remove what doesn&apos;t fit — nothing is added until you say so.
         </p>
         {generation.notice && <p role="alert" className="m-0 text-[12px] text-danger">{generation.notice}</p>}
         <ul aria-label="Proposed steps" className="m-0 flex list-none flex-col gap-1.5 p-0">
