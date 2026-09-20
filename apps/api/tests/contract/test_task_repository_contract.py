@@ -704,6 +704,108 @@ async def test_search_pages_with_limit_and_offset_and_always_reports_the_total(
     assert {page.total for page in (first, second, last, beyond)} == {7}
 
 
+OPEN_BY_STATUS = {
+    TaskStatus.TODO: 5,
+    TaskStatus.IN_PROGRESS: 1,
+    TaskStatus.TESTING: 1,
+    TaskStatus.DONE: 0,
+}
+
+
+async def test_search_counts_the_matching_tasks_by_status_whatever_the_page(
+    repository: TaskRepository, workspace: Workspace
+) -> None:
+    first = await repository.search(TaskQuery(limit=2), today=TODAY)
+    middle = await repository.search(TaskQuery(limit=2, offset=4), today=TODAY)
+    beyond = await repository.search(TaskQuery(limit=2, offset=99), today=TODAY)
+
+    for page in (first, middle, beyond):
+        assert page.status_totals == OPEN_BY_STATUS
+        assert page.total == sum(page.status_totals.values())
+
+
+async def test_every_filter_narrows_the_status_totals_with_the_rest_of_the_query(
+    repository: TaskRepository, workspace: Workspace
+) -> None:
+    everything = await repository.search(TaskQuery(filter=EVERYTHING), today=TODAY)
+    mine = await repository.search(
+        TaskQuery(filter=TaskFilter(scope=TaskScope.MINE, viewer_id=workspace.me)), today=TODAY
+    )
+    testing_only = await repository.search(
+        TaskQuery(filter=TaskFilter(statuses=frozenset({TaskStatus.TESTING}))), today=TODAY
+    )
+    searched = await repository.search(
+        TaskQuery(filter=TaskFilter(statuses=None, search="api")), today=TODAY
+    )
+
+    assert everything.status_totals == OPEN_BY_STATUS | {TaskStatus.DONE: 2}
+    assert mine.status_totals == {
+        TaskStatus.TODO: 2,
+        TaskStatus.IN_PROGRESS: 1,
+        TaskStatus.TESTING: 0,
+        TaskStatus.DONE: 0,
+    }
+    assert testing_only.status_totals == {
+        TaskStatus.TODO: 0,
+        TaskStatus.IN_PROGRESS: 0,
+        TaskStatus.TESTING: 1,
+        TaskStatus.DONE: 0,
+    }
+    assert searched.status_totals == {
+        TaskStatus.TODO: 1,
+        TaskStatus.IN_PROGRESS: 1,
+        TaskStatus.TESTING: 0,
+        TaskStatus.DONE: 1,
+    }
+
+
+async def test_status_totals_count_past_the_page_and_follow_a_status_change(
+    repository: TaskRepository, store: Store
+) -> None:
+    """The board reads these instead of counting each column itself, so more rows than one
+    page must still be counted in full."""
+    owner = await stored_user(store)
+    project = a_project()
+    await store.projects.add(project)
+    rows = [
+        a_task(
+            owner,
+            title=f"row-{number:02d}",
+            created_at=CREATED + timedelta(minutes=number),
+            project_id=project.id,
+            status=TaskStatus.TESTING if number % 3 == 0 else TaskStatus.TODO,
+        )
+        for number in range(60)
+    ]
+    for task in rows:
+        await store.tasks.add(task)
+
+    page = await repository.search(TaskQuery(limit=50), today=TODAY)
+
+    assert len(page.items) == 50
+    assert page.total == 60
+    assert page.status_totals == {
+        TaskStatus.TODO: 40,
+        TaskStatus.IN_PROGRESS: 0,
+        TaskStatus.TESTING: 20,
+        TaskStatus.DONE: 0,
+    }
+
+    completed = await repository.get_for_update(rows[1].id)
+    assert completed is not None
+    completed.move_to(TaskStatus.DONE, now=CREATED + timedelta(hours=1))
+    await repository.update(completed)
+
+    after = await repository.search(TaskQuery(limit=50), today=TODAY)
+    assert after.total == 59
+    assert after.status_totals == {
+        TaskStatus.TODO: 39,
+        TaskStatus.IN_PROGRESS: 0,
+        TaskStatus.TESTING: 20,
+        TaskStatus.DONE: 0,
+    }
+
+
 async def test_open_tasks_are_counted_for_the_sidebar(
     repository: TaskRepository, workspace: Workspace
 ) -> None:

@@ -101,7 +101,7 @@ class TaskRepository(Protocol):
     async def get(self, task_id: UUID) -> Task | None: ...
     async def get_by_key(self, key: TaskKey) -> Task | None: ...
     async def get_for_update(self, task_id: UUID) -> Task | None: ...  # holds the task until the unit of work ends
-    async def search(self, query: TaskQuery, *, today: date) -> TaskPage: ...  # one page + the total
+    async def search(self, query: TaskQuery, *, today: date) -> TaskPage: ...  # one page + the totals, in all and by status
     async def count_open(self, *, viewer_id: UUID, today: date) -> TaskCounts: ...
     async def count_signals(self, task_filter: TaskFilter, *, today: date) -> SignalCounts: ...
     async def update(self, task: Task) -> None: ...    # raises TaskNotFound, InvalidAssigneeError, UnknownProjectError
@@ -275,9 +275,10 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 
 ### Frontend: `apps/web/src/app/providers.tsx`
 
-- Builds the concrete services (the HTTP-backed ones use `client.ts`; the task services are in-memory for now) and provides them through React context.
+- Builds session-scoped HTTP services through `client.ts` by default and provides them through React context. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects the in-memory design fixtures; failures never silently switch modes. Like `NEXT_PUBLIC_API_URL`, it is inlined at build time, so compose passes it as a build argument (`http` unless set). The existing workspace is the single data owner, with server-side queries, pagination and counts.
 - Components and hooks read the service interface from context. They never import `client.ts` or call `fetch`.
-- `config.ts` is the only application module that reads `process.env` (`NEXT_PUBLIC_API_URL`). Test tooling (`playwright.config.ts`, `apps/web/visual/`) reads its own variables.
+- `config.ts` is the only application module that reads `process.env` (`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SERVICE_MODE`). Test tooling (`playwright.config.ts`, `apps/web/visual/`) reads its own variables.
+- Password registration/login and the SSO callback establish a memory-only bearer session. Full reload/new tab requires sign-in again, without losing PostgreSQL data. Logout/401 disposes session services, unmounts the workspace and fences late responses. No browser credential persistence, refresh token or cookie-session subsystem is added. See [web integration](../apps/web/README.md#authentication-and-http-integration) for the service and polling contracts.
 - Tests render components with a fake service passed to the provider; no network mocking is needed.
 
 ## HTTP contract flow
@@ -295,7 +296,7 @@ flowchart LR
 
 Rules:
 
-- Any API response change updates the Pydantic model, runs `npm run gen:api`, fixes the frontend types, and lands in the same commit.
+- Any API response change updates the Pydantic model, runs `npm run gen:api -- <your-api-url>/openapi.json` (the schema source is always given; there is no default endpoint), fixes the frontend types, and lands in the same commit.
 - `schema.d.ts` is generated. It is never edited by hand.
 - `client.ts` is the only module that calls `fetch`. Services wrap it and return the generated types.
 
@@ -334,7 +335,7 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 | Route | Success | Errors |
 | --- | --- | --- |
 | `POST /tasks` | `201` `TaskResponse` | `401`, `422` (also: assignee is not an active user, project does not exist) |
-| `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset"}` | `401`, `422` (a parameter it does not understand) |
+| `GET /tasks` | `200` `TaskListResponse`: `{"items": [TaskResponse, ...], "total", "limit", "offset", "status_totals"}` | `401`, `422` (a parameter it does not understand) |
 | `GET /tasks/summary` | `200` `TaskSummaryResponse`: `counts`, `projects`, `signals` | `401`, `422` |
 | `GET /tasks/{id_or_key}` | `200` `TaskDetailResponse` (`TaskResponse` plus `steps` and `attachments`) | `401`, `404`, `422` (neither an id nor a key) |
 | `PATCH /tasks/{id_or_key}` | `200` `TaskResponse` | `401`, `404`, `422` (also: the assignee changes to somebody who is not an active user, the project changes to one that does not exist) |
@@ -343,13 +344,14 @@ Every task route depends on `CurrentUserId` from `api/security.py`, the seam bet
 - `TaskResponse`: `id`, `key`, `project_id`, `title`, `description`, `status` (`todo | in_progress | testing | done`), `due_date`, `created_by`, `assignee_id`, `created_at`, `updated_at`, `completed_at`, `priority` (`P0` to `P3`, default `P2`), `importance` (0 to 100, default 50), `attention`, `steps_total`, `steps_done`, `comments_count` and `attachments_count` (see [task attachments](#task-attachments)).
 - **Key**: `<PROJECT KEY>-<NN>` (`BT-04`), allocated per project when the task is created and never changed, not even when `project_id` moves the task. `{id_or_key}` accepts the id or the key in any case and padding (`bt-4`). How keys are allocated without duplicates or gaps: [ADR 0005](decisions/0005-task-keys-and-urgency.md).
 - **Attention**: `is_overdue`, `is_due_soon`, `is_p0_at_risk`, `needs_owner`, `days_until_due`, `urgency` and `reasons` (`overdue`, `p0_at_risk`, `due_today`, `due_soon`, `needs_owner`), computed by `app.domain.attention` from the request scope's clock, so a client does not re-implement the design's rules.
-- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues four statements for a nonempty page (the caller, page, total and batched steps/comment/attachment tallies); empty pages need no count lookup.
+- **List parameters**, all optional, all combined with AND: `scope` (`all`, `mine`, `overdue`), `project_id`, `status` (`open`, the default; `all`; or one or more statuses by repeating it), `due` (`overdue`, `today`, `week`, `none`), `due_before` and `due_after` (inclusive), `priority` (repeatable), `assignee_id` (a user id or `unassigned`), `q` (case-insensitive, title or description; `%` and `_` are text, a control character such as NUL is a `422`), `signal` (one chip of the Attention strip), `sort` (`urgency`, the default; `importance`; `due_date`; `updated`), `limit` (default 50, max 200) and `offset`. An unknown parameter is a `422`, not ignored. Filtering, sorting and counting happen in SQL; a list request issues four statements for a nonempty page (the caller, the page, one grouped count that yields `total` and `status_totals` together, and the batched steps/comment/attachment tallies); empty pages need no tally lookup.
 - **Summary**: `counts` (`all`, `mine`, `overdue`) and `projects` (each with `open_tasks`) describe the open tasks of the whole workspace, whatever is filtered, as the design's sidebar does. `signals` (`overdue`, `p0_at_risk`, `due_soon`, `needs_owner`) describes the open tasks the filters select; it takes the same filter parameters as the list and ignores `status` and `signal`, so choosing a chip never blanks the others.
 - `POST` accepts `status` (the board adds a task straight into a column; `done` completes it at once), `priority`, `importance` and `project_id` (absent: the Inbox).
 - `created_by` is the authenticated user; request bodies reject unknown fields, so it cannot be sent.
 - `PATCH` is partial: an absent field is left alone, `null` clears `description`, `due_date` and `assignee_id`; `title`, `status`, `priority`, `importance` and `project_id` reject `null`, and there is no `key` to send. Completing a task is `{"status": "done"}` (the domain sets `completed_at`, and clears it when the task leaves `done`); assigning it is `{"assignee_id": "<user id>"}`.
 - **Assignee**: an `assignee_id` that `POST` sets or `PATCH` changes must be an active user. Otherwise the answer is `422` with `{"type": "invalid_assignee", "loc": ["body", "assignee_id"], "msg": "assignee_id must be the id of an active user"}`, the same body for an unknown id and for a deactivated user. `CreateTask` and `UpdateTask` ask the `UserDirectory` port; the foreign key below is the race-safe backstop, and the repository maps its violation to the same `InvalidAssigneeError`, so a user who vanishes between the check and the write is still a `422`, never a `500`. `PATCH` checks the assignee only when the assignment changes: a body that names the `assignee_id` the task already has is accepted even if that user has since been deactivated (a form that saves the whole task sends it back), while a body that changes the assignee to an unknown or inactive user is the `422` above. So a task whose assignee was deactivated later can still be edited, completed or reassigned.
-- The list is an envelope on purpose: pagination added `total`, `limit` and `offset` next to `items` without breaking clients.
+- The list is an envelope on purpose: pagination added `total`, `limit` and `offset` next to `items` without breaking clients, and the board's `status_totals` joined them the same way.
+- **`status_totals`** (`todo`, `in_progress`, `testing`, `done`) counts the tasks the same filters select, by status, whatever the page holds, so the design's four board columns need no extra request. `status` itself still applies: a list asked for one status reports zero in the other three, and `total` is their sum.
 - Any authenticated user can read and change any task and any project (one shared workspace, accepted for now); there is no ownership or membership model.
 - Error bodies: `ErrorResponse` (`{"detail": "<message>"}`) for `401` and `404`; FastAPI's `HTTPValidationError` (`{"detail": [{"type", "loc", "msg"}, ...]}`) for `422`, whether a Pydantic model or a domain rule rejected the request. Application and domain errors are mapped to HTTP in `api/errors.py` only. Only a rule broken by the request is a `422`: a stored task the domain rejects is `StoredTaskInvalid`, which is not mapped and so is a `500`.
 - Title and description reject the NUL character (PostgreSQL text cannot hold it).
@@ -636,4 +638,4 @@ Tests are written first, seen to fail, then made to pass. A test is never weaken
 | Live | A real third party answers as the adapter expects: the AI provider accepts the key and generates text; Google's discovery and token endpoints have the shape the sign-in adapter reads | Opt-in: `uv run pytest -m live` with `AI__PROVIDER` and `AI__API_KEY`, or `SSO__GOOGLE_CLIENT_ID` and `SSO__GOOGLE_CLIENT_SECRET`; deselected by default, skipped without credentials |
 | Integration | Real adapters against real PostgreSQL and Redis; `alembic upgrade head` from an empty database yields exactly what the ORM models describe, and from a database that already holds tasks it keeps every row; the task routes driven end to end with a bearer token obtained through register and login (`tests/integration/test_tasks_api.py`); the single sign-on browser flow over real HTTP against a uvicorn server, with the fake provider (`tests/integration/test_sso_flow.py`) | The running compose stack: `make test-integration`; never SQLite. Database tests work in a throwaway database created next to the configured one (`tests/postgres.py`), so existing data is never touched |
 
-Frontend tests render components with fake services injected through the provider, and test services against a fake client. Coverage is reported by `make test` for both apps.
+Frontend tests render components with injected fake services and exercise HTTP adapters through the real client with controlled MSW responses. `npm run test:http` in `apps/web` additionally exercises the adapters against an explicitly configured real API, PostgreSQL, Redis and offline worker; it never substitutes for native browser acceptance. Coverage is reported by `make test` for both apps.

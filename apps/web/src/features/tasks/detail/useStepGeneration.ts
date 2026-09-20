@@ -14,6 +14,7 @@ export interface StepGenerationView {
   removeProposed(stepId: string): void;
   accept(): void;
   discard(): void;
+  reload(): void;
 }
 
 /**
@@ -43,10 +44,21 @@ export function useStepGeneration(taskId: string): StepGenerationView {
         .catch(() => {});
     },
     discard: () => {
-      // Discarding resolves to nothing, but it is logged on the task: read the task back.
-      void track(taskId, service.discard().then(() => tasks.get(taskId)))
-        .then((task) => task && commands.sync(task))
-        .catch(() => {});
+      // Local proposal dismissal neither cancels a server job nor creates activity.
+      void service.discard().catch(() => setGenerationFailed(taskId, true));
+    },
+    reload: () => {
+      void tasks.get(taskId).then(async (task) => {
+        if (!task) {
+          await commands.forget(taskId);
+          setGenerationFailed(taskId, false);
+          return;
+        }
+        commands.sync(task);
+        if (service.forget) service.forget(taskId);
+        else if (service.current()?.taskId === taskId) await service.discard();
+        setGenerationFailed(taskId, false);
+      }).catch(() => setGenerationFailed(taskId, true));
     },
   };
 }

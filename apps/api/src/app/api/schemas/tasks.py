@@ -5,7 +5,7 @@ Lengths are repeated here only so they show up in OpenAPI; the rules themselves 
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from typing import Annotated, Literal, Self
 
@@ -251,17 +251,42 @@ def _task_fields(task: Task, attention: Attention, tally: TaskTally) -> dict[str
     }
 
 
+class StatusTotalsResponse(BaseModel):
+    """The design's four board columns: the matching tasks by status, whatever the page.
+
+    The same filters as ``total``, narrowed to one status; ``status`` itself still applies,
+    so a list asked for one status reports zero in the other three.
+    """
+
+    todo: int
+    in_progress: int
+    testing: int
+    done: int
+
+    @classmethod
+    def of(cls, totals: Mapping[TaskStatus, int]) -> Self:
+        return cls(**{status.value: totals[status] for status in TaskStatus})
+
+
 class TaskListResponse(BaseModel):
-    """An envelope: ``total`` is how many tasks match the filters, whatever the page."""
+    """An envelope: ``total`` is how many tasks match the filters, whatever the page, and
+    ``status_totals`` is that same set by status."""
 
     items: list[TaskResponse]
     total: int
     limit: int
     offset: int
+    status_totals: StatusTotalsResponse
 
     @classmethod
     def of(cls, page: TaskPage, query: TaskQuery, items: list[TaskResponse]) -> Self:
-        return cls(items=items, total=page.total, limit=query.limit, offset=query.offset)
+        return cls(
+            items=items,
+            total=page.total,
+            limit=query.limit,
+            offset=query.offset,
+            status_totals=StatusTotalsResponse.of(page.status_totals),
+        )
 
 
 StatusToken = Literal["open", "all", "todo", "in_progress", "testing", "done"]

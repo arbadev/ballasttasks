@@ -47,12 +47,13 @@ describe("InMemoryTaskService", () => {
     expect(a.id).not.toBe(b.id);
   });
 
-  it("updates plain fields silently, bumping updatedAt", async () => {
+  it("updates plain fields and records the API's due/priority events, bumping updatedAt", async () => {
     tick();
     const before = (await service.get("t4"))!;
     const after = await service.update("t4", { title: "JWT auth", prio: 1, importance: 40, due: due(9) });
     expect(after).toMatchObject({ title: "JWT auth", prio: 1, importance: 40, due: due(9), updatedAt: now });
-    expect(after.activity).toEqual(before.activity);
+    expect(after.activity.slice(0, before.activity.length)).toEqual(before.activity);
+    expect(after.activity.slice(before.activity.length).map((entry) => entry.text)).toEqual(["Due date moved to Sep 27", "Priority P0 → P1"]);
   });
 
   it("clamps importance to 0..100", async () => {
@@ -68,9 +69,24 @@ describe("InMemoryTaskService", () => {
     expect(last(cleared.activity).text).toBe("Unassigned");
   });
 
-  it("logs the caller's note instead, for the design's quick actions", async () => {
-    const moved = await service.update("t5", { due: due(1) }, "Due date moved to tomorrow");
+  it("derives quick-action wording from the changed date, ignoring arbitrary caller notes", async () => {
+    const moved = await service.update("t5", { due: due(1) }, "a caller cannot invent an event");
     expect(last(moved.activity)).toMatchObject({ type: "log", who: "ab", text: "Due date moved to tomorrow" });
+  });
+
+  it("does not let legacy notes produce activity for silent edits or no-ops", async () => {
+    const before = (await service.get("t4"))!;
+    const after = await service.update("t4", { title: "New title" }, "not an API event");
+    expect(after.activity).toEqual(before.activity);
+    expect((await service.update("t4", { assignee: after.assignee, due: after.due, prio: after.prio }, "no-op")).activity).toEqual(before.activity);
+  });
+
+  it("rejects a manual step above the shared 100-step ceiling without changing activity", async () => {
+    const task = await service.create({ title: "Full task" });
+    for (let i = 0; i < 100; i++) await service.addStep(task.id, `Step ${i}`);
+    const before = await service.get(task.id);
+    await expect(service.addStep(task.id, "One too many")).rejects.toThrow(/100/);
+    expect(await service.get(task.id)).toEqual(before);
   });
 
   it("moves a task and logs both status names", async () => {
@@ -93,13 +109,14 @@ describe("InMemoryTaskService", () => {
     expect(last(reopened.activity).text).toBe("Moved Done → To Do");
   });
 
-  it("adds a trimmed step without logging, and ignores a blank one", async () => {
+  it("adds a trimmed step with the API event, and ignores a blank one", async () => {
     tick();
     const before = (await service.get("t4"))!;
     const after = await service.addStep("t4", "  users table  ");
     expect(after.steps).toEqual([{ id: expect.any(String), text: "users table", done: false }]);
     expect(after.updatedAt).toBe(now);
-    expect(after.activity).toEqual(before.activity);
+    expect(after.activity.slice(0, before.activity.length)).toEqual(before.activity);
+    expect(last(after.activity).text).toBe("Added step “users table”");
     expect(await service.addStep("t4", "   ")).toEqual(after);
   });
 

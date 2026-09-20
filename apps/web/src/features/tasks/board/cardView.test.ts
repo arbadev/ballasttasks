@@ -3,6 +3,9 @@ import { NOW, due, makeTask } from "@/test/tasks";
 import { cardView, ENTRANCE_STEP_MS, entranceDelay } from "./cardView";
 
 describe("cardView: due chip", () => {
+  it("renders API tallies without creating fake child objects", () => {
+    expect(cardView(makeTask({ steps: [], attachments: [], tally: { steps: 3, done: 2, attachments: 4, comments: 0 } }), NOW)).toMatchObject({ stepsLabel: "2/3", attachmentsLabel: "4" });
+  });
   it("is quiet, with the calendar mark, for a date outside the soon window", () => {
     const view = cardView(makeTask({ due: due(9), prio: 2 }), NOW);
     expect(view.dueLabel).toBe("Due Sep 27");

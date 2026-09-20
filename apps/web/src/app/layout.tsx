@@ -27,6 +27,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Ballast Tasks",
   description: "Task management",
+  referrer: "no-referrer",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -12,44 +12,37 @@ export interface DueInfo {
   diff: number;
 }
 
-/** Local noon of a calendar day: far enough from midnight that DST never shifts the day. */
-function noon(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(12, 0, 0, 0);
-  return d;
-}
-
+/** A task date is a UTC calendar day, never a browser-local instant. */
 function parse(due: DueDate): Date {
-  const [y, m, d] = due.split("-").map(Number);
-  return new Date(y, m - 1, d, 12, 0, 0, 0);
+  return new Date(`${due}T00:00:00Z`);
 }
 
 export function toDueDate(date: Date): DueDate {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
 }
 
-/** The day `offset` days after `base` (today when omitted). */
+/** The day `offset` days after `base` (the injected instant's UTC day when omitted). */
 export function dayFrom(offset: number, now: number, base?: DueDate): DueDate {
-  const d = base ? parse(base) : noon(new Date(now));
-  d.setDate(d.getDate() + offset);
+  const d = base ? parse(base) : new Date(now);
+  d.setUTCDate(d.getUTCDate() + offset);
   return toDueDate(d);
 }
 
 /** "Sep 25" */
 export function formatDueDate(due: DueDate): string {
-  return parse(due).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return parse(due).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 export function dueInfo(due: DueDate | null, now: number): DueInfo {
   if (!due) return { label: "No date", overdue: false, isToday: false, inWeek: false, diff: Infinity };
   const date = parse(due);
-  const diff = Math.round((date.getTime() - noon(new Date(now)).getTime()) / DAY_MS);
+  const diff = Math.floor(date.getTime() / DAY_MS) - Math.floor(now / DAY_MS);
   if (diff < 0) return { label: `Overdue · ${-diff}d`, overdue: true, isToday: false, inWeek: false, diff };
   if (diff === 0) return { label: "Due today", overdue: false, isToday: true, inWeek: true, diff };
   if (diff === 1) return { label: "Due tomorrow", overdue: false, isToday: false, inWeek: true, diff };
   if (diff < 7) {
-    const weekday = date.toLocaleDateString("en-US", { weekday: "short" });
+    const weekday = date.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
     return { label: `Due ${weekday} · ${diff}d`, overdue: false, isToday: false, inWeek: true, diff };
   }
   return { label: `Due ${formatDueDate(due)}`, overdue: false, isToday: false, inWeek: false, diff };

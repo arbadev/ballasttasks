@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import type { TaskPageRequest } from "../services/query";
 import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
 import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
@@ -23,6 +24,8 @@ export interface WorkspaceActions {
   clearSelection(): void;
   /** Fetches the tasks again, after a load error. */
   reload(): void;
+  setPage(offset: number): void;
+  reloadDetail(): void;
   /** Puts a project the directory just created into the sidebar and shows it with the filters and search reset; sort and view are kept. */
   addProject(project: Project): void;
 }
@@ -45,8 +48,13 @@ export interface TaskCommands {
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
   addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;
+  uploadAttachment?(id: string, file: File): Promise<Task>;
+  downloadAttachment?(id: string, attachmentId: string): Promise<Blob>;
+  removeAttachment?(id: string, attachmentId: string): Promise<Task>;
   /** Also discards the step generation in flight for the task, as the design does. */
   remove(id: string): Promise<void>;
+  /** Drops a task the server no longer has, with its generation. Deletes nothing. */
+  forget(id: string): Promise<void>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
   sync(task: Task): void;
 }
@@ -72,19 +80,22 @@ export const LOAD_FAILED_WITHOUT_DETAIL = "Could not load the tasks.";
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const taskService = useTaskService();
   const directoryService = useDirectoryService();
+  const stepGeneration = useStepGenerationService();
   const clock = useClock();
   const [state, dispatch] = useReducer(workspaceReducer, initialWorkspaceState);
   const [directory, setDirectory] = useState<Directory>(EMPTY_DIRECTORY);
   const [now, setNow] = useState(() => clock());
   const [attempt, setAttempt] = useState(0);
+  const [detailAttempt, setDetailAttempt] = useState(0);
+  const selected = state.tasks.find((task) => task.id === state.selectedId);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([taskService.list(), directoryService.people(), directoryService.projects(), directoryService.currentUser()])
+    Promise.all([taskService.query ? Promise.resolve(null) : taskService.list(), directoryService.people(), directoryService.projects(), directoryService.currentUser()])
       .then(([tasks, people, projects, currentUser]) => {
         if (cancelled) return;
         setDirectory({ people, projects, currentUser });
-        dispatch({ type: "tasksLoaded", tasks });
+        if (tasks) dispatch({ type: "tasksLoaded", tasks });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -94,6 +105,53 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [taskService, directoryService, attempt]);
+
+  useEffect(() => {
+    if (!taskService.query || !directory.currentUser) return;
+    let cancelled = false;
+    const request: TaskPageRequest = { query: state.query, sort: state.sort, board: state.view === "board", offset: state.pageOffset ?? 0 };
+    const revision = state.revision ?? 0;
+    // Debounce search typing; ordinary filter/page changes are immediate.
+    const timer = setTimeout(() => {
+      dispatch({ type: "loadStarted" });
+      taskService.query!(request).then((page) => {
+        if (cancelled) return;
+        if (page.total > 0 && page.offset >= page.total) {
+          dispatch({ type: "pageChanged", offset: Math.floor((page.total - 1) / page.limit) * page.limit });
+        } else if (page.total === 0 && page.offset > 0) {
+          dispatch({ type: "pageChanged", offset: 0 });
+        } else dispatch({ type: "queryLoaded", page, request, revision });
+      }).catch((error: unknown) => {
+        if (!cancelled) dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : "Could not load tasks." });
+      });
+    }, state.query.search ? 250 : 0);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [taskService, directory.currentUser, state.query, state.sort, state.view, state.pageOffset, state.revision, attempt, now]);
+
+  useEffect(() => {
+    stepGeneration.select?.(state.selectedId);
+  }, [stepGeneration, state.selectedId]);
+
+  useEffect(() => {
+    const visibility = () => stepGeneration.setVisible?.(!document.hidden);
+    visibility();
+    document.addEventListener("visibilitychange", visibility);
+    return () => { document.removeEventListener("visibilitychange", visibility); stepGeneration.setVisible?.(false); };
+  }, [stepGeneration]);
+
+  useEffect(() => {
+    if (!selected || (selected.detailLoaded !== false && !selected.detailStale)) return;
+    let cancelled = false;
+    dispatch({ type: "detailStarted" });
+    taskService.get(selected.id).then((task) => {
+      if (cancelled) return;
+      if (task) dispatch({ type: "detailLoaded", task, expected: selected });
+      else { dispatch({ type: "taskRemoved", id: selected.id }); stepGeneration.forget?.(selected.id); }
+    }).catch((error: unknown) => {
+      if (!cancelled) dispatch({ type: "detailFailed", id: selected.id, message: error instanceof Error ? error.message : "Could not load task details." });
+    });
+    return () => { cancelled = true; };
+  }, [selected, taskService, stepGeneration, detailAttempt]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(clock()), NOW_REFRESH_MS);
@@ -114,6 +172,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setView: (view) => dispatch({ type: "viewChanged", view }),
       selectTask: (id) => dispatch({ type: "taskSelected", id }),
       clearSelection: () => dispatch({ type: "selectionCleared" }),
+      setPage: (offset) => dispatch({ type: "pageChanged", offset }),
+      reloadDetail: () => setDetailAttempt((value) => value + 1),
       reload: () => {
         dispatch({ type: "loadStarted" });
         setAttempt((n) => n + 1);
@@ -163,8 +223,8 @@ export function useVisibleTasks(options: { applyStatus?: boolean } = {}): Task[]
   const applyStatus = options.applyStatus ?? true;
   const currentUserId = directory.currentUser?.id ?? "";
   return useMemo(
-    () => selectTasks(state.tasks, state.query, state.sort, { now, currentUserId, applyStatus }),
-    [state.tasks, state.query, state.sort, now, currentUserId, applyStatus],
+    () => state.page ? state.page.ids.flatMap((id) => state.tasks.find((task) => task.id === id) ?? []) : selectTasks(state.tasks, state.query, state.sort, { now, currentUserId, applyStatus }),
+    [state.tasks, state.page, state.query, state.sort, now, currentUserId, applyStatus],
   );
 }
 
@@ -182,6 +242,15 @@ export function useTaskCommands(): TaskCommands {
     [dispatch],
   );
 
+  const forget = useCallback(
+    async (id: string) => {
+      dispatch({ type: "taskRemoved", id });
+      if (stepGeneration.forget) stepGeneration.forget(id);
+      else if (stepGeneration.current()?.taskId === id) await stepGeneration.discard();
+    },
+    [dispatch, stepGeneration],
+  );
+
   return useMemo<TaskCommands>(
     () => ({
       create: async (input, options) => {
@@ -197,15 +266,18 @@ export function useTaskCommands(): TaskCommands {
       removeStep: async (id, stepId) => saved(await service.removeStep(id, stepId)),
       addComment: async (id, text) => saved(await service.addComment(id, text)),
       addAttachment: async (id, attachment, file) => saved(await service.addAttachment(id, attachment, file)),
+      uploadAttachment: service.uploadAttachment ? async (id, file) => saved(await service.uploadAttachment!(id, file)) : undefined,
+      downloadAttachment: service.downloadAttachment ? (id, attachmentId) => service.downloadAttachment!(id, attachmentId) : undefined,
+      removeAttachment: service.removeAttachment ? async (id, attachmentId) => saved(await service.removeAttachment!(id, attachmentId)) : undefined,
       remove: async (id) => {
         await service.remove(id);
-        dispatch({ type: "taskRemoved", id });
-        if (stepGeneration.current()?.taskId === id) await stepGeneration.discard();
+        await forget(id);
       },
+      forget,
       sync: (task) => {
         saved(task);
       },
     }),
-    [service, stepGeneration, saved, dispatch, project],
+    [service, saved, forget, dispatch, project],
   );
 }

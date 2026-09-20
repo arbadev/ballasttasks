@@ -54,19 +54,28 @@ describe("InMemoryStepGenerationService", () => {
     expect(g?.phase === "proposed" && g.steps).toHaveLength(5);
   });
 
-  it("ignores a second start for the task already running", async () => {
+  it("observes the latest explicit start without an obsolete completion replacing it", async () => {
     await service.start("t4");
     vi.advanceTimersByTime(2000);
     await service.start("t4");
     vi.advanceTimersByTime(200);
+    expect(service.current()?.phase).toBe("running");
+    vi.advanceTimersByTime(2000);
     expect(service.current()?.phase).toBe("proposed");
+    expect(seen.map((g) => g?.phase)).toEqual(["running", "running", "proposed"]);
   });
 
-  it("replaces a running generation when another task starts", async () => {
+  it("retains each task's proposal when another task starts", async () => {
     await service.start("t4");
     vi.advanceTimersByTime(1000);
     await service.start("t7");
     vi.advanceTimersByTime(2200);
+    expect(service.current()).toMatchObject({ taskId: "t7", phase: "proposed" });
+    service.select("t4");
+    expect(service.current()).toMatchObject({ taskId: "t4", phase: "proposed" });
+    service.select(null);
+    expect(service.current()).toBeNull();
+    service.select("t7");
     expect(service.current()).toMatchObject({ taskId: "t7", phase: "proposed" });
   });
 
@@ -83,14 +92,14 @@ describe("InMemoryStepGenerationService", () => {
     ]);
   });
 
-  it("accepts: appends the steps undone, logs as the assistant and clears", async () => {
+  it("accepts: appends the steps undone, logs as the accepting user like the API and clears", async () => {
     await service.start("t16");
     vi.advanceTimersByTime(2200);
     now += 5000;
     const task = await service.accept();
     expect(task?.steps.map((s) => s.done)).toEqual([false, false, false]);
     expect(task?.updatedAt).toBe(now);
-    expect(last(task!.activity)).toEqual({ type: "log", who: "ai", text: "Drafted 3 steps · added by Andres", at: now });
+    expect(last(task!.activity)).toEqual({ type: "log", who: "ab", text: "Drafted 3 steps · added by Andres", at: now });
     expect(service.current()).toBeNull();
     expect((await tasks.get("t16"))?.steps).toHaveLength(3);
   });
@@ -111,14 +120,15 @@ describe("InMemoryStepGenerationService", () => {
     expect(service.current()?.phase).toBe("running");
   });
 
-  it("discards: cancels the run, logs it and leaves the steps alone", async () => {
+  it("discards locally without a task mutation or invented activity", async () => {
+    const before = await tasks.get("t4");
     await service.start("t4");
     await service.discard();
     vi.advanceTimersByTime(5000);
     expect(service.current()).toBeNull();
     const task = (await tasks.get("t4"))!;
     expect(task.steps).toEqual([]);
-    expect(last(task.activity)).toMatchObject({ type: "log", who: "ai", text: "Draft discarded by Andres" });
+    expect(task).toEqual(before);
     expect(seen).toEqual([{ taskId: "t4", phase: "running" }, null]);
   });
 
@@ -166,6 +176,28 @@ describe("InMemoryStepGenerationService", () => {
     unsubscribe();
     await service.start("t4");
     expect(calls).toEqual([]);
+  });
+
+  it("rejects the whole proposal above 100 steps and permits reducing it before acceptance", async () => {
+    for (let i = 0; i < 98; i++) await tasks.addStep("t16", `Existing ${i}`);
+    const before = await tasks.get("t16");
+    await service.start("t16");
+    vi.advanceTimersByTime(2200);
+    await expect(service.accept()).rejects.toThrow(/100/);
+    expect(await tasks.get("t16")).toEqual(before);
+    const proposal = service.current();
+    if (proposal?.phase !== "proposed") throw new Error("proposal must survive rejection");
+    service.removeProposed(proposal.steps[0].id);
+    expect((await service.accept())?.steps).toHaveLength(100);
+  });
+
+  it("disposes pending task work without mutating tasks or notifying obsolete subscribers", async () => {
+    await service.start("t4");
+    service.dispose();
+    vi.advanceTimersByTime(5000);
+    expect(service.current()).toBeNull();
+    expect(seen).toEqual([{ taskId: "t4", phase: "running" }]);
+    expect((await tasks.get("t4"))?.steps).toEqual([]);
   });
 
   it("rejects an unknown task", async () => {

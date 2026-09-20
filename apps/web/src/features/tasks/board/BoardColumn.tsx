@@ -8,6 +8,8 @@ import type { StatusDefinition } from "../model/statuses";
 interface BoardColumnProps {
   status: StatusDefinition;
   count: number;
+  /** A server page or optimistic move can differ from the full-scope total. */
+  visibleCount?: number;
   /** A card is being dragged over this column. */
   dropTarget: boolean;
   onDragOver(event: DragEvent<HTMLElement>): void;
@@ -21,7 +23,7 @@ interface BoardColumnProps {
 
 const DOT = { muted: "bg-fg-3", accent: "bg-acc", warn: "bg-warn", ok: "bg-ok" };
 
-export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onAddTask, adding, children }: BoardColumnProps) {
+export function BoardColumn({ status, count, visibleCount = count, dropTarget, onDragOver, onDrop, onAddTask, adding, children }: BoardColumnProps) {
   const headingId = useId();
 
   return (
@@ -54,10 +56,10 @@ export function BoardColumn({ status, count, dropTarget, onDragOver, onDrop, onA
         </span>
       </div>
 
-      {count > 0 ? (
+      {visibleCount > 0 ? (
         <ul className="m-0 flex list-none flex-col gap-2.5 p-0">{children}</ul>
       ) : (
-        <p className="m-0 rounded-bt border border-dashed border-line-2 px-3 py-[26px] text-[12px] text-fg-3">Drop tasks here</p>
+        <p className="m-0 rounded-bt border border-dashed border-line-2 px-3 py-[26px] text-[12px] text-fg-3">{count > 0 ? "More tasks on other pages" : "Drop tasks here"}</p>
       )}
 
       <button

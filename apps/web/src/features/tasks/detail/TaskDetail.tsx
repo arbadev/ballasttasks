@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
 import type { Task } from "../model/types";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
+import { PanelButton } from "./controls";
 import { ActivitySection } from "./ActivitySection";
 import { AttachmentsSection } from "./AttachmentsSection";
 import { DetailFooter } from "./DetailFooter";
@@ -143,10 +144,25 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
 
 function DetailBody({ task, titleRef, onClose }: { task: Task; titleRef: React.Ref<HTMLInputElement>; onClose: () => void }) {
   const generation = useStepGeneration(task.id);
+  const { state, actions } = useWorkspace();
+
+  if (task.detailLoaded === false) return <>
+    <DetailHeader task={task} onClose={onClose} />
+    <div className="flex flex-col gap-3 p-6 text-[13px] text-fg-2">
+      {state.detailLoad?.status === "error" ? <>
+        <p role="alert" className="m-0 text-danger">{state.detailLoad.message}</p>
+        <PanelButton variant="secondary" onClick={actions.reloadDetail}>Retry task details</PanelButton>
+      </> : <p role="status" aria-label="Loading task details" className="m-0">Loading task details…</p>}
+    </div>
+  </>;
 
   return (
     <>
       <DetailHeader task={task} onClose={onClose} />
+      {task.detailStale && state.detailLoad?.status === "error" && <div className="flex items-center gap-3 px-6 py-3 text-[13px] text-danger">
+        <p role="alert" className="m-0 flex-1">{state.detailLoad.message} Your edits are kept.</p>
+        <PanelButton variant="secondary" onClick={actions.reloadDetail}>Retry task details</PanelButton>
+      </div>}
       <UrgencyBanner task={task} generation={generation} />
       <div className="flex min-h-0 flex-1 flex-wrap content-start overflow-x-hidden overflow-y-auto">
         <div className="flex min-w-0 flex-[1_1_440px] flex-col gap-[22px] px-6 pt-[22px] pb-8 max-md:px-4">

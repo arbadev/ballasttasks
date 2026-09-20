@@ -3,7 +3,7 @@
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
-import { attentionSignals, type AttentionSignal } from "../model/signals";
+import { attentionSignals, signalsFromCounts, type AttentionSignal } from "../model/signals";
 import { useNow, useWorkspace } from "../workspace/WorkspaceProvider";
 
 const TONES: Record<AttentionSignal["tone"], { dot: string; active: string; hover: string }> = {
@@ -16,7 +16,7 @@ const TONES: Record<AttentionSignal["tone"], { dot: string; active: string; hove
 export function AttentionStrip() {
   const { state, actions } = useWorkspace();
   const now = useNow();
-  const signals = attentionSignals(state.tasks, { now, project: state.query.project, active: state.query.signal });
+  const signals = state.page ? signalsFromCounts(state.page.signals, state.query.signal) : attentionSignals(state.tasks, { now, project: state.query.project, active: state.query.signal });
 
   return (
     <section aria-label="Attention" className="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-6 py-[9px] max-md:px-4">

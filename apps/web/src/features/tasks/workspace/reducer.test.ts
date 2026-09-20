@@ -99,6 +99,29 @@ describe("workspaceReducer", () => {
     expect(other.selectedId).toBe("b");
   });
 
+  it("does not let a late list response overwrite saved tasks or resurrect deletions", () => {
+    const old = makeTask({ id: "a", title: "old" });
+    const saved = makeTask({ id: "a", title: "saved" });
+    const result = apply([
+      { type: "tasksLoaded", tasks: [old, makeTask({ id: "b" })] },
+      { type: "loadStarted" },
+      { type: "taskSaved", task: saved },
+      { type: "taskRemoved", id: "b" },
+      { type: "tasksLoaded", tasks: [old, makeTask({ id: "b" })] },
+    ]);
+    expect(result.tasks).toEqual([saved]);
+  });
+
+  it("ignores detail fetched before a mutation or deletion", () => {
+    const summary = makeTask({ id: "a", detailLoaded: false });
+    const saved = makeTask({ id: "a", title: "saved" });
+    const loaded = apply([{ type: "tasksLoaded", tasks: [summary] }, { type: "taskSelected", id: "a" }]);
+    const changed = apply([{ type: "taskSaved", task: saved }, { type: "detailLoaded", task: { ...summary, detailLoaded: true }, expected: summary }], loaded);
+    expect(changed.tasks).toEqual([saved]);
+    const removed = apply([{ type: "taskRemoved", id: "a" }, { type: "detailLoaded", task: { ...summary, detailLoaded: true }, expected: summary }], loaded);
+    expect(removed.tasks).toEqual([]);
+  });
+
   it("returns the same state for a no-op, so nothing re-renders", () => {
     expect(workspaceReducer(initialWorkspaceState, { type: "viewChanged", view: "list" })).toBe(initialWorkspaceState);
     expect(workspaceReducer(initialWorkspaceState, { type: "signalCleared" })).toBe(initialWorkspaceState);

@@ -66,7 +66,19 @@ async def test_openapi_documents_the_task_components(client: httpx.AsyncClient) 
         "ErrorResponse",
     } <= set(schemas)
     assert schemas["TaskStatus"]["enum"] == ["todo", "in_progress", "testing", "done"]
-    assert schemas["TaskListResponse"]["required"] == ["items", "total", "limit", "offset"]
+    assert schemas["TaskListResponse"]["required"] == [
+        "items",
+        "total",
+        "limit",
+        "offset",
+        "status_totals",
+    ]
+    assert schemas["StatusTotalsResponse"]["required"] == [
+        "todo",
+        "in_progress",
+        "testing",
+        "done",
+    ]
     assert schemas["TaskCreate"]["required"] == ["title"]
     assert "created_by" not in schemas["TaskCreate"]["properties"]
     assert set(schemas["TaskResponse"]["required"]) == set(schemas["TaskResponse"]["properties"])

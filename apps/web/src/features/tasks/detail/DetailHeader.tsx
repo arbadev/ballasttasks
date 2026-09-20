@@ -28,7 +28,7 @@ export function DetailHeader({ task, onClose }: { task: Task; onClose: () => voi
       <button type="button" aria-label="Back to tasks" title="Back to tasks" onClick={onClose} className={cn(SQUARE_BUTTON, "grid md:hidden")}>
         <ArrowLeft aria-hidden="true" size={15} strokeWidth={2} />
       </button>
-      <span className="font-mono text-[11px] text-fg-3">{taskKey(task.id)}</span>
+      <span className="font-mono text-[11px] text-fg-3">{task.key ?? taskKey(task.id)}</span>
       <span aria-hidden="true" className="text-line-2">
         /
       </span>

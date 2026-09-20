@@ -19,8 +19,13 @@ describe("parseConfig", () => {
 
   it("returns the API URL when the value is valid", () => {
     expect(parseConfig({ NEXT_PUBLIC_API_URL: "http://localhost:8000" })).toEqual({
-      apiUrl: "http://localhost:8000",
+      apiUrl: "http://localhost:8000", serviceMode: "http",
     });
+  });
+
+  it("requires an explicit demo opt-in and rejects unknown service modes", () => {
+    expect(parseConfig({ NEXT_PUBLIC_API_URL: "http://api.test", NEXT_PUBLIC_SERVICE_MODE: "demo" }).serviceMode).toBe("demo");
+    expect(() => parseConfig({ NEXT_PUBLIC_API_URL: "http://api.test", NEXT_PUBLIC_SERVICE_MODE: "typo" })).toThrow(/SERVICE_MODE/);
   });
 
   it("strips a trailing slash so paths can be appended safely", () => {

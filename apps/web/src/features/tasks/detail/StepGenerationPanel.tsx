@@ -13,12 +13,12 @@ const SHIMMER = "block h-2.5 animate-bt-shimmer rounded-[4px] bg-linear-90/srgb 
 export function StepGenerationPanel({ generation: view, attachmentCount }: { generation: StepGenerationView; attachmentCount: number }) {
   const { generation, failed } = view;
 
-  if (failed && !generation) {
+  if (generation?.phase === "error" || (failed && !generation)) {
     return (
       <div role="alert" className="flex animate-[bt-in_.25s_var(--ease)] flex-wrap items-center gap-x-3 gap-y-2 rounded-bt border border-danger/35 bg-danger-soft px-3.5 py-3 text-[13px] text-fg">
-        <span className="flex-1">Could not draft steps. Nothing was changed.</span>
-        <PanelButton variant="secondary" className="h-[30px] px-2.5" onClick={view.start}>
-          Retry
+        <span className="flex-1">{generation?.phase === "error" ? generation.message : "Could not draft steps. Nothing was changed."}</span>
+        <PanelButton variant="secondary" className="h-[30px] px-2.5" onClick={generation?.phase === "error" && generation.recovery === "reload" ? view.reload : view.start}>
+          {generation?.phase === "error" && generation.recovery === "reload" ? "Reload task" : "Retry"}
         </PanelButton>
       </div>
     );
@@ -38,6 +38,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
           <span className={cn(SHIMMER, "w-[66%] [animation-delay:.24s]")} />
         </div>
         <div className="font-mono text-[10.5px] text-fg-3">background job · keep editing, the draft lands here</div>
+        {generation.notice && <p className="m-0 text-[12px] text-fg-2">{generation.notice}</p>}
       </div>
     );
   }
@@ -60,6 +61,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
         <p className="m-0 mb-1.5 text-[12.5px] text-fg-2">
           Drafted from the title, description and attachments. Remove what doesn&apos;t fit — nothing is added until you say so.
         </p>
+        {generation.notice && <p role="alert" className="m-0 text-[12px] text-danger">{generation.notice}</p>}
         <ul aria-label="Proposed steps" className="m-0 flex list-none flex-col gap-1.5 p-0">
           {generation.steps.map((step, i) => (
             <li
@@ -72,6 +74,7 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
               <button
                 type="button"
                 aria-label={`Remove proposed step: ${step.text}`}
+                disabled={generation.accepting}
                 onClick={() => view.removeProposed(step.id)}
                 className={cn(
                   "grid flex-none cursor-pointer place-items-center border-0 bg-transparent p-0.5 text-fg-3 opacity-70 transition-[opacity,color] duration-[160ms] ease-bt hover:text-danger hover:opacity-100 focus-visible:opacity-100",
@@ -84,13 +87,13 @@ export function StepGenerationPanel({ generation: view, attachmentCount }: { gen
           ))}
         </ul>
         <div className="flex flex-wrap gap-2 pt-2.5">
-          <PanelButton variant="accent" disabled={count === 0} onClick={view.accept}>
+          <PanelButton variant="accent" disabled={count === 0 || generation.accepting} onClick={view.accept}>
             Add {plural(count, "step")}
           </PanelButton>
-          <PanelButton variant="secondary" className="h-8 px-3" onClick={view.start}>
+          <PanelButton variant="secondary" className="h-8 px-3" disabled={generation.accepting} onClick={view.start}>
             Regenerate
           </PanelButton>
-          <PanelButton variant="quiet" className="h-8" onClick={view.discard}>
+          <PanelButton variant="quiet" className="h-8" disabled={generation.accepting} onClick={view.discard}>
             Discard
           </PanelButton>
         </div>

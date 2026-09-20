@@ -20,7 +20,8 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
   const total = task.steps.length;
   const done = task.steps.filter((s) => s.done).length;
   const percent = total ? Math.round((done / total) * 100) : 0;
-  const running = generation.generation?.phase === "running";
+  const current = generation.generation;
+  const running = current?.phase === "running" || (current?.phase === "proposed" && current.accepting) || (current?.phase === "error" && current.recovery === "reload");
 
   const save = (change: Promise<unknown>) => void track(task.id, change).catch(() => {});
 

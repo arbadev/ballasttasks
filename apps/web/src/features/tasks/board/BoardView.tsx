@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
 import { LOAD_FAILED_WITHOUT_DETAIL, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
@@ -29,12 +29,12 @@ export function BoardView() {
   const { state, actions } = useWorkspace();
 
   return (
-    <section aria-label="Board" className="flex min-w-0 flex-1 flex-col">
-      {state.load.status === "loading" && <BoardSkeleton />}
+    <section aria-label="Board" aria-busy={state.load.status === "loading"} className="flex min-w-0 flex-1 flex-col">
+      {state.load.status === "loading" && !state.page && <BoardSkeleton />}
       {state.load.status === "error" && (
         <BoardLoadError detail={state.load.message === LOAD_FAILED_WITHOUT_DETAIL ? undefined : state.load.message} onRetry={actions.reload} />
       )}
-      {state.load.status === "ready" && <Board />}
+      {(state.page || state.load.status === "ready") && <Board />}
     </section>
   );
 }
@@ -68,7 +68,9 @@ function Board() {
   const columnHeading = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-heading]`) ?? null;
   const columnAdd = (status: TaskStatus) => grid.current?.querySelector<HTMLElement>(`[data-column=${JSON.stringify(status)}] [data-column-add]`) ?? null;
 
-  useEffect(() => {
+  // Retiring an alert and handing off its focus are one visible commit. A passive effect
+  // leaves BODY focused after the canonical query has already reported itself settled.
+  useLayoutEffect(() => {
     const focused = focusedFailure.current;
     if (focused && !moves.failures.some((failure) => failure.taskId === focused.taskId)) {
       focusedFailure.current = null;
@@ -173,7 +175,8 @@ function Board() {
             <BoardColumn
               key={status.id}
               status={status}
-              count={tasks.length}
+              count={state.page?.columns?.[status.id] ?? tasks.length}
+              visibleCount={tasks.length}
               dropTarget={overStatus === status.id}
               onDragOver={(event: DragEvent<HTMLElement>) => {
                 event.preventDefault();

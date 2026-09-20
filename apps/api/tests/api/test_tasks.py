@@ -141,7 +141,13 @@ async def test_list_is_an_envelope_with_an_empty_items_list(
     response = await task_client.get("/tasks")
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    assert response.json() == {
+        "items": [],
+        "total": 0,
+        "limit": 50,
+        "offset": 0,
+        "status_totals": {"todo": 0, "in_progress": 0, "testing": 0, "done": 0},
+    }
 
 
 async def test_list_returns_every_task_newest_first(task_client: httpx.AsyncClient) -> None:
@@ -151,7 +157,13 @@ async def test_list_returns_every_task_newest_first(task_client: httpx.AsyncClie
     response = await task_client.get("/tasks")
 
     TaskListResponse.model_validate(response.json())
-    assert response.json() == {"items": [second, first], "total": 2, "limit": 50, "offset": 0}
+    assert response.json() == {
+        "items": [second, first],
+        "total": 2,
+        "limit": 50,
+        "offset": 0,
+        "status_totals": {"todo": 2, "in_progress": 0, "testing": 0, "done": 0},
+    }
 
 
 # --- GET /tasks/{id} -----------------------------------------------------------------------

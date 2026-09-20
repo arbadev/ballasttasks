@@ -20,6 +20,7 @@ from app.application.task_query import (
     TaskPage,
     TaskQuery,
     TaskSignal,
+    every_status,
 )
 from app.domain.task import InvalidTaskError, Task, TaskPriority, TaskStatus
 from app.domain.task_key import TaskKey
@@ -76,7 +77,7 @@ class SqlAlchemyTaskRepository:
         return None if row is None else _to_task(row)
 
     async def search(self, query: TaskQuery, *, today: date) -> TaskPage:
-        """Two statements whatever the page holds: the page, and the count of what matches."""
+        """Two statements whatever the page holds: the page, and what matches by status."""
         where = conditions(query.filter, today)
         rows = await self._session.scalars(
             select(TaskModel)
@@ -86,10 +87,13 @@ class SqlAlchemyTaskRepository:
             .offset(query.offset)
         )
         items = [_to_task(row) for row in rows]
-        total = await self._session.scalar(
-            select(func.count()).select_from(TaskModel).where(*where)
-        )
-        return TaskPage(items=items, total=total or 0)
+        counted = (
+            await self._session.execute(
+                select(TaskModel.status, func.count()).where(*where).group_by(TaskModel.status)
+            )
+        ).all()
+        totals = every_status({TaskStatus(status): count for status, count in counted})
+        return TaskPage(items=items, total=sum(totals.values()), status_totals=totals)
 
     async def count_open(self, *, viewer_id: uuid.UUID, today: date) -> TaskCounts:
         row = (

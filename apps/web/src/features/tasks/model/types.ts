@@ -4,7 +4,7 @@ export type TaskStatus = "todo" | "progress" | "testing" | "done";
 /** P0 (most urgent) to P3. */
 export type Priority = 0 | 1 | 2 | 3;
 
-/** A calendar day as YYYY-MM-DD, in the user's local time. Never carries a time of day. */
+/** A date-only YYYY-MM-DD value, interpreted against the shared UTC task calendar. */
 export type DueDate = string;
 
 export interface Step {
@@ -16,6 +16,10 @@ export interface Step {
 export type AttachmentKind = "pdf" | "image" | "link";
 
 export type Attachment = {
+  /** Server identity; absent only in explicit demo fixtures. */
+  id?: string;
+  contentType?: string;
+  sizeBytes?: number;
   name: string;
   /** Secondary line: size and type for files, the host for links. */
   meta: string;
@@ -55,6 +59,13 @@ export interface Project {
 
 export interface Task {
   id: string;
+  /** Immutable key allocated by the API, never synthesized in the browser. */
+  key?: string;
+  /** List summaries do not fabricate child rows. Load these on selection. */
+  detailLoaded?: boolean;
+  /** Previously loaded detail stays mounted while a changed summary triggers a fresh read. */
+  detailStale?: boolean;
+  tally?: { steps: number; done: number; attachments: number; comments: number };
   title: string;
   description: string;
   status: TaskStatus;

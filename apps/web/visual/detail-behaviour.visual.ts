@@ -504,12 +504,20 @@ test("no console errors or warnings across the panel's states", async ({ page })
   await proposal.getByRole("button", { name: /^Remove proposed step:/ }).first().click();
   await proposal.getByRole("button", { name: "Regenerate" }).click();
   await expect(proposal).toBeVisible({ timeout: 10_000 });
+  const activityEntries = dialog.getByRole("list", { name: "Activity" }).getByRole("listitem");
+  const activityCount = await activityEntries.count();
   await proposal.getByRole("button", { name: "Discard" }).click();
-  await expect(dialog.getByText("Draft discarded by Andres")).toBeVisible();
+  // Discard is local in both HTTP and demo modes: no steps or invented activity.
+  await expect(proposal).toBeHidden();
+  await expect(steps.getByRole("checkbox")).toHaveCount(0);
+  await expect(activityEntries).toHaveCount(activityCount);
+  await expect(dialog.getByText("Draft discarded by Andres")).toHaveCount(0);
   await steps.getByRole("button", { name: "Generate steps" }).click();
   await expect(proposal).toBeVisible({ timeout: 10_000 });
   await proposal.getByRole("button", { name: /^Add \d+ steps$/ }).click();
   await expect(steps.getByText("0/6")).toBeVisible();
+  await expect(activityEntries).toHaveCount(activityCount + 1);
+  await expect(dialog.getByText("Drafted 6 steps · added by Andres")).toBeVisible();
 
   // Attachments: a keyboard-opened native picker, a rejected file, and real saved metadata.
   const attachments = dialog.getByRole("region", { name: "Attachments" });

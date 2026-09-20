@@ -39,6 +39,8 @@ export function rowView(task: Task, now: number, index: number): RowView {
   const done = task.status === "done";
   const timed = u.overdue || u.today || u.soon;
   const hot = u.critical || (u.overdue && task.prio === 0);
+  const total = task.tally?.steps ?? task.steps.length;
+  const completed = task.tally?.done ?? task.steps.filter((s) => s.done).length;
 
   return {
     done,
@@ -51,8 +53,8 @@ export function rowView(task: Task, now: number, index: number): RowView {
     prioTone: hot ? "hot" : PRIORITY_TONES[task.prio],
     importance: task.importance,
     importanceAccent: task.importance >= IMPORTANCE_ACCENT_FROM,
-    stepsLabel: task.steps.length > 0 ? `${task.steps.filter((s) => s.done).length}/${task.steps.length}` : null,
-    attachmentCount: task.attachments.length,
+    stepsLabel: total > 0 ? `${completed}/${total}` : null,
+    attachmentCount: task.tally?.attachments ?? task.attachments.length,
     needsOwner: u.unassigned,
     delayMs: Math.min(index, STAGGER_CAP) * STAGGER_MS,
   };

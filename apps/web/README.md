@@ -10,31 +10,84 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 
 | Path | Responsibility |
 | --- | --- |
-| `src/app/providers.tsx` | Composition root: the only place a concrete service is constructed. Exports the hooks `useTaskService`, `useDirectoryService`, `useStepGenerationService`, `useClock`, `useHealthService`. |
+| `src/app/providers.tsx` | Composition root: the only place a concrete service is constructed. Exports the hooks `useAuthService`, `useSession`, `useTaskService`, `useDirectoryService`, `useStepGenerationService`, `useClock`, `useHealthService`. |
 | `src/app/globals.css` | The design tokens, once: the skin's CSS variables, mapped into the Tailwind theme (`bg-card`, `text-fg-3`, `rounded-bt`, `shadow-glow`, `animate-bt-in`, ...), plus base rules and the `bt-*` keyframes. Components use token names, never raw hex. |
 | `src/lib/config.ts` | The only application module that reads `process.env` (the Playwright tooling reads its own variables: see "Visual tests"). Validates on load. |
 | `src/lib/api/client.ts` | The only module that calls `fetch`. Throws a typed `ApiError`. |
 | `src/lib/api/schema.d.ts` | Generated from the API's OpenAPI document. Never edited by hand. |
 | `src/components/ui/` | Shared primitives: `Button`, `IconButton`, `Select`, `SegmentedControl`, `TextInput`, `Avatar`, `Pill`. No feature knowledge. |
 | `src/features/tasks/model/` | Types and pure logic: due info, relative time, urgency, filtering, sorting, sidebar counts, Attention signals. Every function takes `now`; nothing reads the clock. |
-| `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `inMemory*` files implement them over one shared store seeded from the design. |
+| `src/features/tasks/services/` | `types.ts` holds the interfaces the UI depends on (`TaskService`, `DirectoryService`, `StepGenerationService`, `Clock`). The `http*` files implement them over `client.ts` (the default); the `inMemory*` files implement the same interfaces over one shared store seeded from the design. |
 | `src/features/tasks/workspace/` | One reducer plus its provider: scope, project, filters, Attention signal, sort, search, view, selected task, loaded tasks, load state. |
-| `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, and `TasksApp`, which mounts the three views below. |
+| `src/features/tasks/shell/` | Sidebar, header, filter toolbar, Attention strip, the page controls (`TaskPagination`), and `TasksApp`, which mounts the three views below. |
 | `src/features/tasks/detail/` | The task side panel: `TaskDetail` (dialog, focus, Escape) around one component per section. `useAutosaveField` is the autosave rule for every field, `DetailSession` holds what must outlive the open panel (saves in flight, unsent drafts, failed generations), `model/` the pure parts (banner text, task key, link parsing). |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
+| `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `AuthBoundary` that gates the workspace on a session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
 
 The two "only module" rules are enforced by ESLint (`eslint.config.mjs`), not by convention.
 Icons come from `lucide-react`, the design system's icon set.
 
-The task services are in-memory for now. An HTTP-backed `TaskService` is a new class plus one
-line in `providers.tsx`; no component changes, because none of them knows which one it has.
+The default services are HTTP-backed. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects
+in-memory design fixtures; visual comparison tooling opts into that mode, never silently
+falls back to it after an API error. Unit tests can still inject individual services.
 
-Due dates are calendar days, `YYYY-MM-DD` strings, not `Date` objects: the same arithmetic
-and labels as the design, but serialisable and the shape an API date column has.
+## Authentication and HTTP integration
+
+`/` presents password sign-in/registration; `/auth/callback` exchanges an SSO one-time code
+in a POST body after clearing it from the browser URL. Enabled providers come from the API.
+The bearer credential lives **only in memory**. Full reloads and new tabs require sign-in
+again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
+Unsaved per-session drafts are cleared by that teardown: within-session close/reopen
+retention does not promise draft survival across sign-out or expiry.
+Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
+to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
+Next development request logs exclude `/auth/callback`; deployment proxy/access logs must
+also omit callback query strings. Real-vendor OAuth setup and primary-stack activation are
+separate operator actions, not performed by the local fake-provider tests.
+
+The HTTP workspace uses the API's filters, sorting, search and limit/offset pages (50 rows),
+not client filtering over the first page. Page/filter changes discard stale requests;
+mutations reload canonical query results and counts. Sidebar counts describe the whole
+workspace; Attention counts describe open work in the selected project, as in the design.
+Board queries ignore only the status filter; the header still describes the list's status
+filter, and pagination is across all columns. The four column totals are the list response's
+own `status_totals`, which counts every matching task by status whatever the page holds, so
+a board query is two requests (list and summary) however many pages of tasks match.
+Already-loaded views stay mounted during refresh (marked busy), preserving pending gestures
+and focus, and sidebar counts keep their last server values rather than blanking. Full-scope column totals do not hide optimistic cards or imply every card is on
+this page; columns with off-page rows say so.
+Selected-task detail/activity is loaded separately, not once per list row. The complete
+`TaskService.list()` remains a legacy/demo capability, not the HTTP workspace's data path.
+
+`client.ts` attaches bearer headers, carries Retry-After, uploads multipart files and returns
+authenticated download blobs (never bearer URLs). It fences both late responses and queued
+work from an obsolete session. Client disposal does not undo an already accepted mutation.
+Generation handles belong to tasks; observation pauses when not selected/visible/subscribed,
+uses 2/4/8/10-second delays, respects Retry-After and stops at terminal results. Proposals
+are accepted through one atomic bulk endpoint; an ambiguous acceptance must be checked by
+reloading the task, not blindly retried. The API's 100-step ceiling remains authoritative;
+a single bulk request accepts at most 20 titles. The explicit demo follows per-task proposal,
+local-only discard and accepting-user activity semantics too. The shared 120 requests/60s
+allowance is unchanged; it is not a generation quota or paid-provider cost budget.
+
+SWR was evaluated via Context7's `/vercel/swr` and `/vercel/swr-site` official sources,
+with the 2.5.1 tag checked against React 19. It is not added: the existing workspace and
+service seams own data, and a second cache would duplicate mutation/auth coordination.
+References: [cache](https://swr.vercel.app/docs/advanced/cache),
+[revalidation](https://swr.vercel.app/docs/revalidation),
+[mutation](https://swr.vercel.app/docs/mutation),
+[error handling](https://swr.vercel.app/docs/error-handling).
+
+Task dates are **UTC calendar days** in both HTTP and explicit demo modes. “Today” changes
+at UTC midnight, independent of the browser's timezone; due labels, quick actions, urgency
+and date-based ordering use the injected `useNow()`/Clock instant with that same basis.
+Entered `YYYY-MM-DD` values stay unchanged (not converted through local instants), and Clear
+sends exactly `null`. Absolute activity-timestamp presentation is unchanged. Date and service
+contract tests cover UTC midnight, both offset directions and DST boundaries.
 
 ## Building on the shell
 
@@ -87,16 +140,21 @@ than `useTaskService()` directly.
 | `create({ title, status? }, { open? })` | `create` | List quick-add and the empty project's first task (`open` false); board column "add" (`status`, `open` true). Goes into the selected project, or the Inbox. |
 | `toggleDone(id)` | `toggleDone` | List checkbox; detail "Mark complete" / "Reopen". |
 | `move(id, status)` | `move` | Board moves (through `useBoardMoves`); detail status select. |
-| `update(id, patch, note?)` | `update` | Detail fields. An assignee change logs itself; pass `note` for the quick actions ("Due date moved to tomorrow"). |
+| `update(id, patch, note?)` | `update` | Detail fields. The API owns assignment/due-date/priority event wording; legacy `note` is ignored, never posted as a comment or invented event. |
 | `addStep`, `toggleStep`, `removeStep` | same names | Detail steps. |
 | `addComment(id, text)` | `addComment` | Detail activity. |
-| `addAttachment(id, attachment, file?)` | `addAttachment` | Detail attachments. File bytes are passed to the adapter; the in-memory service stores only metadata. |
+| `addAttachment(id, attachment, file?)` | `addAttachment` | Link with its full absolute URL, or file metadata and original bytes for upload-capable adapters. Demo retains metadata only. |
+| `uploadAttachment`, `downloadAttachment`, `removeAttachment` | same names | Optional capabilities for older demo doubles; HTTP implements all three. Upload/removal synchronize workspace state; download returns an authenticated blob, never a credential-bearing URL. |
 | `remove(id)` | `remove` | Detail delete. Clears the selection if it was the selected task, and discards a step generation in flight for it. |
+| `forget(id)` | none | A task the server no longer has: drops it from the workspace with its step generation, deleting nothing. The generation panel's "Reload task" uses it when the reload finds the task gone. |
 | `sync(task)` | none | Detail, after `StepGenerationService.accept()` resolves with the updated task. |
 
 **Step generation** (`useStepGenerationService()` from `@/app/providers`): `start(taskId)`,
-`subscribe(listener)` and `current()` to observe `running` then `proposed`, `removeProposed(stepId)`,
-`accept()` (then `commands.sync(task)`), `discard()`.
+`subscribe(listener)` and `current()` to observe `running`, `proposed` or `error`, `removeProposed(stepId)`,
+`accept()` (then `commands.sync(task)`), `discard()`. The workspace coordinates optional
+`select`, `setVisible` and `forget`; the composition root disposes obsolete session services.
+Discard writes no activity and does not cancel a server job. The selected task's `detailLoad`
+and `actions.reloadDetail()` distinguish a summary from complete children/activity.
 
 **Testing a view**: `renderWithServices(<YourView />, { tasks })` from `src/test/` gives fake
 services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026); wrap the view in
@@ -105,7 +163,7 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 
 ## The task panel
 
-`<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
+`<TaskDetail />` opens for `state.selectedId`. HTTP list summaries first show loading/retry instead of fabricated editable children. Previously loaded detail remains mounted during authoritative refresh, preserving drafts and focus in the existing workspace. Rows and cards only call `actions.selectTask(id)`;
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
 card, the New task button) on close, so an opener needs nothing more than being focusable. An
 opener that is gone by then — the task deleted or filtered away from inside the panel — takes
@@ -141,9 +199,9 @@ dialog and the hand-back on close are all untouched.
   "Clear date" calls `field.store`, the
   one path that writes a value the control is not typing. The prompt asks about one stored date:
   it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
-  moving the box to a different one takes it away, with no write of its own either way — its
-  "Clear date" acts only on the date it asked about, never on a different one the box is
-  showing; a later write of that same date stays within its reach. `store` drops any
+  making a different date visible dismisses it, without a write from the prompt itself.
+  Explicit "Clear date" saves null through the existing date owner, including when a queued
+  write changed the saved date underneath an empty visible draft. `store` drops any
   half-typed edit as it goes, so an abandoned one cannot land on top of it, and its failure uses
   the field's own inline message and Retry. The date's machine is owned by `DetailSession`, not
   its mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
@@ -165,12 +223,12 @@ dialog and the hand-back on close are all untouched.
 - **A new task** (one the workspace had not seen before it was selected) opens with its title
   focused and selected. Closing an untouched "Untitled task" keeps it, as the design does.
 - **Step generation** belongs to its task: the service holds the run, the session holds a failed
-  start, and both are still there after another task has been opened and closed.
+  start, and both are still there after another task has been opened and closed. HTTP terminal failures and polling notices are visible; proposal controls lock during atomic acceptance. A rejected limit retains the proposal, while an uncertain acceptance requires canonical readback before generating again. Discard is local and creates no activity.
 - **Attachments**: links retain their full validated URL and open in a new tab (URL plus optional
   title, validated by `model/linkAttachment.ts`). "Attach file" opens a labelled native picker;
   dropping a file works too. PDF, PNG, JPG, GIF and WEBP files up to 10 MB show uploading metadata
   until the service settles; invalid files or failed saves show an inline error. The in-memory
-  adapter keeps metadata only, never file bytes; a future HTTP adapter receives the original file.
+  adapter keeps metadata only, never file bytes. HTTP uploads the original file and reloads canonical metadata/activity; stored files offer authenticated blob downloads and confirmed removal, without credential-bearing URLs.
 - **Escape** closes the innermost thing: the link form or the delete prompt first, then the panel.
 
 ## The board
@@ -201,8 +259,9 @@ can outlive its target or come back if the card moves away again. A fulfilled co
 saved-status snapshot immediately, so a queued refusal in the same microtask chain sees that save
 even before React renders it. Settlement tickets are kept per task as well, so answers batched
 with another task cannot erase the signal that restores keyboard focus. If authoritative target
-satisfaction removes a focused alert, focus returns to its card or column heading; unrelated
-focus is left alone. "Add a task" belongs to its column
+satisfaction removes a focused alert, focus returns to its card or column heading in the
+same layout commit, before the canonical query is observable as settled; a later passive
+effect would leave focus on the document in between. Unrelated focus is left alone. "Add a task" belongs to its column
 rather than to a card, and a column adds one task at a time: while its call is out, and once that
 call has been refused, the column's "Add a task" reads as unavailable (`aria-disabled`, and
 `aria-busy` while the call is out) and does nothing, so the refusal keeps its place until the
@@ -245,10 +304,29 @@ npm run test:visual          # Playwright (Chromium): see below
 npm run lint
 npm run typecheck
 npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
-npm run gen:api              # regenerate schema.d.ts from http://localhost:8000/openapi.json
+npm run gen:api -- http://localhost:8000/openapi.json  # use your OWN API URL; source is explicit
 ```
 
-Any change to an API response model is followed by `npm run gen:api` in the same commit.
+Real HTTP adapter contracts use `BT_HTTP_API_URL=<owned-api-url> npm run test:http`.
+Optionally set `BT_HTTP_WEB_URL=<owned-http-web-url>` as well to execute the served-browser
+query/focus regressions against that same stack. Neither suite starts a stack or selects an
+endpoint by default. Use only an owned disposable database and the fake model provider:
+these tests register example accounts and write ordinary authenticated test data. The
+browser regression observes the canonical query's settled DOM boundary independently of
+focus; it does not wait for a later render to make a lost-focus assertion pass.
+
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), all five checks
+in one command overbook credential setup: the three adapter checks need eight attempts,
+and the two served-browser checks need six. Select the groups separately with
+`-- --grep-invert 'served query-backed board focus'` and
+`-- --grep 'served query-backed board focus'`, respectively. Let the configured auth window
+elapse after the first group finishes before starting the second, without concurrent
+credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
+Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
+throttling, or blanket-retry the suite. No test or application request retries automatically.
+
+Any change to an API response model is followed by `npm run gen:api -- <your-api-url>/openapi.json`
+in the same commit; the schema source is always given, the command has no default.
 
 ## Visual tests
 

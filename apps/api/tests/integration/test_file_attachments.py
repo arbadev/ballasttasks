@@ -373,11 +373,13 @@ async def test_an_oversize_upload_is_still_413_when_the_cleanup_fails(
 
     async def body() -> AsyncIterator[bytes]:
         yield UPLOAD_HEAD
-        for _ in range(5):
-            # Separate network chunks: the limit is passed inside the storage write, not
-            # in the signature loop that runs before it.
-            await asyncio.sleep(0.01)
-            yield b"x" * 400
+        # TCP may coalesce timed chunks while the request is still authenticating.
+        # Establish the actual compensation precondition before crossing the limit,
+        # just as the slow-upload test waits for its in-flight file above.
+        async with asyncio.timeout(10):
+            while not _stored_files(container):  # noqa: ASYNC110 - the disk is the signal
+                await asyncio.sleep(0.01)
+        yield b"x" * 2000
         yield b"\r\n--bt--\r\n"
 
     monkeypatch.setattr(os, "unlink", refuse_under_the_root)

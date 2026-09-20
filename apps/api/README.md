@@ -78,8 +78,8 @@ These reserved example addresses are not real accounts. Never reuse this passwor
 expose this database publicly. Use `/docs` → **Authorize** with an email as the username,
 or `POST /auth/login` (form fields `username`, `password`), then explore `/auth/me`,
 `/users`, `/projects`, `/tasks?status=all` and `/tasks/summary` through the real API.
-Frontend authentication and HTTP-backed task services are separate work; this command
-does not connect the in-memory web demo to the API.
+The web app's default HTTP mode reads this same persisted data after sign-in. The seed
+command does not change the explicit in-memory web demo; see [web integration](../web/README.md#authentication-and-http-integration).
 
 The self-contained fixture is `src/app/application/demo_data.py`, corresponding to the
 web's `src/features/tasks/services/seed.ts`: **16 tasks, 13 open** (8 todo, 3 in progress,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Task } from "../model/types";
+import type { TaskPageInfo } from "../services/query";
 import { useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
 import { ListLoadError } from "./ListLoadError";
 import { ListSkeleton } from "./ListSkeleton";
@@ -19,6 +20,7 @@ interface PendingFocus {
   status: Task["status"];
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
+  page?: TaskPageInfo;
   /**
    * "opened" belongs to the panel it opened: the task can be edited, completed and deleted in
    * there, so the entry lives exactly until that panel closes and is spent then, whether or
@@ -64,9 +66,9 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
     const focused = document.activeElement;
     pendingFocus.current =
       row && focused && row.contains(focused)
-        ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE, kind }
+        ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE, kind, page: state.page }
         : null;
-  }, []);
+  }, [state.page]);
 
   // Completing a row usually takes it out of the list (the default filter hides done tasks),
   // and a row opened in the panel can be completed, filtered away or deleted in there. What
@@ -84,14 +86,13 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
       if (!pending.opened) return;
     }
     const row = tasks.find((t) => t.id === pending.taskId);
-    if (pending.kind === "toggled" && row && row.status === pending.status) return;
-
+    if (pending.kind === "toggled" && row && (row.status === pending.status || (pending.page && pending.page === state.page))) return;
     pendingFocus.current = null;
     if (document.activeElement && document.activeElement !== document.body) return;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
     const own = candidates.find((c) => c.closest("[data-task-id]")?.getAttribute("data-task-id") === pending.taskId);
     (own ?? candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
-  }, [tasks, state.selectedId]);
+  }, [tasks, state.selectedId, state.page]);
 
   // The empty-project state hands the focus over when its first task turns it into this list;
   // the field keeps the caret and the page stays where it is.
@@ -123,11 +124,12 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
     titles[Math.min(target, titles.length - 1)]?.focus();
   };
 
-  if (state.load.status === "loading") return <ListSkeleton />;
-  if (state.load.status === "error") return <ListLoadError message={state.load.message} onRetry={actions.reload} />;
+  if (state.load.status === "loading" && !state.page) return <ListSkeleton />;
+  if (state.load.status === "error" && !state.page) return <ListLoadError message={state.load.message} onRetry={actions.reload} />;
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col" aria-busy={state.load.status === "loading"}>
+      {state.load.status === "error" && <ListLoadError message={state.load.message} onRetry={actions.reload} />}
       <QuickAdd inputRef={quickAddRef} onAdd={(title) => commands.create({ title }, { open: false })} onLeaveDown={() => controls(ROW_TITLE)[0]?.focus()} />
 
       {failedTitle !== null && (

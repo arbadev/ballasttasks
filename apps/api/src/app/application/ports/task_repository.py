@@ -41,8 +41,11 @@ class TaskRepository(Protocol):
         ...
 
     async def search(self, query: TaskQuery, *, today: date) -> TaskPage:
-        """One page of the tasks the filter selects, in the order asked for, and how many
-        tasks the filter selects in all. See ``app.application.task_query``."""
+        """One page of the tasks the filter selects, in the order asked for, how many
+        tasks the filter selects in all, and how many of those are in each status.
+
+        Both counts describe every matching task, not the page. See
+        ``app.application.task_query``."""
         ...
 
     async def count_open(self, *, viewer_id: uuid.UUID, today: date) -> TaskCounts:
