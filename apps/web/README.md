@@ -108,11 +108,14 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 `<TaskDetail />` opens for `state.selectedId`. Rows and cards only call `actions.selectTask(id)`;
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
 card, the New task button) on close, so an opener needs nothing more than being focusable. While
-it is open it keeps the keyboard: a control that disables or unmounts itself under the reader's
+it is open it keeps the keyboard. A control that disables or unmounts itself under the reader's
 hands (a send button once its box is busy, a step's own Remove) leaves the focus on the
-document, where `keepTabInside` never sees the next Tab — so the dialog takes that key itself
-and puts the focus on its first stop, or its last for Shift+Tab. It does this only when the
-focus was dropped, never when it legitimately sits somewhere else.
+document, but the browser keeps its navigation starting point where that control stood, so the
+next Tab carries on from there — usually still inside the panel. The dialog leaves that key
+alone and watches only where it lands: a landing outside is wrapped back to the panel's first
+stop, or its last when the key was Shift+Tab, the same edges `keepTabInside` wraps at from
+within. Nothing else moves the focus, so an opener, another dialog and the hand-back on close
+are all untouched.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,

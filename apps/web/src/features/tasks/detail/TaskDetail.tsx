@@ -50,8 +50,8 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const fresh = useRef<{ id: string; isNew: boolean } | null>(null);
-  /** A Tab is being carried out by the browser: watch whether it lands outside the panel. */
-  const leaving = useRef(false);
+  /** The direction of a Tab the browser is carrying out, while it may still land outside. */
+  const leaving = useRef<"forward" | "backward" | null>(null);
 
   // Remember what opened the panel, and hand focus back to it on the way out.
   useEffect(() => {
@@ -81,19 +81,19 @@ function DetailDialog({ task, wasSeen, onClose }: DetailDialogProps) {
       // itself) leaves no live stop for `keepTabInside` to wrap at. The browser carries on from
       // where that control stood, which is normally still inside the panel, so the key is left
       // alone and only where it lands is checked.
-      leaving.current = e.key === "Tab" && !e.defaultPrevented;
+      leaving.current = e.key === "Tab" && !e.defaultPrevented ? (e.shiftKey ? "backward" : "forward") : null;
     };
     // Landing outside is the one case the modal has to take back: the continuation ran past an
-    // edge of the panel, so the focus wraps to the other one as it does from inside.
+    // edge of the panel, so the key's own direction says which edge to wrap to, as from inside.
     const onFocusIn = (e: FocusEvent) => {
-      if (!leaving.current) return;
-      leaving.current = false;
+      const direction = leaving.current;
+      leaving.current = null;
+      if (!direction) return;
       const panel = panelRef.current;
       const landed = e.target;
       if (!panel?.isConnected || !(landed instanceof HTMLElement) || panel.contains(landed)) return;
       const stops = focusableIn(panel);
-      const behind = panel.compareDocumentPosition(landed) & Node.DOCUMENT_POSITION_PRECEDING;
-      ((behind ? stops[stops.length - 1] : stops[0]) ?? panel).focus();
+      ((direction === "backward" ? stops[stops.length - 1] : stops[0]) ?? panel).focus();
     };
     window.addEventListener("keydown", onKey);
     document.addEventListener("focusin", onFocusIn);

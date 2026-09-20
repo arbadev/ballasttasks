@@ -302,44 +302,49 @@ test("date Clear and Keep do not leave keyboard focus behind the panel", async (
 test("the browser's own Tab continuation is left alone after a control goes under the reader", async ({ page }) => {
   await openApp(page);
   const dialog = await openTask(page, RICH_TASK);
-  const landed = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.tagName ?? "");
-  const inside = () => dialog.evaluate((el) => el.contains(document.activeElement));
+  const landed = () =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.getAttribute("aria-label") ?? el?.textContent?.trim() ?? el?.tagName ?? "";
+    });
+  const dropped = () => page.waitForFunction(() => document.activeElement === document.body);
 
-  // Disabling a focused control does not move the focus at all in Chrome.
+  // A control removed while focused leaves the focus on the document, but the browser keeps the
+  // navigation starting point where it stood, so the reader carries on from there.
+  const first = "Remove step: Task entity and TaskStatus enum in domain";
+  await dialog.getByRole("button", { name: first }).focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByRole("button", { name: first })).toBeHidden();
+  await dropped();
+  await page.keyboard.press("Tab");
+  expect(await landed()).toBe("TaskRepository port + in-memory fake, contract suite");
+  await page.keyboard.press("Shift+Tab");
+  expect(await landed()).toBe("Generate steps");
+
+  // Disabling a focused control drops the focus the same way, by the next task.
   const generate = dialog.getByRole("button", { name: "Generate steps" });
   await generate.focus();
   await page.keyboard.press("Enter");
   await expect(generate).toBeDisabled();
-  expect(await inside()).toBe(true);
-  await page.keyboard.press("Tab");
-  expect(await landed()).toBe("Task entity and TaskStatus enum in domain");
-
-  // A control that is removed while focused leaves the document's focus navigation starting
-  // point where it stood, so the reader carries on from there rather than from the top.
-  await dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(dialog.getByRole("button", { name: "Remove step: Task entity and TaskStatus enum in domain" })).toBeHidden();
+  await dropped();
   await page.keyboard.press("Tab");
   expect(await landed()).toBe("TaskRepository port + in-memory fake, contract suite");
-  await page.keyboard.press("Shift+Tab");
-  expect(await landed()).toBe("TEXTAREA");
 });
 
-test("a continuation that runs off the end of the panel is wrapped back into it", async ({ page }) => {
+test("a continuation that walks off the front of the panel is wrapped back to its last stop", async ({ page }) => {
   await openApp(page);
   const dialog = await openTask(page, RICH_TASK);
 
-  // The panel's last stop goes away under the reader: the continuation has nowhere inside to
-  // go, and without the dialog taking it back it lands on the page behind.
-  await dialog.evaluate((el) => {
-    const stops = [...el.querySelectorAll<HTMLElement>('button:not([disabled])')];
-    const last = stops[stops.length - 1];
-    last.focus();
-    (last as HTMLButtonElement).disabled = true;
-  });
-  await page.keyboard.press("Tab");
+  // The panel's first stop goes away under the reader, so walking backwards from where it stood
+  // reaches the list behind the panel: the one landing outside that the modal has to take back.
+  const close = dialog.getByRole("button", { name: "Close task" });
+  await close.focus();
+  await close.evaluate((el: HTMLButtonElement) => (el.disabled = true));
+  await page.waitForFunction(() => document.activeElement === document.body);
+  await page.keyboard.press("Shift+Tab");
+
   expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Close task");
+  expect(await page.evaluate(() => document.activeElement?.textContent?.trim())).toBe("Delete");
 });
 
 test("no console errors or warnings across the panel's states", async ({ page }) => {

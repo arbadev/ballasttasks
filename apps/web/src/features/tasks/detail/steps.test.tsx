@@ -388,7 +388,7 @@ describe("steps checklist", () => {
     expect(steps().getByRole("textbox", { name: "Add a step" })).toHaveValue("half typed");
   });
 
-  it("leaves the browser to carry on after a step's own Remove, until it lets the keyboard out", async () => {
+  it("leaves the Tab to the browser after a step's own Remove, and only takes back a landing outside", async () => {
     await renderDetail();
     const dialog = openTask("t1");
     const remove = steps().getByRole("button", { name: "Remove step: Alembic migration for the tasks table" });
@@ -399,18 +399,19 @@ describe("steps checklist", () => {
     expect(remove.isConnected).toBe(false);
     expect(document.activeElement).toBe(document.body);
 
-    // The browser carries on from where that button stood. Landing inside the panel is its
-    // own business, and the neighbouring step is where a reader expects to be.
+    // The dialog does not take the key: the browser carries on from where the button stood,
+    // which it alone knows. Nothing here moves the focus (jsdom does not traverse).
     fireEvent.keyDown(window, { key: "Tab" });
-    const neighbour = steps().getByRole("button", { name: "Remove step: npm run gen:api and fix the frontend types in the same commit" });
-    neighbour.focus();
-    expect(neighbour).toHaveFocus();
-
-    // Landing outside is not: the openers stand before the panel, so a continuation that
-    // reaches them ran off the front and wraps to the last stop, as it does from inside.
-    neighbour.blur();
     expect(document.activeElement).toBe(document.body);
-    fireEvent.keyDown(window, { key: "Tab" });
+
+    // Only a landing outside the panel is taken back, to the edge the key was heading for.
+    const stops = within(dialog).getAllByRole("button");
+    opener("t4").focus();
+    expect(stops[0]).toHaveFocus();
+
+    (document.activeElement as HTMLElement).blur();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(document.body);
     opener("t4").focus();
     expect(within(dialog).getByRole("button", { name: "Delete" })).toHaveFocus();
   });
