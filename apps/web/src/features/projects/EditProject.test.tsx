@@ -122,6 +122,34 @@ describe("project editing", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(directoryService.calls).toEqual([["updateProject", "ballast", { tone: "info" }]]);
   });
+  it("recolours a stored name that keeps its own inner spacing, and still renames when asked to", async () => {
+    const spaced = "Design  System";
+    const longSpaced = "A project the API named  with two spaces and more than forty characters";
+    const directoryService = new FakeDirectoryService({ projects: [
+      { id: "ballast", name: spaced, key: "BT", tone: "muted" },
+      { id: "long", name: longSpaced, key: "LO", tone: "muted" },
+      { id: "inbox", name: "Inbox", key: "IN", tone: "muted" },
+    ] });
+    renderWithServices(<TasksApp />, { directoryService });
+    fireEvent.click(await screen.findByRole("button", { name: /Design/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    expect(screen.getByLabelText("Name")).toHaveValue(spaced);
+    fireEvent.click(screen.getByRole("radio", { name: "Blue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(directoryService.calls).toEqual([["updateProject", "ballast", { tone: "info" }]]);
+    fireEvent.click(screen.getByRole("button", { name: /A project the API named/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Green" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(directoryService.calls[1]).toEqual(["updateProject", "long", { tone: "ok" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "  Renamed  at  last  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(directoryService.calls[2]).toEqual(["updateProject", "long", { name: "Renamed at last" }]);
+  });
   it("cancels and closes unchanged forms without a write", async () => {
     const { directoryService } = renderWithServices(<TasksApp />);
     const [project] = await directoryService.projects();

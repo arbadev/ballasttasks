@@ -54,7 +54,7 @@ function EditProjectDialog({ project, opener, onClose }: { project: Project; ope
     setError(undefined);
     const normalized = normalizeName(name);
     // A name left as the directory stores it is never re-judged by the rules for a new one.
-    const renamed = normalized !== project.name;
+    const renamed = normalized !== normalizeName(project.name);
     const recoloured = tone !== project.tone;
     const found = renamed ? validateProjectName(name, projects.filter((item) => item.id !== project.id)) : undefined;
     refuse(found);
