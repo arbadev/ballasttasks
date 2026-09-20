@@ -24,7 +24,8 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const { people, projects } = useDirectory();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const [clearingDue, setClearingDue] = useState(false);
+  /** The stored date an emptied box is asking about, so another writer filling it takes the prompt away. */
+  const [clearingDue, setClearingDue] = useState<string | null>(null);
   const dateInput = useRef<HTMLInputElement>(null);
 
   const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
@@ -72,12 +73,12 @@ export function PropertiesPanel({ task }: { task: Task }) {
           onChange={(e) => {
             const value = e.target.value || null;
             due.change(value);
-            setClearingDue(value === null && task.due !== null);
+            setClearingDue(value === null ? task.due : null);
           }}
           onBlur={due.flush}
           className={`${BOX_INPUT} h-[34px] px-2.5 font-mono text-[13px] pointer-coarse:h-11`}
         />
-        {clearingDue && (
+        {clearingDue !== null && (due.value === null || due.value === clearingDue) && (
           <div role="group" aria-label="Remove the date?" className="flex animate-bt-fade flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-fg-3">
             <span>Choose Clear date to remove this task&rsquo;s due date.</span>
             <PanelButton
@@ -85,7 +86,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
               className="h-[26px] text-[12px]"
               onClick={() => {
                 dateInput.current?.focus();
-                setClearingDue(false);
+                setClearingDue(null);
                 due.store(null);
               }}
             >
@@ -96,7 +97,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
               className="h-[26px] text-[12px]"
               onClick={() => {
                 dateInput.current?.focus();
-                setClearingDue(false);
+                setClearingDue(null);
                 due.flush();
               }}
             >

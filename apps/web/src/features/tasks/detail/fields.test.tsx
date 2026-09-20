@@ -265,7 +265,8 @@ describe("title and description autosave", () => {
     await settle();
 
     expect(title()).toHaveValue("JWT authentication");
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the title. Your change was undone.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the title.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("undone");
     expect(saveState()).toHaveTextContent("not saved");
 
     taskService.heal();
@@ -531,7 +532,7 @@ describe("property controls", () => {
 
     await act(async () => requests[0].settle(false));
     await settle();
-    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the importance. Your change was undone.");
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the importance.");
 
     fireEvent.blur(input);
     await settle();
@@ -541,7 +542,7 @@ describe("property controls", () => {
     expect(requests.map((r) => r.patch)).toEqual([{ importance: 45 }, { importance: 45 }]);
   });
 
-  it("still supersedes a refusal with a newer number the box did type", async () => {
+  it("still supersedes a refusal with a newer number, once that number is on its way", async () => {
     const taskService = new FakeTaskService(seedTasks(NOW));
     const requests = deferUpdates(taskService);
     await renderDetail({ taskService });
@@ -554,10 +555,14 @@ describe("property controls", () => {
     fireEvent.change(input, { target: { value: "60" } });
     await act(async () => requests[0].settle(false));
     await settle();
-    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    // 60 is only typed so far: the refusal is the last word about what the task holds, and the
+    // box keeps showing what the reader is writing, so the message claims no revert.
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the importance.");
+    expect(properties().getByRole("alert")).not.toHaveTextContent("undone");
     expect(input).toHaveValue(60);
 
     await elapse(AUTOSAVE_DELAY_MS);
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
     await act(async () => requests[1].settle(true));
     await settle();
     expect(requests.map((r) => r.patch)).toEqual([{ importance: 45 }, { importance: 60 }]);
@@ -572,6 +577,6 @@ describe("property controls", () => {
     fireEvent.change(priority, { target: { value: "2" } });
     await settle();
     expect(priority).toHaveValue("0");
-    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the priority. Your change was undone.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the priority.");
   });
 });

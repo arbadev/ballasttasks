@@ -123,7 +123,7 @@ export function AttachmentsSection({ task }: { task: Task }) {
           <PanelButton variant="secondary" icon={Paperclip} disabled={!!uploading} onClick={() => fileInputRef.current?.click()} className="h-[30px] px-2.5">
             Attach file
           </PanelButton>
-          <PanelButton ref={addLinkRef} variant="secondary" icon={LinkIcon} aria-expanded={adding} aria-controls={formId} onClick={() => setAdding((open) => !open)} className="h-[30px] px-2.5">
+          <PanelButton ref={addLinkRef} variant="secondary" icon={LinkIcon} aria-expanded={adding} aria-controls={adding ? formId : undefined} onClick={() => setAdding((open) => !open)} className="h-[30px] px-2.5">
             Add link
           </PanelButton>
         </div>

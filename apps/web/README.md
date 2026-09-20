@@ -161,7 +161,9 @@ services, the design's seed and a fixed clock (`NOW`, Friday 18 September 2026);
 the panel moves focus inside on open and hands it back to whatever was focused (the row, the
 card, the New task button) on close, so an opener needs nothing more than being focusable. An
 opener that is gone by then — the task deleted or filtered away from inside the panel — takes
-no focus back, and the view it belonged to places it instead, as the list does for a row it
+no focus back, and the view it belonged to places it instead: the list remembers the control a
+row was opened from until that panel closes, and gives the focus to the row's own control if it
+is back, else the row that took its place, else the quick-add, the same as for a row it
 completes. While it is open the panel keeps the keyboard. A control that disables or unmounts
 itself under the reader's hands (a send button once its box is busy, a step's own Remove)
 leaves the focus on the document, but the browser keeps its navigation starting point where
@@ -173,23 +175,28 @@ dialog and the hand-back on close are all untouched.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
-  another task opening), so typed text is never dropped. A failed save puts the control back on
-  the saved value with an inline message and a Retry that carries the rejected value. That recovery
-  is retired once the stored value moves without the field asking — something else wrote the
-  task while no control was mounted — so its Retry cannot undo the newer value; a value the
-  field stored itself never counts as such a move. The footer reports `saving…`,
-  `saved · <when>` or `not saved`.
+  another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
+  that carries the rejected value. The control goes back to the stored value only when the refused
+  write is still what it shows; a newer edit typed since stays on screen and settles the usual way,
+  on commit or blur. That recovery is retired when the field sends a replacement of its own — when
+  that value is actually on its way, not while it is still being typed and could yet be emptied —
+  or once the stored value moves without the field asking (something else wrote the task while no
+  control was mounted), so its Retry cannot undo the newer value; a value the field stored itself
+  never counts as such a move. The footer reports `saving…`, `saved · <when>` or `not saved`.
 - **A value the field cannot hold is never written by leaving it.** A field may declare which
   values are `savable`: an emptied number box and an emptied date box are not, and a date
-  reports itself empty while a segment is being retyped. Such a value is kept as typed, never
-  sent, and `flush` (blur, unmount) puts the stored value back instead of saving it. Removing a
-  due date is its own action — emptying the box asks, with "Clear date" beside a "Keep" that
-  restores it — and "Clear date" calls `field.store`, the one path that writes a value the
-  control is not typing. `store` drops any half-typed edit as it goes, so an abandoned one
-  cannot land on top of it, and its failure uses the field's own inline message and Retry. The
-  date's existing machine is owned by `DetailSession`, not its mounted input: its draft,
-  serialized writes and exact-null recovery survive close/switch, and a reopened input
-  subscribes to the same owner. Other fields keep their existing lifetimes.
+  reports itself empty while a segment is being retyped. Such a value is kept as typed and never
+  sent — so it never retires a reported failure — and `flush` (blur, unmount) puts the stored
+  value back instead of saving it. Removing a due date is its own action — emptying the box asks,
+  with "Clear date" beside a "Keep" that restores it — and "Clear date" calls `field.store`, the
+  one path that writes a value the control is not typing. The prompt asks about one stored date:
+  it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
+  moving the box to a different one takes it away, with no write of its own either way — its
+  "Clear date" can never remove a date the reader has not seen it ask about. `store` drops any
+  half-typed edit as it goes, so an abandoned one cannot land on top of it, and its failure uses
+  the field's own inline message and Retry. The date's machine is owned by `DetailSession`, not
+  its mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
+  and a reopened input subscribes to the same owner. Other fields are owned by their mount.
 - **Everything that writes the due date shares one owner**, `useDueField(task)`: the date box,
   "Clear date" and the urgency banner's "Due tomorrow"/"+1 week". The banner passes its activity
   note to `store`, which carries it through the same queue, so a quick reschedule cannot be
@@ -359,7 +366,8 @@ Any change to an API response model is followed by `npm run gen:api` in the same
   shows. A region holding a placeholder is compared twice: for structure with the placeholder
   glyphs transparent on both sides (1% limit), and untouched (reported, not limited), because
   placeholders are `--fg-3` here and the browser default in the design. Deliberate differences
-  are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling.
+  are listed in the suite's `DEVIATIONS`, each with its reason and its own measured ceiling (it
+  is empty today). Needs `BT_DESIGN_DIR`; measurements go to `detail/report.json`.
 - `detail-behaviour.visual.ts` needs no design: the panel is full-screen at 375px with a back
   control, nothing scrolls sideways from 375px to 1440px with every surface open, the keyboard
   path (Enter opens, Tab stays inside, Escape peels one layer, focus returns), placeholder

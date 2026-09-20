@@ -21,10 +21,10 @@ interface View<T> {
  * same owner. A mounted control subscribes; disposing that control does not dispose a save.
  *
  * A save releases only the draft it was made from, never a newer one that happens to read the
- * same. Writes run one at a time, newest queued value wins, and failure is shown unless a newer
- * edit that will be written supersedes it, and retired once the stored value moves without this
- * field asking. Unsavable typing never writes; flush restores the confirmed value, while store
- * explicitly authorizes values such as null and carries the writer's note.
+ * same. Writes run one at a time, newest queued value wins, and failure is shown until this
+ * field sends another value of its own - typing alone does not answer it - or the stored value
+ * moves without this field asking. Unsavable typing never writes; flush restores the confirmed
+ * value, while store explicitly authorizes values such as null and carries the writer's note.
  */
 export class AutosaveMachine<T> {
   private view: View<T> = { draft: null, failed: null };
@@ -63,8 +63,8 @@ export class AutosaveMachine<T> {
 
   private start(write: Write<T>) {
     const ticket = ++this.tickets;
-    // The draft this write was made from. Anything typed since is a newer one, which this
-    // answer has nothing to say about even when it happens to read the same.
+    // Remember the draft at dispatch. A queued write may start after another edit was typed,
+    // so matching this reference alone does not authorize releasing a still-pending draft.
     const from = this.view.draft;
     this.inFlight = { ticket };
     const answered = (ok: boolean) => {
@@ -73,12 +73,12 @@ export class AutosaveMachine<T> {
       if (ok) this.options = { ...this.options, saved: write.value };
       const next = this.queued;
       this.queued = null;
-      // Only an edit that will actually be written supersedes this answer. A retained
-      // unsavable draft - an emptied box mid-retype - never reaches the queue, so letting it
-      // count would swallow this refusal and the change would vanish with nothing said.
-      const superseded = !!next || (this.pending !== null && this.options.savable?.(this.pending.value) !== false);
-      const final = !superseded;
-      const draft = final && this.view.draft === from ? null : this.view.draft;
+      // Only a write already on its way supersedes this answer. A typed edit still waiting for
+      // its debounce may be emptied or abandoned before it is ever sent, so letting it count
+      // would swallow this refusal and the change would vanish with nothing said.
+      const final = !next;
+      // A pending edit does not hide a refusal, but only normal settling releases the draft.
+      const draft = final && !this.pending && this.view.draft === from ? null : this.view.draft;
       const failed = ok ? null : final ? write : this.view.failed;
       this.publish(draft, failed);
       if (next) this.start(next);
@@ -87,10 +87,11 @@ export class AutosaveMachine<T> {
   }
 
   private enqueue(write: Write<T>) {
-    if (!this.inFlight && !this.queued && write.note === undefined && Object.is(write.value, this.options.saved)) {
-      this.publish(this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, this.view.failed);
-      return;
-    }
+    const stored = !this.inFlight && !this.queued && write.note === undefined && Object.is(write.value, this.options.saved);
+    // A value going to the service is what answers a refusal, not a keystroke that may still be
+    // retyped into nothing, and not settling back on the value the task already holds.
+    this.publish(stored && this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, stored ? this.view.failed : null);
+    if (stored) return;
     if (this.inFlight) this.queued = write;
     else this.start(write);
   }
@@ -112,7 +113,7 @@ export class AutosaveMachine<T> {
   store = (value: T, note?: string) => {
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.pending = null;
-    this.publish({ value }, null);
+    this.publish({ value }, this.view.failed);
     this.enqueue({ value, note });
   };
 
@@ -124,7 +125,7 @@ export class AutosaveMachine<T> {
 
   change(value: T, delay: number) {
     if (this.pending?.timer) clearTimeout(this.pending.timer);
-    this.publish({ value }, null);
+    this.publish({ value }, this.view.failed);
     this.pending = { value, timer: delay > 0 ? setTimeout(this.commit, delay) : null };
     if (delay === 0) this.commit();
   }

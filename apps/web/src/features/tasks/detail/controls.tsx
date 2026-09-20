@@ -107,7 +107,7 @@ export function ActionError({ children, onRetry, onDismiss }: { children: ReactN
 
 /** The inline message under a field whose save failed: what happened, and a way forward. */
 export function SaveError({ what, onRetry }: { what: string; onRetry: () => void }) {
-  return <ActionError onRetry={onRetry}>Could not save the {what}. Your change was undone.</ActionError>;
+  return <ActionError onRetry={onRetry}>Could not save the {what}.</ActionError>;
 }
 
 export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
