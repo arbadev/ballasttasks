@@ -76,8 +76,12 @@ References: [cache](https://swr.vercel.app/docs/advanced/cache),
 [mutation](https://swr.vercel.app/docs/mutation),
 [error handling](https://swr.vercel.app/docs/error-handling).
 
-Due dates are calendar days, `YYYY-MM-DD` strings, not `Date` objects: the same arithmetic
-and labels as the design, but serialisable and the shape an API date column has.
+Task dates are **UTC calendar days** in both HTTP and explicit demo modes. “Today” changes
+at UTC midnight, independent of the browser's timezone; due labels, quick actions, urgency
+and date-based ordering use the injected `useNow()`/Clock instant with that same basis.
+Entered `YYYY-MM-DD` values stay unchanged (not converted through local instants), and Clear
+sends exactly `null`. Absolute activity-timestamp presentation is unchanged. Date and service
+contract tests cover UTC midnight, both offset directions and DST boundaries.
 
 ## Building on the shell
 

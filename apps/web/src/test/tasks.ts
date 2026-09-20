@@ -1,17 +1,13 @@
 import type { Task } from "@/features/tasks/model/types";
 
-/** Friday 18 September 2026, 10:00 local time: the fixed "now" of the task tests. */
-export const NOW = new Date(2026, 8, 18, 10, 0, 0, 0).getTime();
+/** Friday 18 September 2026, 15:00 UTC: the fixed injected instant of the task tests. */
+export const NOW = Date.parse("2026-09-18T15:00:00Z");
 
 const DAY_MS = 864e5;
 
 /** The calendar day `offset` days from NOW, as the model's YYYY-MM-DD due date. */
 export function due(offset: number): string {
-  const d = new Date(NOW);
-  d.setHours(12, 0, 0, 0);
-  d.setDate(d.getDate() + offset);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return new Date(NOW + offset * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** A minimal open, assigned, undated task; tests override only what they are about. */

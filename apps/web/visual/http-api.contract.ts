@@ -7,6 +7,7 @@ import { HttpDirectoryService } from "../src/features/tasks/services/httpDirecto
 import { HttpTaskService } from "../src/features/tasks/services/httpTaskService";
 import { HttpStepGenerationService } from "../src/features/tasks/services/httpStepGenerationService";
 import { DEFAULT_QUERY } from "../src/features/tasks/model/filter";
+import { dayFrom } from "../src/features/tasks/model/due";
 
 type Schemas = components["schemas"];
 const base = process.env.BT_HTTP_API_URL;
@@ -17,6 +18,32 @@ function session(url: string) {
   const auth = new HttpAuthService(client, url);
   return { client, auth, tasks: new HttpTaskService(client), directory: new HttpDirectoryService(client) };
 }
+
+test("UTC quick-action date survives a fresh authenticated read without shifting entered dates or null", async () => {
+  expect(["127.0.0.1", "localhost"]).toContain(new URL(base!).hostname);
+  const { client, auth, tasks } = session(base!);
+  const email = `utc-${randomUUID()}@example.test`;
+  const password = randomUUID();
+  await auth.register(email, "UTC Contract", password);
+  const task = await tasks.create({ title: "UTC date persistence" });
+  const tomorrow = dayFrom(1, Date.now()); // Actual test instant; no clock override or synchronization subsystem.
+  await tasks.update(task.id, { due: tomorrow });
+  const authoritative = await client.get<Schemas["TaskDetailResponse"]>(`/tasks/${task.id}`);
+  expect(authoritative.due_date).toBe(tomorrow);
+  expect(authoritative.attention.days_until_due).toBe(1);
+  auth.logout();
+  const fresh = session(base!);
+  expect(fresh.auth.current().user).toBeNull();
+  await fresh.auth.login(email, password);
+  expect((await fresh.tasks.get(task.id))?.due).toBe(tomorrow);
+  await fresh.tasks.update(task.id, { due: "2026-11-01" });
+  expect((await fresh.tasks.get(task.id))?.due).toBe("2026-11-01");
+  await fresh.tasks.update(task.id, { due: null });
+  expect((await fresh.tasks.get(task.id))?.due).toBeNull();
+  await fresh.tasks.remove(task.id);
+  fresh.auth.logout();
+  console.log(`PASS real UTC date helper/API contract: tomorrow=${tomorrow}, server distance=1, fresh-login persistence, unchanged entered day, exact-null Clear. Native detail quick-action UI remains a separate acceptance check.`);
+});
 
 test("real atomic ceiling rejection retains proposals and permits one reduced bulk acceptance", async () => {
   const { client, auth, tasks } = session(base!);
