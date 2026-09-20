@@ -131,6 +131,38 @@ describe("HTTP task adapter", () => {
     expect(requests.filter((call) => call.startsWith("GET /tasks?"))).toEqual(["GET /tasks?status=all"]);
   });
 
+  it("orders read-only recovery after another outstanding write to the same task", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    let title = "Before";
+    const reads: string[] = [];
+    server.use(
+      http.patch(`${base}/tasks/task-id`, async () => {
+        started();
+        await wait;
+        title = "Saved newest title";
+        return HttpResponse.json(apiTask({ title }));
+      }),
+      http.get(`${base}/tasks/task-id`, () => {
+        reads.push(title);
+        return HttpResponse.json(apiTask({ title }));
+      }),
+      http.get(`${base}/tasks/task-id/activity`, () => HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })),
+    );
+    const service = new HttpTaskService(client());
+    const writing = service.update("task-id", { title: "Saved newest title" });
+    await ready;
+    const recovering = service.refresh("task-id");
+    await Promise.resolve();
+    expect(reads).toEqual([]);
+    release();
+    await writing;
+    expect(await recovering).toMatchObject({ title: "Saved newest title" });
+    expect(reads).toEqual(["Saved newest title", "Saved newest title"]);
+  });
+
   it("loads every list page with all statuses and preserves keys/tallies without fake children", async () => {
     const pages: number[] = [];
     server.use(http.get(`${base}/tasks`, ({ request }) => {

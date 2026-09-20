@@ -56,6 +56,8 @@ export interface TaskCommands {
   remove(id: string): Promise<void>;
   /** Drops a task the server no longer has, with its generation. Deletes nothing. */
   forget(id: string): Promise<void>;
+  /** Read-only recovery of an acknowledged write; forgets a task deleted meanwhile. */
+  refresh(id: string): Promise<Task | null>;
   /** Puts a task saved elsewhere (accepted generated steps, for one) into the workspace. */
   sync(task: Task): void;
 }
@@ -312,6 +314,12 @@ export function useTaskCommands(): TaskCommands {
         await forget(id);
       },
       forget,
+      refresh: async (id) => {
+        const task = await (service.refresh ? service.refresh(id) : service.get(id));
+        if (task) return saved(task);
+        await forget(id);
+        return null;
+      },
       sync: (task) => {
         saved(task);
       },
