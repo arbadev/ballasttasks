@@ -123,15 +123,17 @@ dialog and the hand-back on close are all untouched.
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
   another task opening), so typed text is never dropped. A failed save puts the control back on
   the saved value with an inline message and a Retry that carries the rejected value. That recovery
-  is retired once the stored value moves without the field asking — something else wrote the
-  task while no control was mounted — so its Retry cannot undo the newer value; a value the
-  field stored itself never counts as such a move. The footer reports `saving…`,
+  is retired when the field sends a replacement of its own — when that value is actually on its
+  way, not while it is still being typed and could yet be emptied — or once the stored value
+  moves without the field asking (something else wrote the task while no control was mounted),
+  so its Retry cannot undo the newer value; a value the field stored itself never counts as
+  such a move. The footer reports `saving…`,
   `saved · <when>` or `not saved`.
 - **A value the field cannot hold is never written by leaving it.** A field may declare which
   values are `savable`: an emptied number box and an emptied date box are not, and a date
-  reports itself empty while a segment is being retyped. Such a value is kept as typed, never
-  sent, and never retires a reported failure, and `flush` (blur, unmount) puts the stored value
-  back instead of saving it. Removing a
+  reports itself empty while a segment is being retyped. Such a value is kept as typed and never
+  sent — so it never retires a reported failure — and `flush` (blur, unmount) puts the stored
+  value back instead of saving it. Removing a
   due date is its own action — emptying the box asks, with "Clear date" beside a "Keep" that
   restores it — and "Clear date" calls `field.store`, the one path that writes a value the
   control is not typing. `store` drops any half-typed edit as it goes, so an abandoned one

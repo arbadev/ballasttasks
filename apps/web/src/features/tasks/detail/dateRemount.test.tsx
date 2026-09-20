@@ -210,11 +210,13 @@ describe("date save ownership across panel mounts", () => {
     expect(properties().queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("retires the date recovery as soon as a date the field can write is typed", async () => {
+  it("retires the date recovery once a date the field can write is on its way", async () => {
     const service = await refuseADateWrite();
     fireEvent.change(dateInput(), { target: { value: due(12) } });
-    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    // Typing is not sending: until the replacement is enqueued the refusal still stands.
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
     fireEvent.blur(dateInput());
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
     await service.finish(1, true);
     expect(written(service)).toEqual([
       [{ due: due(9) }, undefined],
@@ -222,6 +224,73 @@ describe("date save ownership across panel mounts", () => {
     ]);
     expect((await service.get("t1"))?.due).toBe(due(12));
     expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(["Keep", "blur"])("keeps a refused reschedule when a typed replacement is emptied before it is sent, settled by %s", async (settleBy) => {
+    const service = await setup();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Due tomorrow" }));
+      await service.finish(0, false);
+      expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+
+      fireEvent.change(dateInput(), { target: { value: due(12) } });
+      expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+      // Backspacing a segment before the debounce expires: the replacement is never sent, so
+      // it never had anything to say about the refusal.
+      await act(async () => { vi.advanceTimersByTime(200); });
+      fireEvent.change(dateInput(), { target: { value: "" } });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(service.requests).toHaveLength(1);
+
+      if (settleBy === "Keep") fireEvent.click(properties().getByRole("button", { name: "Keep" }));
+      else fireEvent.blur(dateInput());
+      expect(dateInput()).toHaveValue(due(3));
+
+      retryClear();
+      await service.finish(1, true);
+      expect(written(service)).toEqual([
+        [{ due: due(1) }, "Due date moved to tomorrow"],
+        [{ due: due(1) }, "Due date moved to tomorrow"],
+      ]);
+      expect((await service.get("t1"))?.due).toBe(due(1));
+      expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a refusal that arrives while a typed replacement is still being retyped", async () => {
+    const service = await setup();
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(dateInput(), { target: { value: due(9) } });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(service.requests.map((r) => r.patch)).toEqual([{ due: due(9) }]);
+
+      // A newer date is typed but not yet sent when the refusal comes back.
+      fireEvent.change(dateInput(), { target: { value: due(12) } });
+      await service.finish(0, false);
+      expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+
+      fireEvent.change(dateInput(), { target: { value: "" } });
+      await act(async () => { vi.advanceTimersByTime(400); });
+      expect(service.requests).toHaveLength(1);
+      expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+
+      fireEvent.blur(dateInput());
+      expect(dateInput()).toHaveValue(due(3));
+      retryClear();
+      await service.finish(1, true);
+      expect(written(service)).toEqual([
+        [{ due: due(9) }, undefined],
+        [{ due: due(9) }, undefined],
+      ]);
+      expect((await service.get("t1"))?.due).toBe(due(9));
+      expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("leaves the date recovery alone when an unrelated property is refused", async () => {
