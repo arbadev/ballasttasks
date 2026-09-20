@@ -136,7 +136,9 @@ dialog and the hand-back on close are all untouched.
   reports itself empty while a segment is being retyped. Such a value is kept as typed and never
   sent — so it never retires a reported failure — and `flush` (blur, unmount) puts the stored
   value back instead of saving it. Removing a due date is its own action — emptying the box asks,
-  with "Clear date" beside a "Keep" that restores it — and "Clear date" calls `field.store`, the
+  with "Clear date" beside a "Keep" that restores it. Focus moves within that date editor do
+  not settle the input before its controls activate; leaving the editor still flushes normally.
+  "Clear date" calls `field.store`, the
   one path that writes a value the control is not typing. The prompt asks about one stored date:
   it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
   moving the box to a different one takes it away, with no write of its own either way — its
