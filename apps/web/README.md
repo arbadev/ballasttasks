@@ -290,6 +290,21 @@ unavailable. Each alert names its own buttons (`Retry moving "…"`, `Dismiss: c
 to Testing`) so that stacked alerts do not all read "Retry"; the visible labels, the Dismiss
 tooltip included, stay as the design has them (`IconButton` takes a `title` of its own for that).
 
+A task opened from a focused board card also records a panel-return location. Closing after a
+status change returns to the card in its new column; deleting or filtering it away returns to
+the neighbour at its old position, or the origin column's heading. The panel keeps focus until
+it closes. The board then goes on owing that return for as long as the focus is still where it
+put it, because a save still in flight, or the canonical query it triggers, can remount or
+filter that card away afterwards; the focus follows it each time. Moving the focus — a Tab, a
+click on another control or on nothing at all — retires the handoff there and then. Deleting a
+project's last task takes the board away with whatever it was standing on, so the empty-project
+invitation that replaces it takes the keyboard over in its first-task field, and only where
+that removal left the focus nowhere. The shell consumes that claim in the same layout commit,
+even if a different view replaced the board: leaving for the list cannot leave a claim for an
+unrelated empty project later. No deferred first-task focus request survives the transition.
+Unchanged closes still use the connected opener, and the board's direct-move and alert focus
+paths keep their own ownership.
+
 A failed load is built from the same parts in both views — the danger badge, the heading, the
 detail line and a Retry carrying the design's refresh mark — each naming its own subject and
 keeping its own content gutter. The board states the failure once: a rejection that carried no
@@ -331,15 +346,26 @@ these tests register example accounts and write ordinary authenticated test data
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
-With the unchanged default auth policy (10 attempts per IP per 60 seconds), all five checks
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), all eight checks
 in one command overbook credential setup: the three adapter checks need eight attempts,
-and the two served-browser checks need six. Select the groups separately with
-`-- --grep-invert 'served query-backed board focus'` and
-`-- --grep 'served query-backed board focus'`, respectively. Let the configured auth window
-elapse after the first group finishes before starting the second, without concurrent
+the two served query/Retry focus checks need six, the two board-panel keyboard checks
+(desktop/mobile) need six, and the mobile shell lifecycle check needs three. Select four groups
+separately with `-- --grep 'UTC|real atomic|real bearer'`,
+`-- --grep 'served query-backed board focus'`,
+`-- --grep 'served board panel return'`, and
+`-- --grep 'mobile shell handoff lifecycle'`, respectively. Let the configured auth window
+elapse after each group finishes before starting the next, without concurrent
 credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
 Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
 throttling, or blanket-retry the suite. No test or application request retries automatically.
+
+The mobile shell check configures mobile/touch before sign-in and measures a 375px viewport.
+It covers consumed empty-project revisits, a pending Board-to-List departure followed by an
+unrelated deletion, and deliberate pointer/keyboard departure during query/save settlement.
+Screenshots and JSON request/viewport evidence identify Playwright automation and the timing
+injection: only delivery of real successful HTTP responses is held, never their payload or
+application state. Keyboard/pointer actions drive the behavior; API setup, readback and cleanup
+are not substitutes for the gestures being asserted.
 
 Any change to an API response model is followed by `npm run gen:api -- <your-api-url>/openapi.json`
 in the same commit; the schema source is always given, the command has no default.

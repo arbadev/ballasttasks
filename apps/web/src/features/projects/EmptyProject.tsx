@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type Ref } from "react";
 import { Pill } from "@/components/ui/Pill";
 import { Button } from "@/components/ui/Button";
 import type { Project } from "@/features/tasks/model/types";
@@ -23,10 +23,12 @@ interface EmptyProjectProps {
   project: Project;
   /** The first task is saved, so this state is about to give way to the list or the board. */
   onFirstTask?: () => void;
+  /** Lets the shell finish an unmounted board's return in the same visible commit. */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 /** What a project with no tasks shows instead of a list or board: an invitation to add the first one. */
-export function EmptyProject({ project, onFirstTask }: EmptyProjectProps) {
+export function EmptyProject({ project, onFirstTask, inputRef }: EmptyProjectProps) {
   const commands = useTaskCommands();
   const { state, actions } = useWorkspace();
   const id = useId();
@@ -72,6 +74,7 @@ export function EmptyProject({ project, onFirstTask }: EmptyProjectProps) {
         <label className="flex cursor-text items-center gap-3.5 rounded-bt border border-dashed border-line-2 px-3 py-1.5 text-fg-3 transition-[border-color,box-shadow] duration-[160ms] ease-bt focus-within:border-solid focus-within:border-acc focus-within:shadow-[0_0_0_3px_var(--acc-soft)]">
           <Plus aria-hidden="true" size={13} strokeWidth={2.5} className="flex-none" />
           <input
+            ref={inputRef}
             name="first-task"
             autoComplete="off"
             value={title}

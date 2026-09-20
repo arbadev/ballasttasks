@@ -1,4 +1,10 @@
+import type { SignalId } from "@/features/tasks/model/filter";
+import { selectTasks } from "@/features/tasks/model/filter";
+import { sidebarCounts } from "@/features/tasks/model/counts";
+import { attentionSignals } from "@/features/tasks/model/signals";
+import { STATUSES } from "@/features/tasks/model/statuses";
 import type { Attachment, Person, Project, Task, TaskStatus } from "@/features/tasks/model/types";
+import type { TaskPage, TaskPageRequest } from "@/features/tasks/services/query";
 import { SEED_PEOPLE, SEED_PROJECTS } from "@/features/tasks/services/seed";
 import {
   TaskNotFoundError,
@@ -13,14 +19,37 @@ import {
 } from "@/features/tasks/services/types";
 import { NOW } from "./tasks";
 
+/** The calls a test can keep a server from answering, one call each. */
+type HeldCall = "update" | "move" | "query";
+
 /** A TaskService over a plain array that records every call, for tests that drive the UI. */
 export class FakeTaskService implements TaskService {
   readonly calls: unknown[][] = [];
-  private tasks: Task[];
+  protected tasks: Task[];
   private sequence = 0;
+  private readonly gates = new Map<HeldCall, Promise<void>>();
 
   constructor(tasks: Task[] = []) {
     this.tasks = [...tasks];
+  }
+
+  /** Makes the next `call` wait, as a server that has taken the request but not answered yet. */
+  holdNext(call: HeldCall) {
+    let release!: () => void;
+    let fail!: (error: Error) => void;
+    this.gates.set(call, new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = reject;
+    }));
+    return { release, fail };
+  }
+
+  /** Waits for the gate a test put on `call`, if there is one. */
+  protected async awaitHold(call: HeldCall) {
+    const gate = this.gates.get(call);
+    if (!gate) return;
+    this.gates.delete(call);
+    await gate;
   }
 
   private change(id: string, fn: (t: Task) => Task): Task {
@@ -49,10 +78,12 @@ export class FakeTaskService implements TaskService {
   }
   async update(id: string, patch: TaskPatch, note?: string) {
     this.calls.push(note === undefined ? ["update", id, patch] : ["update", id, patch, note]);
+    await this.awaitHold("update");
     return this.change(id, (t) => ({ ...t, ...patch }));
   }
   async move(id: string, status: TaskStatus) {
     this.calls.push(["move", id, status]);
+    await this.awaitHold("move");
     return this.change(id, (t) => ({ ...t, status }));
   }
   async toggleDone(id: string) {
@@ -82,6 +113,34 @@ export class FakeTaskService implements TaskService {
   async remove(id: string) {
     this.calls.push(["remove", id]);
     this.tasks = this.tasks.filter((t) => t.id !== id);
+  }
+}
+
+/**
+ * The same fake, serving pages as the HTTP adapter does: the workspace then holds a page
+ * instead of the complete list, and every save is followed by a canonical query over it.
+ */
+export class FakeQueryTaskService extends FakeTaskService {
+  async query(request: TaskPageRequest): Promise<TaskPage> {
+    this.calls.push(["query", request]);
+    await this.awaitHold("query");
+    const context = { now: NOW, currentUserId: SEED_PEOPLE[0].id };
+    const listed = selectTasks(this.tasks, request.query, request.sort, context);
+    const shown = request.board ? selectTasks(this.tasks, request.query, request.sort, { ...context, applyStatus: false }) : listed;
+    const limit = request.limit ?? 50;
+    const signals = { overdue: 0, critical: 0, soon: 0, unassigned: 0 } as Record<SignalId, number>;
+    for (const signal of attentionSignals(this.tasks, { now: NOW, project: request.query.project, active: null })) signals[signal.id] = signal.count;
+    return {
+      tasks: shown.slice(request.offset, request.offset + limit),
+      total: shown.length,
+      headerTotal: listed.length,
+      offset: request.offset,
+      limit,
+      sidebar: sidebarCounts(this.tasks, context),
+      signals,
+      columns: Object.fromEntries(STATUSES.map((status) => [status.id, shown.filter((t) => t.status === status.id).length])) as Record<TaskStatus, number>,
+      projectHasTasks: request.query.project === "all" ? undefined : this.tasks.some((t) => t.project === request.query.project),
+    };
   }
 }
 
