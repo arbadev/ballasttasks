@@ -50,8 +50,8 @@ export interface TaskService {
   removeStep(id: string, stepId: string): Promise<Task>;
   /** Blank text is ignored. */
   addComment(id: string, text: string): Promise<Task>;
-  /** Logs "Attached <name>". */
-  addAttachment(id: string, attachment: Attachment): Promise<Task>;
+  /** Logs "Attached <name>". File-capable adapters receive the original bytes, not metadata alone. */
+  addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;
   /** Optional only for older demo/test adapters; HTTP implements all storage operations. */
   uploadAttachment?(id: string, file: File): Promise<Task>;
   downloadAttachment?(id: string, attachmentId: string): Promise<Blob>;

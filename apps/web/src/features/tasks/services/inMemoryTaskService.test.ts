@@ -138,8 +138,8 @@ describe("InMemoryTaskService", () => {
   });
 
   it("adds an attachment and logs its name", async () => {
-    const after = await service.addAttachment("t4", { kind: "link", name: "jwt.io", meta: "pasted link" });
-    expect(after.attachments).toEqual([{ kind: "link", name: "jwt.io", meta: "pasted link" }]);
+    const after = await service.addAttachment("t4", { kind: "link", name: "jwt.io", meta: "pasted link", url: "https://jwt.io/" });
+    expect(after.attachments).toEqual([{ kind: "link", name: "jwt.io", meta: "pasted link", url: "https://jwt.io/" }]);
     expect(last(after.activity).text).toBe("Attached jwt.io");
   });
 
@@ -165,7 +165,7 @@ describe("InMemoryTaskService", () => {
     ["toggleStep", () => service.toggleStep("nope", "s1")],
     ["removeStep", () => service.removeStep("nope", "s1")],
     ["addComment", () => service.addComment("nope", "x")],
-    ["addAttachment", () => service.addAttachment("nope", { kind: "link", name: "x", meta: "" })],
+    ["addAttachment", () => service.addAttachment("nope", { kind: "link", name: "x", meta: "", url: "https://example.com/" })],
     ["remove", () => service.remove("nope")],
   ])("rejects %s on an unknown task", async (_name, call) => {
     await expect(call()).rejects.toBeInstanceOf(TaskNotFoundError);

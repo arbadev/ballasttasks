@@ -68,7 +68,7 @@ describe("cardView: counts and owner", () => {
           { id: "a", text: "one", done: true },
           { id: "b", text: "two", done: false },
         ],
-        attachments: [{ kind: "link", name: "Docs", meta: "example.com" }],
+        attachments: [{ kind: "link", name: "Docs", meta: "example.com", url: "https://example.com/" }],
       }),
       NOW,
     );

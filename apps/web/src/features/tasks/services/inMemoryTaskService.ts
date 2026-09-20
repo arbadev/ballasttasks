@@ -92,7 +92,9 @@ export class InMemoryTaskService implements TaskService {
     return this.store.replace(id, (t) => ({ ...t, activity: [...t.activity, entry], updatedAt: now }));
   }
 
-  async addAttachment(id: string, attachment: Attachment): Promise<Task> {
+  async addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task> {
+    // Deliberately do not read or retain bytes in this metadata-only adapter.
+    void file;
     return this.store.replace(id, (t) =>
       this.touch({ ...t, attachments: [...t.attachments, attachment] }, `Attached ${attachment.name}`),
     );

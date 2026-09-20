@@ -47,7 +47,7 @@ export interface TaskCommands {
   toggleStep(id: string, stepId: string): Promise<Task>;
   removeStep(id: string, stepId: string): Promise<Task>;
   addComment(id: string, text: string): Promise<Task>;
-  addAttachment(id: string, attachment: Attachment): Promise<Task>;
+  addAttachment(id: string, attachment: Attachment, file?: File): Promise<Task>;
   uploadAttachment?(id: string, file: File): Promise<Task>;
   downloadAttachment?(id: string, attachmentId: string): Promise<Blob>;
   removeAttachment?(id: string, attachmentId: string): Promise<Task>;
@@ -254,7 +254,7 @@ export function useTaskCommands(): TaskCommands {
       toggleStep: async (id, stepId) => saved(await service.toggleStep(id, stepId)),
       removeStep: async (id, stepId) => saved(await service.removeStep(id, stepId)),
       addComment: async (id, text) => saved(await service.addComment(id, text)),
-      addAttachment: async (id, attachment) => saved(await service.addAttachment(id, attachment)),
+      addAttachment: async (id, attachment, file) => saved(await service.addAttachment(id, attachment, file)),
       uploadAttachment: service.uploadAttachment ? async (id, file) => saved(await service.uploadAttachment!(id, file)) : undefined,
       downloadAttachment: service.downloadAttachment ? (id, attachmentId) => service.downloadAttachment!(id, attachmentId) : undefined,
       removeAttachment: service.removeAttachment ? async (id, attachmentId) => saved(await service.removeAttachment!(id, attachmentId)) : undefined,

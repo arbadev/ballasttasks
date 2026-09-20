@@ -6,11 +6,18 @@ export const apiStatus = (status: TaskStatus): Schemas["TaskStatus"] => status =
 export const personFromApi = (person: Schemas["PersonResponse"]): Person => ({ id: person.id, name: person.full_name, initials: person.initials, role: person.role_label ?? "" });
 const tones: Record<string, ProjectTone> = { acc: "accent", accent: "accent", muted: "muted", info: "info", ok: "ok", warn: "warn" };
 export const projectFromApi = (project: Schemas["ProjectResponse"]): Project => ({ id: project.id, key: project.key, name: project.name, tone: tones[project.color ?? "muted"] ?? "muted" });
-export const attachmentFromApi = (attachment: Schemas["AttachmentResponse"]): Attachment => ({
-  id: attachment.id, kind: attachment.kind, name: attachment.name,
-  url: attachment.url ?? undefined, contentType: attachment.content_type ?? undefined, sizeBytes: attachment.size_bytes ?? undefined,
-  meta: attachment.url ? new URL(attachment.url).host : `${((attachment.size_bytes ?? 0) / 1024).toFixed(1)} KB · ${attachment.content_type ?? attachment.kind}`,
-});
+export const attachmentFromApi = (attachment: Schemas["AttachmentResponse"]): Attachment => {
+  const metadata = {
+    id: attachment.id, name: attachment.name,
+    contentType: attachment.content_type ?? undefined, sizeBytes: attachment.size_bytes ?? undefined,
+    meta: attachment.url ? new URL(attachment.url).host : `${((attachment.size_bytes ?? 0) / 1024).toFixed(1)} KB · ${attachment.content_type ?? attachment.kind}`,
+  };
+  if (attachment.kind === "link") {
+    if (!attachment.url) throw new Error("The stored link has no URL.");
+    return { ...metadata, kind: "link", url: attachment.url };
+  }
+  return { ...metadata, kind: attachment.kind };
+};
 
 export function taskFromApi(row: Schemas["TaskResponse"]): Task {
   return {

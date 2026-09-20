@@ -13,14 +13,20 @@ import { rowView } from "./rowView";
 const ROW_TITLE = "[data-row-title]";
 const ROW_TOGGLE = "[role=checkbox]";
 
-/** The row control that had focus when its task was toggled, so focus can follow the list. */
+/** The row control that had focus when its task was toggled or opened, so focus can follow the list. */
 interface PendingFocus {
   taskId: string;
-  /** The status the toggle started from: the entry is spent once the task shows another one. */
+  /** A toggled row's entry is spent once the task shows a status other than this one. */
   status: Task["status"];
   index: number;
   control: typeof ROW_TITLE | typeof ROW_TOGGLE;
   page?: TaskPageInfo;
+  /**
+   * "opened" belongs to the panel it opened: the task can be edited, completed and deleted in
+   * there, so the entry lives exactly until that panel closes and is spent then, whether or
+   * not the focus needed handing on.
+   */
+  kind: "toggled" | "opened";
 }
 
 interface ListViewProps {
@@ -48,19 +54,33 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
 
   const controls = (selector: string) => Array.from(listRef.current?.querySelectorAll<HTMLElement>(selector) ?? []);
 
-  // A completed row usually leaves the list (the default filter hides done tasks) and takes
-  // the focus with it; hand the focus to the row that took its place, or to the quick-add.
-  // A row that stays keeps its own focus, so the entry is dropped as soon as the toggle lands.
+  /** Remembers where focus was in a row, for when that row is about to leave the list. */
+  const rememberFocus = useCallback((task: Task, index: number, kind: PendingFocus["kind"]) => {
+    const row = listRef.current?.children[index];
+    const focused = document.activeElement;
+    pendingFocus.current =
+      row && focused && row.contains(focused)
+        ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE, kind, page: state.page }
+        : null;
+  }, [state.page]);
+
+  // Completing a row usually takes it out of the list (the default filter hides done tasks),
+  // and a row opened in the panel can be completed, filtered away or deleted in there. What
+  // decides is whether the focus came loose, not whether the task is still listed: the row's
+  // own control if it is there (it may have unmounted and come back), else the row that took
+  // its place, else the quick-add. Focus that is still somewhere is left alone.
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
+    if (pending.kind === "opened" && state.selectedId === pending.taskId) return;
     const row = tasks.find((t) => t.id === pending.taskId);
-    if (row && (row.status === pending.status || (pending.page && pending.page === state.page))) return;
+    if (pending.kind === "toggled" && row && (row.status === pending.status || (pending.page && pending.page === state.page))) return;
     pendingFocus.current = null;
-    if (row || (document.activeElement && document.activeElement !== document.body)) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
     const candidates = Array.from(listRef.current?.querySelectorAll<HTMLElement>(pending.control) ?? []);
-    (candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
-  }, [tasks, state.page]);
+    const own = candidates.find((c) => c.closest("[data-task-id]")?.getAttribute("data-task-id") === pending.taskId);
+    (own ?? candidates[Math.min(pending.index, candidates.length - 1)] ?? quickAddRef.current)?.focus();
+  }, [tasks, state.selectedId, state.page]);
 
   // The empty-project state hands the focus over when its first task turns it into this list;
   // the field keeps the caret and the page stays where it is.
@@ -72,16 +92,14 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
 
   const toggle = useCallback(
     (task: Task, index: number) => {
-      const row = listRef.current?.children[index];
-      const focused = document.activeElement;
-      pendingFocus.current = row && focused && row.contains(focused) ? { taskId: task.id, status: task.status, index, control: focused.matches(ROW_TOGGLE) ? ROW_TOGGLE : ROW_TITLE, page: state.page } : null;
+      rememberFocus(task, index, "toggled");
       setFailedTitle(null);
       commands.toggleDone(task.id).catch(() => {
         pendingFocus.current = null;
         setFailedTitle(task.title);
       });
     },
-    [commands, state.page],
+    [commands, rememberFocus],
   );
 
   const move = (index: number, to: RowMove) => {
@@ -123,7 +141,10 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
                 assignee={assignee}
                 assigneeIsCurrentUser={assignee !== null && assignee.id === currentUser?.id}
                 selected={task.id === state.selectedId}
-                onOpen={() => actions.selectTask(task.id)}
+                onOpen={() => {
+                  rememberFocus(task, index, "opened");
+                  actions.selectTask(task.id);
+                }}
                 onToggle={() => toggle(task, index)}
                 onMove={(to) => move(index, to)}
               />

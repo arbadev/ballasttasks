@@ -4,7 +4,7 @@ export type TaskStatus = "todo" | "progress" | "testing" | "done";
 /** P0 (most urgent) to P3. */
 export type Priority = 0 | 1 | 2 | 3;
 
-/** A calendar day as YYYY-MM-DD, in the user's local time. Never carries a time of day. */
+/** A date-only YYYY-MM-DD value, interpreted against the shared UTC task calendar. */
 export type DueDate = string;
 
 export interface Step {
@@ -15,17 +15,18 @@ export interface Step {
 
 export type AttachmentKind = "pdf" | "image" | "link";
 
-export interface Attachment {
+export type Attachment = {
   /** Server identity; absent only in explicit demo fixtures. */
   id?: string;
-  url?: string;
   contentType?: string;
   sizeBytes?: number;
-  kind: AttachmentKind;
   name: string;
   /** Secondary line: size and type for files, the host for links. */
   meta: string;
-}
+} & (
+  | { kind: "link"; url: string }
+  | { kind: "pdf" | "image"; url?: string }
+);
 
 export type ActivityType = "log" | "comment";
 
