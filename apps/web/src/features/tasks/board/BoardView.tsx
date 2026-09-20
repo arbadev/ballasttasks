@@ -3,7 +3,6 @@
 import { useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { STATUSES, statusName } from "../model/statuses";
 import type { TaskStatus } from "../model/types";
-import type { TaskPageInfo } from "../services/query";
 import { LOAD_FAILED_WITHOUT_DETAIL, useDirectory, useNow, useTaskCommands, useVisibleTasks, useWorkspace } from "../workspace/WorkspaceProvider";
 import { BoardAlert } from "./BoardAlert";
 import { BoardColumn } from "./BoardColumn";
@@ -25,19 +24,23 @@ interface FocusAfterMove {
   index: number;
 }
 
-/** One panel opening, and at most the canonical refresh owed by its last save. */
+/** One panel opening, and where the board has put the focus back since it closed. */
 interface FocusAfterPanel {
   taskId: string;
   column: TaskStatus;
   index: number;
   opened: boolean;
-  page: TaskPageInfo | undefined;
-  revision: number;
+  /** What the board focused on the way out: it owes another return while the focus is still there. */
   returnedTo?: HTMLElement;
 }
 
+interface BoardViewProps {
+  /** Called when the board is taken off the screen still owing the keyboard somewhere to stand. */
+  onReturnLost?: () => void;
+}
+
 /** The board: one column per status. It owns its loading and error states as well. */
-export function BoardView() {
+export function BoardView({ onReturnLost }: BoardViewProps = {}) {
   const { state, actions } = useWorkspace();
 
   return (
@@ -46,12 +49,12 @@ export function BoardView() {
       {state.load.status === "error" && (
         <BoardLoadError detail={state.load.message === LOAD_FAILED_WITHOUT_DETAIL ? undefined : state.load.message} onRetry={actions.reload} />
       )}
-      {(state.page || state.load.status === "ready") && <Board />}
+      {(state.page || state.load.status === "ready") && <Board onReturnLost={onReturnLost} />}
     </section>
   );
 }
 
-function Board() {
+function Board({ onReturnLost }: BoardViewProps) {
   const { state, actions } = useWorkspace();
   const { people, projects, currentUser } = useDirectory();
   const commands = useTaskCommands();
@@ -112,18 +115,15 @@ function Board() {
   });
 
   // The modal returns to a connected opener itself. A detail edit can remount that card in
-  // another column, or leave it on an old HTTP page until the canonical query filters it out.
-  // Recover on close, retaining only that owed refresh; a deliberate focus departure retires
-  // the handoff below. No focus moves while a panel is selected, nor for an obsolete selection.
+  // another column, and a save still in flight, or the canonical query it triggers, can do so
+  // long after the panel has gone. So the board keeps owing a return for as long as the focus
+  // is where it put it, and stops owing one as soon as the user moves it themselves (the blur
+  // below). No focus moves while a panel is selected, nor for an obsolete selection.
   useLayoutEffect(() => {
     const pending = focusAfterPanel.current;
     if (!pending) return;
     if (state.selectedId === pending.taskId) {
       pending.opened = true;
-      if (pending.page !== state.page) {
-        pending.page = state.page;
-        pending.revision = state.revision ?? 0;
-      }
       return;
     }
     if (!pending.opened) return;
@@ -132,17 +132,23 @@ function Board() {
       focusAfterPanel.current = null;
       return;
     }
-    if (active === document.body) {
-      const neighbours = cardsIn(pending.column);
-      const target = cardButton(pending.taskId) ?? neighbours[Math.min(pending.index, neighbours.length - 1)] ?? columnHeading(pending.column);
-      if (target) {
-        pending.returnedTo = target;
-        target.focus();
-      }
-    }
-    const owesQuery = state.page && state.page === pending.page && (state.revision ?? 0) !== pending.revision && state.load.status !== "error";
-    if (!owesQuery) focusAfterPanel.current = null;
+    if (active !== document.body) return;
+    const neighbours = cardsIn(pending.column);
+    const target = cardButton(pending.taskId) ?? neighbours[Math.min(pending.index, neighbours.length - 1)] ?? columnHeading(pending.column);
+    if (!target) return;
+    pending.returnedTo = target;
+    target.focus();
   });
+
+  // A board that is taken away — the last task of a project deleted from its panel — takes the
+  // card, neighbour or heading it was returning to with it. Only the view that replaces it can
+  // carry the keyboard on from there, so the shell is told the return is now its own.
+  useLayoutEffect(
+    () => () => {
+      if (focusAfterPanel.current || focusAfterMove.current) onReturnLost?.();
+    },
+    [onReturnLost],
+  );
 
   const endDrag = () => {
     setDraggedId(null);
@@ -218,9 +224,10 @@ function Board() {
         ref={grid}
         className={BOARD_GRID}
         onBlurCapture={(event) => {
-          // DOM removal emits no blur. A real departure must not be undone by a late query,
-          // even if that deliberate destination is itself removed before the query settles.
-          if (focusAfterPanel.current?.returnedTo === event.target && event.relatedTarget !== null) focusAfterPanel.current = null;
+          // Taking the focused card off the board emits no blur, and leaves a detached target
+          // where one is emitted at all. Anything else is the user leaving — a Tab, a click on
+          // another control or on nothing at all — and the board stops owing them a return.
+          if (focusAfterPanel.current?.returnedTo === event.target && event.target.isConnected) focusAfterPanel.current = null;
         }}
       >
         {STATUSES.map((status, position) => {
@@ -265,7 +272,7 @@ function Board() {
                     onOpen={() => {
                       const opener = cardButton(task.id);
                       focusAfterPanel.current = opener?.closest("article")?.contains(document.activeElement)
-                        ? { taskId: task.id, column: status.id, index, opened: false, page: state.page, revision: state.revision ?? 0 }
+                        ? { taskId: task.id, column: status.id, index, opened: false }
                         : null;
                       actions.selectTask(task.id);
                     }}

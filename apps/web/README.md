@@ -277,10 +277,14 @@ tooltip included, stay as the design has them (`IconButton` takes a `title` of i
 A task opened from a focused board card also records a panel-return location. Closing after a
 status change returns to the card in its new column; deleting or filtering it away returns to
 the neighbour at its old position, or the origin column's heading. The panel keeps focus until
-it closes. If a save's canonical query is still pending, that one handoff survives until the
-query settles, because its old-page card may disappear then; moving focus elsewhere retires
-it immediately. Unchanged closes still use the connected opener, and the board's direct-move
-and alert focus paths keep their own ownership.
+it closes. The board then goes on owing that return for as long as the focus is still where it
+put it, because a save still in flight, or the canonical query it triggers, can remount or
+filter that card away afterwards; the focus follows it each time. Moving the focus — a Tab, a
+click on another control or on nothing at all — retires the handoff there and then. Deleting a
+project's last task takes the board away with whatever it was standing on, so the empty-project
+invitation that replaces it takes the keyboard over in its first-task field, and only where
+that removal left the focus nowhere. Unchanged closes still use the connected opener, and the
+board's direct-move and alert focus paths keep their own ownership.
 
 A failed load is built from the same parts in both views — the danger badge, the heading, the
 detail line and a Retry carrying the design's refresh mark — each naming its own subject and

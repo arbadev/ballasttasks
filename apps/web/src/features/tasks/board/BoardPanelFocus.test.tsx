@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderWithServices } from "@/test/renderWithServices";
+import { FakeQueryTaskService, type FakeTaskService } from "@/test/fakeServices";
 import { makeTask } from "@/test/tasks";
 import { TasksApp } from "../shell/TasksApp";
 import type { Task } from "../model/types";
@@ -12,11 +13,26 @@ const card = (name: string) => within(board()).getByRole("button", { name });
 const heading = (name: string) => within(board()).getByRole("heading", { name });
 const panel = () => screen.getByRole("dialog");
 const close = () => fireEvent.keyDown(window, { key: "Escape" });
+const firstTaskField = () => screen.getByRole("textbox", { name: "Name the first task" });
+const settled = () => waitFor(() => expect(board()).toHaveAttribute("aria-busy", "false"));
+/** The sidebar's project filter, once the directory this shell loaded it from has answered. */
+const project = () => within(screen.getByRole("complementary", { name: "Workspace" })).findByRole("button", { name: /^Ballast Tasks/ });
 
-async function setup(tasks: Task[] = [alpha, beta]) {
-  const services = renderWithServices(<TasksApp />, { tasks });
+async function setup(tasks: Task[] = [alpha, beta], taskService?: FakeTaskService) {
+  const services = renderWithServices(<TasksApp />, taskService ? { taskService } : { tasks });
   fireEvent.click(screen.getByText("Board", { exact: true }));
   await screen.findByRole("region", { name: "To Do" });
+  await settled();
+  return services;
+}
+
+/** The same board, with only the selected project's tasks on it, as the design's project filter leaves it. */
+async function setupProject(tasks: Task[] = [alpha], taskService?: FakeTaskService) {
+  const services = renderWithServices(<TasksApp />, taskService ? { taskService } : { tasks });
+  fireEvent.click(await project());
+  fireEvent.click(screen.getByText("Board", { exact: true }));
+  await screen.findByRole("region", { name: "To Do" });
+  await settled();
   return services;
 }
 
@@ -108,5 +124,96 @@ describe("board-opened panel return", () => {
     act(() => card("Alpha").blur());
     fireEvent.change(screen.getByRole("searchbox", { name: "Search tasks" }), { target: { value: "Beta" } });
     expect(document.body).toHaveFocus();
+  });
+});
+
+/**
+ * The same board over a served page, as the HTTP adapter leaves it: the workspace holds a page,
+ * and a save is answered twice — by the save itself, then by the canonical query it triggers.
+ */
+describe("board-opened panel return over a served page", () => {
+  const p0 = (task: Task) => ({ ...task, prio: 0 as const });
+
+  it("returns to the replacement card when the save that moved it lands after the close", async () => {
+    const service = new FakeQueryTaskService([alpha, beta]);
+    await setup([], service);
+    open();
+    const save = service.holdNext("move");
+    fireEvent.change(within(panel()).getByRole("combobox", { name: "Status" }), { target: { value: "progress" } });
+    await waitFor(() => expect(service.calls).toContainEqual(["move", "alpha", "progress"]));
+    close(); // The old card is still on the board: the server has taken the change but not answered.
+    expect(card("Alpha")).toHaveFocus();
+    expect(card("Alpha").closest("[data-column]")).toHaveAttribute("data-column", "todo");
+
+    await act(async () => save.release());
+    await settled();
+    expect(card("Alpha").closest("[data-column]")).toHaveAttribute("data-column", "progress");
+    expect(card("Alpha")).toHaveFocus();
+    expect((await service.get("alpha"))?.status).toBe("progress");
+  });
+
+  it("keeps the return through the canonical query that filters the task away", async () => {
+    const service = new FakeQueryTaskService([p0(alpha), p0(beta)]);
+    await setup([], service);
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "0" } });
+    await settled();
+    open();
+    const refresh = service.holdNext("query");
+    fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority" }), { target: { value: "3" } });
+    await waitFor(() => expect(service.calls).toContainEqual(["update", "alpha", { prio: 3 }]));
+    close(); // The saved card is still on the old page, so the board returns to it first.
+    expect(card("Alpha")).toHaveFocus();
+
+    await act(async () => refresh.release());
+    await settled();
+    expect(within(board()).queryByRole("button", { name: "Alpha" })).not.toBeInTheDocument();
+    expect(card("Beta")).toHaveFocus();
+  });
+
+  it("stops owing the return once the user parks the focus while that query is still out", async () => {
+    const service = new FakeQueryTaskService([p0(alpha), p0(beta)]);
+    await setup([], service);
+    fireEvent.change(screen.getByRole("combobox", { name: "Priority" }), { target: { value: "0" } });
+    await settled();
+    open();
+    const refresh = service.holdNext("query");
+    fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority" }), { target: { value: "3" } });
+    await waitFor(() => expect(service.calls).toContainEqual(["update", "alpha", { prio: 3 }]));
+    close();
+    expect(card("Alpha")).toHaveFocus();
+    act(() => card("Alpha").blur()); // A click on board chrome that takes no focus of its own.
+
+    await act(async () => refresh.release());
+    await settled();
+    expect(within(board()).queryByRole("button", { name: "Alpha" })).not.toBeInTheDocument();
+    expect(document.body).toHaveFocus();
+  });
+});
+
+describe("the last task of a project", () => {
+  it("hands the keyboard to the first-task field when deleting it takes the board away", async () => {
+    const { taskService } = await setupProject();
+    open();
+    await removeOpenTask();
+    expect(await taskService.get("alpha")).toBeNull();
+    expect(firstTaskField()).toHaveFocus();
+  });
+
+  it("stands on the emptied column until the served page agrees the project is empty", async () => {
+    const service = new FakeQueryTaskService([alpha]);
+    await setupProject([], service);
+    open();
+    const refresh = service.holdNext("query");
+    await removeOpenTask();
+    expect(heading("To Do")).toHaveFocus();
+
+    await act(async () => refresh.release());
+    await waitFor(() => expect(firstTaskField()).toHaveFocus());
+  });
+
+  it("leaves the first-task field alone when the project was empty all along", async () => {
+    renderWithServices(<TasksApp />, { tasks: [{ ...beta, project: "inbox" }] });
+    fireEvent.click(await project()); // Nothing was removed, so nothing is owed: the field waits to be reached.
+    expect(await screen.findByRole("textbox", { name: "Name the first task" })).not.toHaveFocus();
   });
 });

@@ -43,6 +43,7 @@ test.describe("served board panel return", () => {
       const heading = (name: string) => board.getByRole("heading", { name, exact: true });
       const search = page.getByRole("searchbox", { name: "Search tasks" });
       let releaseQuery: (() => void) | undefined;
+      let releaseSave: (() => void) | undefined;
       try {
         await page.goto(web!);
         await page.getByRole("textbox", { name: "Email", exact: true }).fill(email);
@@ -90,6 +91,37 @@ test.describe("served board panel return", () => {
           owned.delete(id);
         }
 
+        // Hold only delivery of the real successful status PATCH, after the server has saved it,
+        // so the panel closes while the old card is still on the board and the replacement card
+        // arrives afterwards. No mocked payload, injected component state or clock change.
+        const pending = await create(`${prefix} Pending`);
+        await search.fill(pending.title);
+        await expect(card(pending.id)).toBeVisible();
+        await expect(board).toHaveAttribute("aria-busy", "false");
+        await card(pending.id).press("Enter");
+        let saveArrived!: () => void;
+        const savedOnServer = new Promise<void>((resolve) => { saveArrived = resolve; });
+        const heldSave = new Promise<void>((resolve) => { releaseSave = resolve; });
+        await page.route(`${api}/tasks/${pending.id}`, async (route) => {
+          if (route.request().method() !== "PATCH") return route.fallback();
+          const response = await route.fetch();
+          saveArrived();
+          await heldSave;
+          await route.fulfill({ response });
+        });
+        await dialog.getByRole("combobox", { name: "Status", exact: true }).selectOption("progress");
+        await savedOnServer;
+        await closeTo(page, card(pending.id)); // Close before the save can remount the card.
+        releaseSave!();
+        await expect(card(pending.id).locator("xpath=ancestor::section[1]")).toHaveAttribute("data-column", "progress");
+        await expect(board).toHaveAttribute("aria-busy", "false");
+        expect(await card(pending.id).evaluate((el) => el === document.activeElement)).toBe(true);
+        expect((await tasks.get(pending.id))?.status).toBe("progress");
+        await page.unroute(`${api}/tasks/${pending.id}`);
+        releaseSave = undefined;
+        await tasks.remove(pending.id);
+        owned.delete(pending.id);
+
         for (const unrelated of [false, true]) {
           const filtered = await create(`${prefix} Filter ${unrelated}`);
           await search.fill(filtered.title);
@@ -133,9 +165,10 @@ test.describe("served board panel return", () => {
           owned.delete(filtered.id);
         }
         expect(problems).toEqual([]);
-        console.log(`PASS ${mobile ? "mobile" : "desktop"}: unchanged/status/direct move, neighbour/empty-column deletion, query-delayed filter handback and deliberate unrelated focus; real saved status and deletions verified.`);
+        console.log(`PASS ${mobile ? "mobile" : "desktop"}: unchanged/status/direct move, neighbour/empty-column deletion, save-delayed remount, query-delayed filter handback and deliberate unrelated focus; real saved status and deletions verified.`);
       } finally {
         releaseQuery?.();
+        releaseSave?.();
         await page.unrouteAll({ behavior: "wait" });
         await page.screenshot({ path: testInfo.outputPath("final-state.png") });
         await context.close();
