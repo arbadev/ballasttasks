@@ -15,7 +15,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
   const headingId = useId();
   const commands = useTaskCommands();
   const { track } = useDetailSession();
-  const box = useComposer(`step:${task.id}`, (text) => track(task.id, commands.addStep(task.id, text)));
+  const box = useComposer(task, "step", (text) => track(task.id, commands.addStep(task.id, text)), () => track(task.id, commands.refresh(task.id), "refresh"));
 
   const total = task.steps.length;
   const done = task.steps.filter((s) => s.done).length;
@@ -108,11 +108,16 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
           Adding step… the box takes the next one when this lands.
         </p>
       )}
-      {box.failed !== null && (
+      {box.refreshing && <p role="status" className="m-0 text-[12px] text-fg-3">Reloading the saved step…</p>}
+      {box.failed !== null && (box.refreshRequired ? (
+        <ActionError onRetry={box.retry} retryLabel="Reload task">
+          The step was saved, but the task could not be reloaded. Reload to see it; no step will be added again.
+        </ActionError>
+      ) : (
         <ActionError onRetry={box.retry} onDismiss={box.dismiss}>
           Could not add the step. It is kept, and Enter adds nothing until you retry or dismiss it.
         </ActionError>
-      )}
+      ))}
 
       <StepGenerationPanel generation={generation} />
     </section>
