@@ -40,6 +40,8 @@ falls back to it after an API error. Unit tests can still inject individual serv
 in a POST body after clearing it from the browser URL. Enabled providers come from the API.
 The bearer credential lives **only in memory**. Full reloads and new tabs require sign-in
 again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
+Unsaved per-session drafts are cleared by that teardown: within-session close/reopen
+retention does not promise draft survival across sign-out or expiry.
 Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
 to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
 Next development request logs exclude `/auth/callback`; deployment proxy/access logs must
