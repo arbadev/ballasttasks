@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { AutosaveMachine, type FieldOptions } from "./autosaveMachine";
 
 export type SaveStatus = "idle" | "saving" | "failed";
 
@@ -64,6 +65,8 @@ interface DetailSession {
    */
   track<T>(taskId: string, save: Promise<T>): Promise<T>;
   composers: ComposerStore;
+  /** One date field owner per task, including its pending write and exact-null recovery. */
+  dateField(taskId: string, options: FieldOptions<string | null>): AutosaveMachine<string | null>;
   generationFailed(taskId: string): boolean;
   setGenerationFailed(taskId: string, failed: boolean): void;
 }
@@ -86,7 +89,17 @@ const DetailSessionContext = createContext<DetailSession | null>(null);
 export function DetailSessionProvider({ children }: { children: ReactNode }) {
   const [saves, setSaves] = useState<ReadonlyMap<string, TaskSaves>>(() => new Map());
   const [composers] = useState(() => new ComposerStore());
+  const [dateFields] = useState(() => new Map<string, AutosaveMachine<string | null>>());
   const [failedGenerations, setFailedGenerations] = useState<ReadonlySet<string>>(() => new Set());
+
+  const dateField = useCallback((taskId: string, options: FieldOptions<string | null>) => {
+    let field = dateFields.get(taskId);
+    if (!field) {
+      field = new AutosaveMachine(options);
+      dateFields.set(taskId, field);
+    }
+    return field;
+  }, [dateFields]);
 
   const record = useCallback((taskId: string, step: (current: TaskSaves) => TaskSaves) => {
     setSaves((current) => {
@@ -134,10 +147,11 @@ export function DetailSessionProvider({ children }: { children: ReactNode }) {
       },
       track,
       composers,
+      dateField,
       generationFailed: (taskId) => failedGenerations.has(taskId),
       setGenerationFailed,
     }),
-    [saves, track, composers, failedGenerations, setGenerationFailed],
+    [saves, track, composers, dateField, failedGenerations, setGenerationFailed],
   );
 
   return <DetailSessionContext.Provider value={value}>{children}</DetailSessionContext.Provider>;

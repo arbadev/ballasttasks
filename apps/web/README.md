@@ -121,7 +121,9 @@ card, the New task button) on close, so an opener needs nothing more than being 
   due date is its own action — "Clear date" under the emptied box — which calls `field.store`,
   the one path that writes a value the control is not typing. `store` drops any half-typed edit
   as it goes, so an abandoned one cannot land on top of it, and its failure uses the field's own
-  inline message and Retry.
+  inline message and Retry. The date's existing machine is owned by `DetailSession`, not its
+  mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
+  and a reopened input subscribes to the same owner. Other fields keep their existing lifetimes.
 - **The step and comment boxes send one thing at a time.** `useComposer` holds what is typed and
   the send it is waiting on in one record per task and box, so both survive the panel closing
   mid-send and the box that opens again sees how that send ended. While a send runs the box says

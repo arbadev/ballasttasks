@@ -247,6 +247,58 @@ test("emptying a due date and leaving puts it back; only Clear date removes it",
   await expect(again.getByRole("complementary", { name: "Properties" }).getByLabel("Due date")).toHaveValue("");
 });
 
+for (const gesture of ["blur", "Escape", "Close", "Back", "backdrop", "switch"] as const) {
+  test(`segmented due-date edits do not clear on ${gesture}`, async ({ page }) => {
+    await page.setViewportSize({ width: gesture === "Back" ? 375 : 1440, height: 900 });
+    await openApp(page);
+    const dialog = await openTask(page, RICH_TASK);
+    const date = dialog.getByLabel("Due date", { exact: true });
+    const stored = await date.inputValue();
+    await date.click();
+    await page.keyboard.press("Backspace");
+    await expect(date).toHaveValue("");
+
+    if (gesture === "blur") {
+      await dialog.getByRole("spinbutton", { name: "Importance" }).focus();
+      await expect(date).toHaveValue(stored);
+      await dialog.getByRole("button", { name: "Close task" }).click();
+    } else if (gesture === "Escape") {
+      await page.keyboard.press("Escape");
+    } else if (gesture === "backdrop") {
+      await page.getByTestId("detail-backdrop").click({ position: { x: 10, y: 100 } });
+    } else {
+      await dialog.getByRole("button", { name: gesture === "Back" ? "Back to tasks" : "Close task" }).click();
+    }
+    await expect(page.getByRole("dialog")).toBeHidden();
+    if (gesture === "switch") {
+      await openTask(page, BARE_TASK);
+      await page.keyboard.press("Escape");
+    }
+    const reopened = await openTask(page, RICH_TASK);
+    await expect(reopened.getByLabel("Due date", { exact: true })).toHaveValue(stored);
+    await expect(reopened).toBeFocused();
+    await page.screenshot({ path: join(RESULTS, `date-exit-${gesture.toLowerCase()}.png`) });
+  });
+}
+
+test("date Clear and Keep do not leave keyboard focus behind the panel", async ({ page }) => {
+  await openApp(page);
+  const dialog = await openTask(page, RICH_TASK);
+  const date = dialog.getByLabel("Due date", { exact: true });
+  const stored = await date.inputValue();
+  await date.click();
+  await page.keyboard.press("Backspace");
+  await dialog.getByRole("button", { name: "Keep", exact: true }).click();
+  await expect(date).toBeFocused();
+  await expect(date).toHaveValue(stored);
+  await page.keyboard.press("Backspace");
+  await dialog.getByRole("button", { name: "Clear date", exact: true }).click();
+  await expect(date).toBeFocused();
+  await expect(date).toHaveValue("");
+  await page.keyboard.press("Tab");
+  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+});
+
 test("no console errors or warnings across the panel's states", async ({ page }) => {
   const problems: string[] = [];
   const record = (m: ConsoleMessage) => {

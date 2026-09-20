@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { STATUSES } from "../model/statuses";
 import { relativeTime } from "../model/time";
 import type { Priority, Task, TaskStatus } from "../model/types";
@@ -22,18 +22,23 @@ export function PropertiesPanel({ task }: { task: Task }) {
   const now = useNow();
   const { people, projects } = useDirectory();
   const commands = useTaskCommands();
-  const { track } = useDetailSession();
+  const { track, dateField } = useDetailSession();
   const [clearingDue, setClearingDue] = useState(false);
+  const dateInput = useRef<HTMLInputElement>(null);
 
   const status = useAutosaveField({ saved: task.status, save: (v: TaskStatus) => track(task.id, commands.move(task.id, v)) });
   const assignee = useAutosaveField({ saved: task.assignee, save: (v: string | null) => track(task.id, commands.update(task.id, { assignee: v })) });
   // A date input reports an empty value while one of its segments is being retyped, so an
   // empty box is never a date the task can hold: leaving the field puts the stored date back,
   // and removing it is its own action below.
-  const due = useAutosaveField({
+  const dueOptions = {
     saved: task.due,
     savable: (v: string | null) => v !== null,
     save: (v: string | null) => track(task.id, commands.update(task.id, { due: v })),
+  };
+  const due = useAutosaveField({
+    ...dueOptions,
+    owner: dateField(task.id, dueOptions),
     delay: AUTOSAVE_DELAY_MS,
   });
   const prio = useAutosaveField({ saved: task.prio, save: (v: Priority) => track(task.id, commands.update(task.id, { prio: v })) });
@@ -70,6 +75,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
       <div className="flex flex-col gap-1.5">
         <FieldLabel htmlFor={`${id}-due`}>Due date</FieldLabel>
         <input
+          ref={dateInput}
           id={`${id}-due`}
           name="due"
           type="date"
@@ -89,6 +95,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
               variant="confirm"
               className="h-[26px] text-[12px]"
               onClick={() => {
+                dateInput.current?.focus();
                 setClearingDue(false);
                 due.store(null);
               }}
@@ -99,6 +106,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
               variant="quiet"
               className="h-[26px] text-[12px]"
               onClick={() => {
+                dateInput.current?.focus();
                 setClearingDue(false);
                 due.flush();
               }}
@@ -107,7 +115,7 @@ export function PropertiesPanel({ task }: { task: Task }) {
             </PanelButton>
           </div>
         )}
-        {due.failed && <SaveError what="due date" onRetry={due.retry} />}
+        {due.failed && <SaveError what="due date" onRetry={() => { dateInput.current?.focus(); due.retry(); }} />}
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
