@@ -260,6 +260,31 @@ describe("date save ownership across panel mounts", () => {
     }
   });
 
+  it("keeps a refused reschedule when the box is typed back to the date the task holds", async () => {
+    const service = await setup();
+    fireEvent.click(screen.getByRole("button", { name: "+1 week" }));
+    await service.finish(0, false);
+    expect(properties().getByRole("alert")).toHaveTextContent("Could not save the due date.");
+    expect(dateInput()).toHaveValue(due(3));
+
+    // Settling back on the stored date sends nothing, so it answers nothing either.
+    fireEvent.change(dateInput(), { target: { value: due(4) } });
+    fireEvent.change(dateInput(), { target: { value: due(3) } });
+    fireEvent.blur(dateInput());
+    expect(service.requests).toHaveLength(1);
+    expect(dateInput()).toHaveValue(due(3));
+
+    retryClear();
+    await service.finish(1, true);
+    expect(written(service)).toEqual([
+      [{ due: due(10) }, "Due date moved a week out"],
+      [{ due: due(10) }, "Due date moved a week out"],
+    ]);
+    expect((await service.get("t1"))?.due).toBe(due(10));
+    expect(dateInput()).toHaveValue(due(10));
+    expect(properties().queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("reports a refusal that arrives while a typed replacement is still being retyped", async () => {
     const service = await setup();
     vi.useFakeTimers();

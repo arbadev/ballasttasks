@@ -25,6 +25,12 @@ interface PendingFocus {
    * not the focus needed handing on.
    */
   kind: "toggled" | "opened";
+  /**
+   * Set once an effect has seen that panel open. An effect run can carry a render from before
+   * the row was clicked, which reads the same "no task selected" as the close it is waiting
+   * for; without this the entry would be spent before its panel ever opened.
+   */
+  opened?: boolean;
 }
 
 interface ListViewProps {
@@ -70,7 +76,13 @@ export function ListView({ focusQuickAdd = false, onQuickAddFocused }: ListViewP
   useEffect(() => {
     const pending = pendingFocus.current;
     if (!pending) return;
-    if (pending.kind === "opened" && state.selectedId === pending.taskId) return;
+    if (pending.kind === "opened") {
+      if (state.selectedId === pending.taskId) {
+        pending.opened = true;
+        return;
+      }
+      if (!pending.opened) return;
+    }
     const row = tasks.find((t) => t.id === pending.taskId);
     if (pending.kind === "toggled" && row && row.status === pending.status) return;
 

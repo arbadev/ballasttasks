@@ -88,9 +88,9 @@ export class AutosaveMachine<T> {
 
   private enqueue(write: Write<T>) {
     const stored = !this.inFlight && !this.queued && write.note === undefined && Object.is(write.value, this.options.saved);
-    // The field has settled on this value and is sending it (or the task already holds it).
-    // That, not a keystroke that may still be retyped into nothing, answers a refusal.
-    this.publish(stored && this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, null);
+    // A value going to the service is what answers a refusal, not a keystroke that may still be
+    // retyped into nothing, and not settling back on the value the task already holds.
+    this.publish(stored && this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, stored ? this.view.failed : null);
     if (stored) return;
     if (this.inFlight) this.queued = write;
     else this.start(write);
