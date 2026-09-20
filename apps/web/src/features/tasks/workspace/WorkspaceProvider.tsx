@@ -1,11 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { TaskPageRequest } from "../services/query";
 import { useClock, useDirectoryService, useStepGenerationService, useTaskService } from "@/app/providers";
 import { DEFAULT_QUERY, selectTasks, type DueFilter, type PriorityFilter, type ProjectFilter, type Scope, type SignalId, type SortBy, type StatusFilter } from "../model/filter";
 import type { Attachment, Person, Project, Task, TaskStatus } from "../model/types";
-import type { NewTask, TaskPatch } from "../services/types";
+import type { NewTask, TaskPatch, ProjectEdit } from "../services/types";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
 
 export interface WorkspaceActions {
@@ -28,6 +28,7 @@ export interface WorkspaceActions {
   reloadDetail(): void;
   /** Puts a project the directory just created into the sidebar and shows it with the filters and search reset; sort and view are kept. */
   addProject(project: Project): void;
+  updateProject(id: string, input: ProjectEdit): Promise<void>;
 }
 
 export interface Directory {
@@ -87,14 +88,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => clock());
   const [attempt, setAttempt] = useState(0);
   const [detailAttempt, setDetailAttempt] = useState(0);
+  const directoryRevision = useRef(0);
+  const projectEditSequence = useRef(0);
+  const savedProjectEdits = useRef(new Map<string, number>());
+  const directorySession = useRef(0);
+  useEffect(() => {
+    directorySession.current += 1;
+    return () => { directorySession.current += 1; };
+  }, [directoryService]);
   const selected = state.tasks.find((task) => task.id === state.selectedId);
 
   useEffect(() => {
     let cancelled = false;
+    const revision = directoryRevision.current;
     Promise.all([taskService.query ? Promise.resolve(null) : taskService.list(), directoryService.people(), directoryService.projects(), directoryService.currentUser()])
       .then(([tasks, people, projects, currentUser]) => {
         if (cancelled) return;
-        setDirectory({ people, projects, currentUser });
+        setDirectory((current) => ({ people, projects: directoryRevision.current === revision ? projects : current.projects, currentUser }));
         if (tasks) dispatch({ type: "tasksLoaded", tasks });
       })
       .catch((error: unknown) => {
@@ -178,7 +188,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "loadStarted" });
         setAttempt((n) => n + 1);
       },
+      updateProject: async (id, input) => {
+        const session = directorySession.current;
+        const sequence = ++projectEditSequence.current;
+        const project = await directoryService.updateProject(id, input);
+        if (directorySession.current !== session || (savedProjectEdits.current.get(id) ?? 0) > sequence) return;
+        savedProjectEdits.current.set(id, sequence);
+        directoryRevision.current += 1;
+        setDirectory((current) => ({ ...current, projects: current.projects.map((item) => item.id === id ? project : item) }));
+      },
       addProject: (project) => {
+        directoryRevision.current += 1;
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
         // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
         dispatch({ type: "scopeSelected", scope: "all" });
@@ -190,7 +210,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "projectToggled", project: project.id });
       },
     }),
-    [],
+    [directoryService],
   );
 
   const value = useMemo(() => ({ state, dispatch, actions, directory, now }), [state, actions, directory, now]);

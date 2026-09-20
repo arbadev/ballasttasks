@@ -5,14 +5,11 @@ import { Button } from "@/components/ui/Button";
 import type { ProjectTone } from "@/features/tasks/model/types";
 import type { ProjectFieldErrors } from "@/features/tasks/services/types";
 import { useDirectory } from "@/features/tasks/workspace/WorkspaceProvider";
-import { cn } from "@/lib/cn";
-import { KEY_MAX, PROJECT_TONES, cleanKey, normalizeName, suggestKey, suggestTone, validateProject } from "./model/rules";
+import { KEY_MAX, cleanKey, normalizeName, suggestKey, suggestTone, validateProject } from "./model/rules";
 import { Field, FieldMessage } from "./ui/Field";
 import { ModalDialog } from "./ui/ModalDialog";
-import { ProjectDot } from "./ui/ProjectDot";
+import { ProjectColour } from "./ui/ProjectColour";
 import { useCreateProject } from "./useCreateProject";
-
-const TONE_NAMES: Record<ProjectTone, string> = { accent: "Lime", info: "Blue", ok: "Green", warn: "Amber", muted: "Grey" };
 
 interface NewProjectDialogProps {
   /** The control that opened the dialog; it gets the focus back. */
@@ -121,36 +118,7 @@ export function NewProjectDialog({ opener, onClose, onCreated }: NewProjectDialo
               inputRef={keyInput}
               className="w-24 flex-none"
             />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span id={`${id}-tone-label`} className="text-[11.5px] text-fg-3">
-                Colour
-              </span>
-              <div role="radiogroup" aria-labelledby={`${id}-tone-label`} className="flex h-[34px] gap-0.5 rounded-bt border border-line bg-card p-[3px] pointer-coarse:h-11">
-                {PROJECT_TONES.map((option) => (
-                  <label
-                    key={option}
-                    title={TONE_NAMES[option]}
-                    className={cn(
-                      // The radio itself is invisible, so the label carries its focus ring.
-                      "relative grid aspect-square h-full cursor-pointer place-items-center rounded-[calc(var(--r)-3px)] transition-colors duration-[160ms] ease-bt has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-acc has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50",
-                      option === tone ? "bg-card-2 shadow-1 ring-1 ring-line-2 ring-inset" : "hover:bg-card-2",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name={`${id}-tone`}
-                      value={option}
-                      aria-label={TONE_NAMES[option]}
-                      checked={option === tone}
-                      onChange={() => setTone(option)}
-                      disabled={pending}
-                      className="absolute size-0 opacity-0"
-                    />
-                    <ProjectDot tone={option} className={cn("transition-[width,height] duration-[160ms] ease-bt", option === tone ? "size-3" : "size-2")} />
-                  </label>
-                ))}
-              </div>
-            </div>
+            <ProjectColour id={id} tone={tone} setTone={setTone} pending={pending} />
           </div>
           <FieldMessage id={`${id}-key-hint`}>
             2 to {KEY_MAX} letters, a short code that identifies the project.

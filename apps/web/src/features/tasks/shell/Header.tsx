@@ -1,6 +1,7 @@
 "use client";
 
 import { Columns3, List, Menu, Plus } from "lucide-react";
+import { EditProjectControl } from "@/features/projects/EditProjectControl";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { Pill } from "@/components/ui/Pill";
@@ -54,6 +55,7 @@ export function Header({ navigationId, navigationOpen, onOpenNavigation }: Heade
         )}
       </div>
       <div className="ml-auto flex items-center gap-2.5">
+        {project && <EditProjectControl project={project} />}
         <SegmentedControl label="View" name="bt-view" value={state.view} options={VIEWS} onChange={actions.setView} />
         <Button icon={Plus} onClick={() => void commands.create({ title: "Untitled task" }, { open: true })}>
           New task

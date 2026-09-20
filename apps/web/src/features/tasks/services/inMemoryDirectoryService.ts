@@ -1,7 +1,7 @@
-import { normalizeName, validateProject } from "@/features/projects/model/rules";
+import { normalizeName, validateProject, validateProjectName } from "@/features/projects/model/rules";
 import type { Person, Project } from "../model/types";
 import { CURRENT_USER_ID, SEED_PEOPLE, SEED_PROJECTS } from "./seed";
-import { ProjectRejectedError, type DirectoryService, type NewProject } from "./types";
+import { ProjectRejectedError, type DirectoryService, type NewProject, type ProjectEdit } from "./types";
 
 /** How long creating a project takes, so the pending state is seen as it will be over HTTP. */
 export const CREATE_PROJECT_DELAY_MS = 450;
@@ -25,6 +25,17 @@ export class InMemoryDirectoryService implements DirectoryService {
 
   async currentUser(): Promise<Person> {
     return SEED_PEOPLE.find((p) => p.id === CURRENT_USER_ID)!;
+  }
+
+  async updateProject(id: string, input: ProjectEdit): Promise<Project> {
+    if (this.latencyMs > 0) await new Promise((resolve) => setTimeout(resolve, this.latencyMs));
+    const existing = this.allProjects.find((project) => project.id === id);
+    if (!existing) throw new Error("Project not found.");
+    const name = validateProjectName(input.name, this.allProjects.filter((project) => project.id !== id));
+    if (name) throw new ProjectRejectedError({ name });
+    const saved = { ...existing, name: normalizeName(input.name), tone: input.tone };
+    this.allProjects = this.allProjects.map((project) => project.id === id ? saved : project);
+    return saved;
   }
 
   async createProject(input: NewProject): Promise<Project> {

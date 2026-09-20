@@ -1,0 +1,60 @@
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { renderWithServices } from "@/test/renderWithServices";
+import { TasksApp } from "@/features/tasks/shell/TasksApp";
+
+describe("project editing", () => {
+  it("saves name and colour without changing the selected project or its key", async () => {
+    const { directoryService } = renderWithServices(<TasksApp />);
+    const [project] = await directoryService.projects();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(project.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    expect(screen.getByLabelText("Key")).toHaveValue(project.key);
+    expect(screen.getByLabelText("Key")).toHaveAttribute("readonly");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Renamed project" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Blue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit project" })).not.toBeInTheDocument());
+    expect(directoryService.calls).toContainEqual(["updateProject", project.id, { name: "Renamed project", tone: "info" }]);
+    expect(screen.getByTestId("crumb")).toHaveTextContent("Renamed project");
+    expect((await directoryService.projects())[0]).toMatchObject({ key: project.key, name: "Renamed project", tone: "info" });
+  });
+  it("validates, locks pending controls, retains refused input and retries without false success", async () => {
+    const { directoryService } = renderWithServices(<TasksApp />);
+    const [project] = await directoryService.projects();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(project.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByText("Give the project a name.")).toBeVisible();
+    expect(directoryService.calls).toEqual([]);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Try again" } });
+    const gate = directoryService.holdNextCreate();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByLabelText("Name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Blue" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeVisible();
+    await act(async () => gate.fail(new Error("Refused")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the project");
+    expect(screen.getByLabelText("Name")).toHaveValue("Try again");
+    expect(screen.getByTestId("crumb")).toHaveTextContent(project.name);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("crumb")).toHaveTextContent("Try again");
+    expect(directoryService.calls).toHaveLength(2);
+  });
+  it("cancels and closes unchanged forms without a write", async () => {
+    const { directoryService } = renderWithServices(<TasksApp />);
+    const [project] = await directoryService.projects();
+    fireEvent.click(await screen.findByRole("button", { name: new RegExp(project.name) }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit project" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Discard me" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(directoryService.calls).toEqual([]);
+  });
+});

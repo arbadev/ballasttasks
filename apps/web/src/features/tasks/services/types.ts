@@ -60,6 +60,8 @@ export interface TaskService {
   remove(id: string): Promise<void>;
 }
 
+export type ProjectEdit = Pick<NewProject, "name" | "tone">;
+
 export interface NewProject {
   name: string;
   /** 2 to 4 uppercase letters, unique among the projects. */
@@ -87,6 +89,7 @@ export interface DirectoryService {
    * ProjectRejectedError when the name or key breaks a rule (see features/projects/model).
    */
   createProject(input: NewProject): Promise<Project>;
+  updateProject(id: string, input: ProjectEdit): Promise<Project>;
 }
 
 export interface ProposedStep {

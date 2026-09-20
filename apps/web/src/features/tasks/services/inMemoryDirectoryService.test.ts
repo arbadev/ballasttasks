@@ -27,6 +27,19 @@ describe("InMemoryDirectoryService", () => {
   });
 });
 
+describe("InMemoryDirectoryService.updateProject", () => {
+  it("preserves identity/key, normalizes metadata and persists canonical reads", async () => {
+    const service = new InMemoryDirectoryService({ latencyMs: 0 });
+    const [project] = await service.projects();
+    const saved = await service.updateProject(project.id, { name: "  Renamed   project  ", tone: "info", key: "BAD" } as never);
+    expect(saved).toEqual({ ...project, name: "Renamed project", tone: "info" });
+    expect((await service.projects())[0]).toEqual(saved);
+    await expect(service.updateProject(project.id, { name: "", tone: "info" })).rejects.toBeInstanceOf(ProjectRejectedError);
+    await expect(service.updateProject("missing", { name: "Valid", tone: "info" })).rejects.toThrow("Project not found");
+    expect((await service.projects())[0]).toEqual(saved);
+  });
+});
+
 describe("InMemoryDirectoryService.createProject", () => {
   const create = () => new InMemoryDirectoryService({ latencyMs: 0 });
 

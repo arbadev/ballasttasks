@@ -16,6 +16,17 @@ const detail = (task = apiTask()) => server.use(
   http.get(`${base}/tasks/task-id/activity`, () => HttpResponse.json({ items: [], total: 0, limit: 200, offset: 0 })),
 );
 
+describe("HTTP project editing", () => {
+  it("PATCHes only mutable fields and uses the acknowledged canonical response without a readback", async () => {
+    server.use(http.patch(`${base}/projects/project-id`, async ({ request }) => {
+      expect(await request.json()).toEqual({ name: "Renamed", color: "acc" });
+      return HttpResponse.json({ ...apiProject, name: "Renamed", color: "acc" });
+    }));
+    const project = await new HttpDirectoryService(client()).updateProject("project-id", { name: "Renamed", tone: "accent", key: "BAD" } as never);
+    expect(project).toMatchObject({ name: "Renamed", tone: "accent", key: apiProject.key });
+  });
+});
+
 describe("HTTP task adapter", () => {
   it("sends filters, sort, search and offsets to the API and uses full-workspace summary counts", async () => {
     server.use(
