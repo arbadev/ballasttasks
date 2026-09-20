@@ -24,6 +24,39 @@ async function openTask(page: Page, title: string) {
 }
 const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
+for (const action of ["Keep", "Clear date"] as const) {
+  for (const activation of ["pointer", "keyboard"] as const) {
+    test(`${action} returns date focus after ${activation} activation`, async ({ page }) => {
+      await openApp(page);
+      const dialog = await openTask(page, RICH_TASK);
+      const input = dialog.getByLabel("Due date", { exact: true });
+      const stored = await input.inputValue();
+      await input.focus();
+      await page.keyboard.press("Backspace");
+      await expect(input).toHaveValue("");
+      const button = dialog.getByRole("button", { name: action, exact: true });
+      if (activation === "pointer") {
+        const box = await button.boundingBox();
+        expect(box).not.toBeNull();
+        // One genuine pointer gesture: no locator retry if blur removes the target.
+        await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+      } else {
+        // Date segments are separate native Tab stops. Bound traversal, never set focus
+        // to the action programmatically or retry an activation after it disappears.
+        for (let stop = 0; stop < 6; stop++) {
+          if (await button.evaluate((el) => el === document.activeElement)) break;
+          await page.keyboard.press("Tab");
+        }
+        await expect(button).toBeFocused();
+        await page.keyboard.press("Enter");
+      }
+      await expect(input).toBeFocused();
+      await expect(input).toHaveValue(action === "Keep" ? stored : "");
+      await expect(dialog.getByRole("group", { name: "Remove the date?" })).toBeHidden();
+    });
+  }
+}
+
 test("at 375px the panel is full-screen, with a back control instead of the corner close", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
