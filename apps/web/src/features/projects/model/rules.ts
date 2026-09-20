@@ -25,19 +25,27 @@ export function cleanKey(input: string): string {
 /** Every rule a new project must pass; an empty result means the draft is valid. */
 export function validateProject(draft: { name: string; key: string }, existing: readonly Project[]): ProjectFieldErrors {
   const errors: ProjectFieldErrors = {};
-
-  const name = normalizeName(draft.name);
-  const sameName = existing.find((p) => normalizeName(p.name).toLowerCase() === name.toLowerCase());
-  if (name.length === 0) errors.name = "Give the project a name.";
-  else if (name.length < NAME_MIN) errors.name = `Use at least ${NAME_MIN} characters.`;
-  else if (name.length > NAME_MAX) errors.name = `Keep the name to ${NAME_MAX} characters or fewer.`;
-  else if (sameName) errors.name = `A project named "${sameName.name}" already exists.`;
+  const nameError = validateProjectName(draft.name, existing);
+  if (nameError) errors.name = nameError;
 
   const sameKey = existing.find((p) => p.key === draft.key);
   if (!KEY_FORMAT.test(draft.key)) errors.key = `Use ${KEY_MIN} to ${KEY_MAX} letters.`;
   else if (sameKey) errors.key = `The key ${draft.key} is already used by ${sameKey.name}.`;
 
   return errors;
+}
+
+/** The same name rules apply to creation and editing; editing excludes itself. */
+export function validateProjectName(input: string, existing: readonly Project[]): string | undefined {
+  const errors: ProjectFieldErrors = {};
+  const name = normalizeName(input);
+  const sameName = existing.find((p) => normalizeName(p.name).toLowerCase() === name.toLowerCase());
+  if (name.length === 0) errors.name = "Give the project a name.";
+  else if (name.length < NAME_MIN) errors.name = `Use at least ${NAME_MIN} characters.`;
+  else if (name.length > NAME_MAX) errors.name = `Keep the name to ${NAME_MAX} characters or fewer.`;
+  else if (sameName) errors.name = `A project named "${sameName.name}" already exists.`;
+
+  return errors.name;
 }
 
 /**

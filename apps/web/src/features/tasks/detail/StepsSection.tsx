@@ -119,7 +119,7 @@ export function StepsSection({ task, generation }: { task: Task; generation: Ste
         </ActionError>
       ))}
 
-      <StepGenerationPanel generation={generation} attachmentCount={task.attachments.length} />
+      <StepGenerationPanel generation={generation} />
     </section>
   );
 }

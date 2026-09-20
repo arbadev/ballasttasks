@@ -27,6 +27,29 @@ describe("InMemoryDirectoryService", () => {
   });
 });
 
+describe("InMemoryDirectoryService.updateProject", () => {
+  it("preserves identity/key, normalizes metadata and persists canonical reads", async () => {
+    const service = new InMemoryDirectoryService({ latencyMs: 0 });
+    const [project] = await service.projects();
+    const saved = await service.updateProject(project.id, { name: "  Renamed   project  ", tone: "info", key: "BAD" } as never);
+    expect(saved).toEqual({ ...project, name: "Renamed project", tone: "info" });
+    expect((await service.projects())[0]).toEqual(saved);
+    await expect(service.updateProject(project.id, { name: "", tone: "info" })).rejects.toBeInstanceOf(ProjectRejectedError);
+    await expect(service.updateProject("missing", { name: "Valid", tone: "info" })).rejects.toThrow("Project not found");
+    expect((await service.projects())[0]).toEqual(saved);
+  });
+  it("applies only the fields the edit carries, without judging a name it was not given", async () => {
+    const service = new InMemoryDirectoryService({ latencyMs: 0 });
+    const [project, other] = await service.projects();
+    const recoloured = await service.updateProject(project.id, { tone: "warn" });
+    expect(recoloured).toEqual({ ...project, tone: "warn" });
+    const renamed = await service.updateProject(project.id, { name: "Only the name" });
+    expect(renamed).toEqual({ ...project, name: "Only the name", tone: "warn" });
+    await expect(service.updateProject(project.id, { name: other.name })).rejects.toBeInstanceOf(ProjectRejectedError);
+    expect((await service.projects())[0]).toEqual(renamed);
+  });
+});
+
 describe("InMemoryDirectoryService.createProject", () => {
   const create = () => new InMemoryDirectoryService({ latencyMs: 0 });
 
