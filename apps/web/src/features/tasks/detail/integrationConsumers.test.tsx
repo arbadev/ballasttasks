@@ -26,6 +26,11 @@ afterEach(() => vi.restoreAllMocks());
 
 // Controlled port tests of the delivered UI; live persistence is verified separately.
 describe("detail integration consumers", () => {
+  it("shows the immutable server task key instead of synthesizing one from a UUID", async () => {
+    await setup(new FakeTaskService([buildTask({ id: "t1", key: "UCI-01" })]));
+    expect(within(screen.getByRole("dialog")).getByText("UCI-01")).toBeVisible();
+    expect(within(screen.getByRole("dialog")).queryByText("BT-01")).not.toBeInTheDocument();
+  });
   it("does not mount writable fabricated detail while only a list summary is loaded, and retries a refusal", async () => {
     const service = new FakeTaskService([buildTask({ id: "t1", detailLoaded: false, description: "summary" })]);
     let refuse!: (reason: Error) => void;
