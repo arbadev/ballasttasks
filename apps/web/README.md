@@ -195,9 +195,9 @@ dialog and the hand-back on close are all untouched.
   "Clear date" calls `field.store`, the
   one path that writes a value the control is not typing. The prompt asks about one stored date:
   it stands while the box is empty or back on that date, and another writer (the banner, a Retry)
-  moving the box to a different one takes it away, with no write of its own either way — its
-  "Clear date" acts only on the date it asked about, never on a different one the box is
-  showing; a later write of that same date stays within its reach. `store` drops any
+  making a different date visible dismisses it, without a write from the prompt itself.
+  Explicit "Clear date" saves null through the existing date owner, including when a queued
+  write changed the saved date underneath an empty visible draft. `store` drops any
   half-typed edit as it goes, so an abandoned one cannot land on top of it, and its failure uses
   the field's own inline message and Retry. The date's machine is owned by `DetailSession`, not
   its mounted input: its draft, serialized writes and exact-null recovery survive close/switch,
