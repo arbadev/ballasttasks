@@ -23,7 +23,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/detail/` | The task side panel: `TaskDetail` (dialog, focus, Escape) around one component per section. `useAutosaveField` is the autosave rule for every field, `DetailSession` holds what must outlive the open panel (saves in flight, unsent drafts, failed generations), `model/` the pure parts (banner text, task key, link parsing). |
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
-| `src/features/projects/` | Project creation: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts, its dialog, and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`. |
+| `src/features/projects/` | Project creation and editing: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts and the "Edit project" pencil the header mounts for the selected project, their dialogs, the colour picker both share (`ui/ProjectColour.tsx`), and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`; edits through `actions.updateProject` (name and colour only, see "Workspace actions"). |
 | `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `AuthBoundary` that gates the workspace on a session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
@@ -128,6 +128,7 @@ All hooks come from `workspace/WorkspaceProvider.tsx` unless noted.
 | --- | --- |
 | `selectTask(id)` | List rows and board cards, to open the detail panel. |
 | `clearSelection()` | Detail: close button, backdrop, Escape. |
+| `updateProject(id, { name, tone })` | Project editor: PATCHes only mutable metadata and synchronizes the acknowledged canonical response into the directory without changing tasks, counts or scope. Older in-flight directory reads cannot overwrite that save; no second read can mislabel an acknowledged write as refused. |
 | `addProject(project)` | Project creation, after `DirectoryService.createProject` resolves: lists the project in the sidebar and selects it in a clean view (scope All tasks; Attention signal, filters and search reset; sort and view kept). |
 | `selectScope`, `toggleProject`, `setStatusFilter`, `setDueFilter`, `setPriorityFilter`, `setSort`, `setSearch`, `toggleSignal`, `clearSignal`, `setView`, `reload` | The shell. Available to the views, rarely needed. |
 
@@ -395,6 +396,13 @@ in the same commit; the schema source is always given, the command has no defaul
   styles so every colour, font, radius and shadow in the dialog and the empty state is a design
   token. After a deliberate visual change, re-record the baselines and the full-page screenshots
   next to them with `npx playwright test projects --update-snapshots`.
+- `project-edit.visual.ts` needs no design and compares no baseline: at 1440px and 375px it
+  opens "Edit project" from the header pencil with the keyboard, and checks that the Name field
+  takes the focus, the Key is read-only and keeps the project's key, Tab and the arrow keys reach
+  and change the colour swatches, every control stays inside the viewport, saving a rename reaches
+  the breadcrumb and hands the focus back to the pencil, reopening shows the saved name and
+  colour, Escape closes and returns the focus, and the console stays silent. Its screenshots are
+  recorded for review only.
 - `filters.visual.ts` needs no design: it measures each filter control's focus-ring geometry
   (the ring encloses the whole `Select`, label included) at 1440px and 375px, immediately under
   normal and reduced motion. It drives pointer focus, Tab, native type-ahead and Enter, plus
