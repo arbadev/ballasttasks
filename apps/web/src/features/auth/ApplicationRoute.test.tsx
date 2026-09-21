@@ -153,29 +153,35 @@ describe("background session checks", () => {
   it("retires the preserved workspace when the retry verifies a different user", async () => {
     signedIn();
     renderApp();
-    await openDraft();
+    const description = await openDraft();
     unavailable();
     backgroundCheck();
     await screen.findByRole("alert");
+    expect(description).toBeInTheDocument();
+    expect(description).not.toBeVisible();
+    expect(Array.from(document.querySelectorAll("textarea"), field => field.value)).toContain("Unsaved draft");
     signedIn({ ...apiPerson, id: "other-user", full_name: "Other Person" });
     fireEvent.click(screen.getByRole("button", { name: "Retry session check" }));
     await screen.findByRole("button", { name: "Routed task" });
     expect(screen.queryByRole("textbox", { name: "Description" })).not.toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent("Unsaved draft");
+    expect(Array.from(document.querySelectorAll("textarea"), field => field.value)).not.toContain("Unsaved draft");
   });
 
   it("retires the preserved workspace when the retry finds the session expired", async () => {
     signedIn();
     renderApp();
-    await openDraft();
+    const description = await openDraft();
     unavailable();
     backgroundCheck();
     await screen.findByRole("alert");
+    expect(description).toBeInTheDocument();
+    expect(description).not.toBeVisible();
+    expect(Array.from(document.querySelectorAll("textarea"), field => field.value)).toContain("Unsaved draft");
     server.use(http.get(`${base}/auth/session`, () => new HttpResponse(null, { status: 401 })));
     fireEvent.click(screen.getByRole("button", { name: "Retry session check" }));
     expect(await screen.findByText(/your session expired/i)).toBeInTheDocument();
     expect(location.pathname).toBe("/login");
-    expect(document.body).not.toHaveTextContent("Unsaved draft");
+    expect(Array.from(document.querySelectorAll("textarea"), field => field.value)).not.toContain("Unsaved draft");
   });
 });
 
