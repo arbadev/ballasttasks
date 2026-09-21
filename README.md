@@ -51,7 +51,7 @@ Full description with diagrams: [docs/architecture.md](docs/architecture.md). De
 
 To run the system:
 
-- A Docker-compatible container runtime with Docker Compose v2 (`docker compose`).
+- A running Docker-compatible container runtime with Docker Compose v2 or newer (`docker compose`) and Git to clone the repository.
 
 To run tests and linters on the host:
 
@@ -66,14 +66,15 @@ From a fresh clone, in the repository root, on a local machine you control:
 ```sh
 # Preserve existing configuration; create a private local file only when absent.
 if [ ! -e .env ]; then (umask 077; cp .env.example .env); fi
+# Review configuration as described below before starting.
 docker compose up --build
 ```
 
 Review [`.env.example`](.env.example) before starting. Its database credentials and
 JWT signing secret are **local-only examples**, not deployment secrets. Do not commit
 `.env` or overwrite an existing one. The default ports 3000 and 8000 must be free;
-these Compose bindings are not restricted to loopback, so do not expose this local
-demo on an untrusted network.
+Compose publishes them on loopback only. Do not expose this local demo on an
+untrusted network.
 
 Compose starts all five services (`db`, `redis`, `api`, `worker`, `web`). It waits for
 PostgreSQL/Redis health, runs `alembic upgrade head` in the API command before starting
@@ -89,7 +90,7 @@ No startup seeds accounts or tasks. The example configuration works offline. The
 | Liveness | <http://localhost:8000/health> |
 | Readiness (database, redis, ai) | <http://localhost:8000/health/ready> |
 
-To try authentication, open Swagger UI, call `POST /auth/register`, then press **Authorize** and enter the same email (as `username`) and password: Swagger logs in through `POST /auth/login` and sends the bearer token on every later call, such as `GET /auth/me`. Details: [docs/architecture.md](docs/architecture.md#authentication).
+Open the **web app**, choose **Create an account**, and register your name, email and password. Use password sign-in for an existing account. The fresh database has an Inbox project but no demo users or tasks: create a project or your first task in the app. API exploration is optional: in Swagger UI, register via `POST /auth/register`, then **Authorize** with email as `username` and the same password. Details: [web integration](apps/web/README.md#authentication-and-http-integration).
 
 Check `docker compose ps` and `/health/ready` before exploring. Liveness only proves
 the API process answers; readiness reports database, Redis and AI checks (`200` when
@@ -136,7 +137,7 @@ volumes. **Do not add `-v`**, prune volumes or reset the database as routine tro
 Changing `POSTGRES_*` in an env file does not change credentials in an initialized volume.
 Redis proposals/queued jobs are ephemeral; accepted steps are persisted in PostgreSQL.
 
-Only the web app (3000) and the API (8000) are published to the host. PostgreSQL and
+Only the web app (3000) and the API (8000) are published to the host, on loopback. PostgreSQL and
 Redis stay inside the Compose network, reached as `db` and `redis`. The browser API
 origin (`NEXT_PUBLIC_API_URL`) and service mode are baked into the web image: changing
 them requires a rebuild, not just a restart. Keep `CORS__ALLOWED_ORIGINS` equal to the
@@ -144,6 +145,19 @@ web origin and use the same hostname spelling for web/API (`localhost`, not mixe
 `127.0.0.1`). Local HTTP uses `APP__ENV=development` even with a production Next build;
 production API mode requires HTTPS origins and Secure cookies. Configuration details
 and SSO redirects are in [`.env.example`](.env.example) and [ADR 0009](docs/decisions/0009-browser-sessions-and-routes.md).
+
+For scoped alternate ports/images, isolated projects, rebuilds and troubleshooting,
+see [Docker operations](docs/docker.md). Keep the same explicit env file and project
+selection across lifecycle commands; the examples above use the default local project.
+
+### Dockerization
+
+[`apps/api/Dockerfile`](apps/api/Dockerfile) packages the API and Celery worker;
+[`apps/web/Dockerfile`](apps/web/Dockerfile) packages the production Next.js standalone server
+and static assets. [`docker-compose.yml`](docker-compose.yml) connects those images to
+PostgreSQL and Redis; the quick-start command above runs the complete application, not
+just its database. Dependencies are installed from `uv.lock` (`uv sync --frozen`) and
+`package-lock.json` (`npm ci`). Both application images run as non-root users.
 
 ## Tests and linters
 

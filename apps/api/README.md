@@ -165,6 +165,12 @@ The first test starts and reaps private HTTP/worker processes, uses a determinis
 
 ## Docker
 
+Use the [root quick start](../../README.md#quick-start) for the complete five-service app;
+[Docker operations](../../docs/docker.md) covers rebuilds, isolated projects and data retention.
+The image installs production dependencies from `uv.lock` with `uv sync --frozen`, runs as
+uid 1001 and owns the persisted attachment directory. Compose runs migrations before the
+HTTP server and starts the worker only after the API healthcheck passes. No seed runs at startup.
+
 One image (build context `apps/api`) serves three commands:
 
 | Service | Command |
