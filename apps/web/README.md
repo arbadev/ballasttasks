@@ -504,11 +504,17 @@ Run `npx playwright install chromium` once beforehand.
 
 ## Docker
 
-`NEXT_PUBLIC_API_URL` is inlined into the client bundle, so it is a build argument:
+Use the [root quick start](../../README.md#quick-start) to build the complete app with
+its real HTTP backend. The Dockerfile uses `npm ci`, builds Next's `output: "standalone"`
+and copies both `public` and `.next/static` into the non-root runtime image.
 
-```sh
-docker build --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 -t web .
-```
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_SERVICE_MODE` are inlined into the browser bundle
+at build time. Compose passes them as build arguments (`http` by default); the API URL
+must be reachable from the browser, not a container-network hostname. After source or
+public-variable changes, run `docker compose up --build -d` in the same project/configuration.
+A container restart or new checkout alone does not update the image.
+See [Docker operations](../../docs/docker.md) for safe rebuilds, alternate ports/projects,
+persistence and stale-image diagnosis.
 
 ## Version notes
 

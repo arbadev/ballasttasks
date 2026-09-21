@@ -1,9 +1,12 @@
-node_modules
-.next
-coverage
-.git
-.env*
-Dockerfile
-.dockerignore
-README.md
-npm-debug.log*
+# Allow only production build inputs, never local env, credentials or test output.
+**
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!postcss.config.mjs
+!public/
+!public/**
+!src/
+!src/**
+**/.env*

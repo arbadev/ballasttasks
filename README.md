@@ -23,7 +23,7 @@ Full description with diagrams: [docs/architecture.md](docs/architecture.md). De
 
 To run the system:
 
-- A Docker-compatible container runtime with Docker Compose v2 (`docker compose`).
+- A running Docker-compatible container runtime with Docker Compose v2 or newer (`docker compose`) and Git to clone the repository.
 
 To run tests and linters on the host:
 
@@ -34,10 +34,12 @@ To run tests and linters on the host:
 ## Quick start
 
 ```sh
-cp .env.example .env && docker compose up --build
+# Run from the repository root. Preserve any existing local configuration.
+if [ ! -e .env ]; then (umask 077; cp .env.example .env); fi
+docker compose up --build
 ```
 
-That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe. Single sign-on ships disabled, so password login works with no credentials; the `SSO__*` comments in `.env.example` describe how to enable Google or the credential-free `fake` provider.
+This builds and starts all five services (`db`, `redis`, `api`, `worker`, `web`), applying database migrations before the API starts. On a fresh clone, `.env.example` supplies working **local-only** values; an existing `.env` is retained, not reset. Wait for the API to become healthy and the web server to report ready. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe. Single sign-on ships disabled, so password login works with no credentials; the `SSO__*` comments in `.env.example` describe how to enable Google or the credential-free `fake` provider.
 
 | What | URL |
 | --- | --- |
@@ -47,13 +49,24 @@ That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no ot
 | Liveness | <http://localhost:8000/health> |
 | Readiness (database, redis, ai) | <http://localhost:8000/health/ready> |
 
-To try authentication, open Swagger UI, call `POST /auth/register`, then press **Authorize** and enter the same email (as `username`) and password: Swagger logs in through `POST /auth/login` and sends the bearer token on every later call, such as `GET /auth/me`. Details: [docs/architecture.md](docs/architecture.md#authentication).
+Open the **web app**, choose **Create an account**, and register your name, email and password. Use password sign-in for an existing account. The fresh database has an Inbox project but no demo users or tasks: create a project or your first task in the app. API exploration is optional: in Swagger UI, register via `POST /auth/register`, then **Authorize** with email as `username` and the same password. Details: [web integration](apps/web/README.md#authentication-and-http-integration).
 
 To explore the design's tasks and people instead of an empty database, seed a **local** database once with the explicit demo command described in [local demo data](apps/api/README.md#local-demo-data-explicit-optional).
 
-Stop with `Ctrl+C`, then `make down` (`docker compose down`; add `-v` to also drop the database and attachment volumes).
+Stop with `Ctrl+C`, then `docker compose down` (or `make down`). **Do not add `-v`**: normal shutdown retains the database and uploaded files. Restart with the same project and configuration using `docker compose up --build`.
 
-Only the web app (3000) and the API (8000) are published to the host, so those two ports must be free. PostgreSQL and Redis stay inside the compose network, where the services reach them as `db` and `redis`; the browser reaches the API at `NEXT_PUBLIC_API_URL`, which is baked into the web image at build time.
+Only the web app (3000) and API (8000) are published, bound to loopback; those ports must be free. PostgreSQL and Redis stay inside the Compose network. The browser uses `NEXT_PUBLIC_API_URL`, not the container hostname `api`. For rebuilds, persistence, alternate ports/projects and troubleshooting, see [Docker operations](docs/docker.md).
+
+### Dockerization
+
+> Provide Dockerfile and docker-compose.yml to setup local app and database.
+
+[`apps/api/Dockerfile`](apps/api/Dockerfile) packages the API and Celery worker;
+[`apps/web/Dockerfile`](apps/web/Dockerfile) packages the production Next.js standalone server
+and static assets. [`docker-compose.yml`](docker-compose.yml) connects those images to
+PostgreSQL and Redis; the quick-start command above runs the complete application, not
+just its database. Dependencies are installed from `uv.lock` (`uv sync --frozen`) and
+`package-lock.json` (`npm ci`). Both application images run as non-root users.
 
 ## Tests and linters
 
