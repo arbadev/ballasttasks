@@ -106,19 +106,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const stepGeneration = useStepGenerationService();
   const clock = useClock();
   const navigation = useTaskNavigation();
-  const [state, reduce] = useReducer(workspaceReducer, { ...initialWorkspaceState, ...navigation?.route });
-  const [route, setRoute] = useState(navigation?.route);
+  const navigated = navigation?.route;
+  const navigate = navigation?.navigate;
+  const [state, reduce] = useReducer(workspaceReducer, { ...initialWorkspaceState, ...navigated });
+  const [route, setRoute] = useState(navigated);
   // URL is authoritative. Synchronize its projection before rendering children or issuing
   // queries; never run a state->router effect (that would undo Back/Forward).
-  if (navigation && route !== navigation.route) {
-    setRoute(navigation.route);
-    reduce({ type: "routeChanged", route: navigation.route });
+  if (navigated && route !== navigated) {
+    setRoute(navigated);
+    reduce({ type: "routeChanged", route: navigated });
   }
   const dispatch = useCallback((action: WorkspaceAction, replace = action.type === "searchChanged") => {
-    const next = navigation && changeTaskRoute(navigation.route, action);
-    if (next && navigation) navigation.navigate(next, replace);
+    const next = navigated && changeTaskRoute(navigated, action);
+    if (next && navigate) navigate(next, replace);
     else reduce(action);
-  }, [navigation]);
+  }, [navigated, navigate]);
   const [directory, setDirectory] = useState<Directory>(EMPTY_DIRECTORY);
   const [now, setNow] = useState(() => clock());
   const [attempt, setAttempt] = useState(0);
@@ -239,7 +241,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         projectChangedAt.current.set(project.id, directoryRevision.current);
         setDirectory((d) => ({ ...d, projects: [...d.projects, project] }));
         // A scope, signal, filter or search left on would hide the project's first, unassigned tasks.
-        if (navigation) navigation.navigate({ ...navigation.route, query: { ...DEFAULT_QUERY, project: project.id }, pageOffset: 0 });
+        if (navigated && navigate) navigate({ ...navigated, query: { ...DEFAULT_QUERY, project: project.id }, pageOffset: 0 });
         else {
           dispatch({ type: "scopeSelected", scope: "all" });
           dispatch({ type: "signalCleared" });
@@ -251,7 +253,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [directoryService, dispatch, navigation],
+    [directoryService, dispatch, navigated, navigate],
   );
 
   const value = useMemo(() => ({ state, dispatch, actions, directory, now }), [state, dispatch, actions, directory, now]);
