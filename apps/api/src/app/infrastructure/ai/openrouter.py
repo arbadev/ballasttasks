@@ -40,9 +40,15 @@ class OpenRouterLanguageModel:
         body = await self._exchange(
             "POST",
             "/chat/completions",
-            json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+            json={
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "reasoning": {"enabled": True},
+            },
         )
         try:
+            # The port returns final text only. Opaque reasoning_details are not task
+            # content, and independent generations must never reuse assistant messages.
             text = body["choices"][0]["message"]["content"]
         except KeyError, IndexError, TypeError:
             raise self._invalid("no completion in the response") from None

@@ -146,7 +146,7 @@ Generation never creates steps: send the chosen titles to the existing
 `POST /tasks/{id_or_key}/steps/bulk` to accept them (atomic, 100-step total ceiling).
 See [the HTTP/lifetime contract](../../docs/architecture.md#queued-step-generation).
 
-`AI__PROVIDER=fake` (default) produces three deterministic draft titles offline;
+`AI__PROVIDER=fake` (explicit offline choice, with `AI__MODEL=fake-1`) produces three deterministic draft titles offline;
 `openrouter` and `gemini` use the existing provider-neutral `AI__MODEL`, `AI__API_KEY`,
 `AI__BASE_URL` and `AI__TIMEOUT_SECONDS` settings. The worker waits
 `min(AI__TIMEOUT_SECONDS, 240)` seconds for the model and its hard execution limit is 250
@@ -162,6 +162,41 @@ uv run pytest -m integration tests/integration/test_step_generation_results.py
 
 The first test starts and reaps private HTTP/worker processes, uses a deterministic model
 (no paid calls), and prints only task-feature requests/responses, never login credentials.
+
+## AI configuration
+
+The normal default is `AI__PROVIDER=openrouter`, `AI__MODEL=~openai/gpt-luna-latest`.
+Supply `AI__API_KEY` to both API and worker; the API refuses to start without it.
+The worker builds its model per job: a missing worker key becomes a safe `worker_failed`
+result with the fixed `configuration` log category, never an offline fallback. Leave
+`AI__BASE_URL` blank to use `https://openrouter.ai/api/v1`. Do not put a model-page URL
+or the `/chat/completions` suffix there: the adapter appends its own endpoint paths.
+Editing `.env` does not change an already-running service's environment.
+
+The exact `~openai/gpt-luna-latest` identifier is a public model alias, not an
+`@preset/...` workspace preset. OpenRouter's public and authenticated model listings
+reported it on 2026-09-21, targeting `openai/gpt-5.6-luna`; that target may change.
+Public listing alone is not proof your account can use it. Readiness only checks
+`GET /key` (cached, no generation); model availability, routing and credits can still
+prevent a job. No missing/rejected-key fallback exists.
+
+OpenRouter sends `reasoning: {enabled: true}` and returns **only final message content**
+through the unchanged single-prompt port. Returned `reasoning_details` are opaque and
+are neither saved as steps nor logged. There is no conversation store or multi-turn UI.
+If writing a separate continuation example, pass the assistant's `reasoning_details`
+unmodified, authenticate **both** requests, and check HTTP/API errors before reading
+`choices`. Reasoning tokens are billed and count toward the completion budget.
+
+Offline: explicitly set `AI__PROVIDER=fake` and `AI__MODEL=fake-1`; no key is needed.
+Gemini alternative: `AI__PROVIDER=gemini`, `AI__MODEL=gemini-3.8-flash`, its own
+`AI__API_KEY`, and blank `AI__BASE_URL` (or its documented Google API root).
+Default and integration tests select fakes/stub transports and never need a provider key.
+Opt-in `uv run pytest -m live` uses the selected real provider and **spends tokens**;
+run it only intentionally, separately from offline validation.
+
+The queue remains API → Redis broker → Celery → selected model → Redis result → poll;
+only explicit bulk acceptance writes steps. Redis proposals are ephemeral, not durable
+job rows. The normal HTTP budgets are not model-spend or per-job quotas.
 
 ## Docker
 

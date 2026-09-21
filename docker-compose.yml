@@ -1,4 +1,5 @@
 # First run: see README.md#quick-start (never overwrite an existing .env).
+# Set AI__API_KEY or explicitly select fake/fake-1 before `docker compose up --build`.
 # BT_ENV_FILE selects the API/worker runtime file; --env-file selects Compose interpolation.
 # Only web (3000) and api (8000) are published on loopback; db and redis stay on the
 # compose network, where services reach each other by service name.

@@ -65,7 +65,7 @@ async def test_deletion_during_generation_discards_proposals(
     assert result.titles == ()
 
 
-async def test_default_fake_provider_produces_offline_drafts() -> None:
+async def test_explicit_fake_provider_produces_offline_drafts() -> None:
     from app.application.use_cases.generate_step_titles import GenerateStepTitles
     from app.infrastructure.ai.fake import FakeLanguageModel
 

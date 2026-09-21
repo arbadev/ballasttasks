@@ -59,7 +59,36 @@ async def test_generate_posts_the_prompt_as_a_chat_completion_and_returns_the_te
     assert json.loads(request.content) == {
         "model": OPENROUTER_MODEL,
         "messages": [{"role": "user", "content": "Summarise this task"}],
+        "reasoning": {"enabled": True},
     }
+
+
+async def test_alias_is_sent_unchanged_and_reasoning_never_becomes_task_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    opaque = [{"type": "reasoning.encrypted", "data": "private-opaque-reasoning"}]
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json=_completion_with(role="assistant", content='["Plan"]', reasoning_details=opaque),
+        )
+
+    caplog.set_level(logging.DEBUG)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        model = OpenRouterLanguageModel(
+            client, model="~openai/gpt-luna-latest", api_key=TEST_API_KEY
+        )
+        assert await model.generate("first independent task") == '["Plan"]'
+        assert await model.generate("second independent task") == '["Plan"]'
+    assert [body["model"] for body in seen] == ["~openai/gpt-luna-latest"] * 2
+    assert [body["messages"] for body in seen] == [
+        [{"role": "user", "content": "first independent task"}],
+        [{"role": "user", "content": "second independent task"}],
+    ]
+    assert "private-opaque-reasoning" not in caplog.text
 
 
 async def test_a_base_url_override_replaces_the_default_host() -> None:

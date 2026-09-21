@@ -22,7 +22,7 @@ def test_missing_redis_url_names_the_variable(clean_env: pytest.MonkeyPatch) -> 
         load_settings(valid_ai_providers=PROVIDERS)
 
 
-def test_defaults_are_applied(minimal_env: pytest.MonkeyPatch) -> None:
+def test_defaults_are_applied_with_explicit_offline_ai(minimal_env: pytest.MonkeyPatch) -> None:
     settings = load_settings(valid_ai_providers=PROVIDERS)
 
     assert settings.app.env == "development"
@@ -246,7 +246,7 @@ def test_a_rejected_redis_url_never_shows_its_password(
 TEST_AI_KEY = "sk-test-0123456789abcdef-never-a-real-key"
 
 
-def test_ai_defaults_need_no_key(minimal_env: pytest.MonkeyPatch) -> None:
+def test_explicit_offline_ai_needs_no_key(minimal_env: pytest.MonkeyPatch) -> None:
     ai = load_settings(valid_ai_providers=PROVIDERS).ai
 
     assert ai.api_key is None
@@ -298,7 +298,7 @@ def test_an_unknown_provider_is_reported_before_its_missing_key(
 
 
 def test_blank_optional_ai_variables_mean_unset(minimal_env: pytest.MonkeyPatch) -> None:
-    """``.env.example`` ships them empty; that must not stop the default stack."""
+    """Empty optional values parse as unset; the provider factory enforces its key rule."""
     minimal_env.setenv("AI__API_KEY", "")
     minimal_env.setenv("AI__BASE_URL", "")
 

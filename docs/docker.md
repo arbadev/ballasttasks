@@ -2,8 +2,9 @@
 
 The [root quick start](../README.md#quick-start) is the first-run path. Prerequisites:
 a running Docker-compatible engine, Docker Compose v2 or newer, Git, and free loopback
-ports 3000/8000. No host Python, Node, database or provider credentials are needed to run
-the app. These are local development defaults, not a public deployment recipe. The frontend
+ports 3000/8000. No host Python, Node or database installation is needed. The normal
+OpenRouter default requires `AI__API_KEY`; explicitly select `fake` / `fake-1` for
+keyless offline use. These are local development defaults, not a public deployment recipe. The frontend
 is a production build, but keep the shipped API `APP__ENV=development` for local plain HTTP;
 `APP__ENV=production` requires HTTPS CORS origins and Secure session cookies. A public
 deployment needs its own TLS/security configuration, not these plain-HTTP defaults.
@@ -18,9 +19,11 @@ deployment needs its own TLS/security configuration, not these plain-HTTP defaul
 | `db` | PostgreSQL, pinned in Compose | Private network hostname `db`; named `db-data` volume |
 | `redis` | Redis, pinned in Compose | Private hostname `redis`; Celery broker/results and rate-limit counters |
 
-API/worker share runtime settings, database and Redis URLs. The default `AI__PROVIDER=fake`
-is an **offline deterministic model**, not a real AI provider. Identity providers are
-disabled by default; password registration works without third-party credentials.
+API/worker share runtime settings, database and Redis URLs. The default is OpenRouter
+with `AI__MODEL=~openai/gpt-luna-latest`; keep the leading `~` and supply its key.
+`AI__PROVIDER=fake` with `AI__MODEL=fake-1` explicitly selects an **offline deterministic
+model**, never a fallback for missing/rejected credentials. Identity providers are
+disabled by default; password registration needs no third-party identity credentials.
 No demo data is seeded automatically. To opt in explicitly on a local database you own:
 
 ```sh
@@ -88,6 +91,10 @@ Edit that file privately, keeping database credentials internally consistent and
 
 ```dotenv
 COMPOSE_PROJECT_NAME=ballasttasks-sandbox
+# Explicit offline sandbox, no provider key or paid generation:
+AI__PROVIDER=fake
+AI__MODEL=fake-1
+AI__API_KEY=
 BT_API_PORT=48080
 BT_WEB_PORT=43000
 NEXT_PUBLIC_API_URL=http://localhost:48080
@@ -131,8 +138,9 @@ stacks: browser cookies are host-scoped, not port-scoped. See the authoritative
 - **Upload permission failure:** check the configured mount and non-root ownership; do not
   run the API as root or make files world-writable to hide it.
 - **Generation remains pending:** check worker readiness and matching Redis/database/AI
-  settings. Readiness does not exercise the queue. Default fake AI needs no key; real
-  providers are optional operator configuration, not a first-run requirement.
+  settings. Readiness does not exercise the queue. The normal OpenRouter default needs
+  a key; explicit fake/fake-1 needs none. `AI__BASE_URL` is an API root, not a model page
+  or `/chat/completions` URL; blank selects the provider's default root.
 - **429:** respect `Retry-After`; retain the normal auth 10/60s, authenticated 120/60s and
   anonymous 60/60s limits. Do not reset counters or increase limits to make a smoke pass.
 
