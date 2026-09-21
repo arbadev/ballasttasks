@@ -26,7 +26,7 @@ const ELEMENTS: { name: string; find: (page: Page) => Locator; except?: string[]
   { name: "page body", find: (page) => page.locator("body"), except: ["fontSize"] },
   { name: "sidebar", find: (page) => page.locator("aside").first() },
   { name: "logo mark", find: (page) => page.locator("aside span").first() },
-  { name: "nav button", find: (page) => page.getByRole("button", { name: /^My tasks/ }) },
+  { name: "nav item", find: (page) => page.getByRole(page.url().startsWith(APP_URL) ? "link" : "button", { name: /^My tasks/ }) },
   { name: "page heading", find: (page) => page.getByRole("heading", { level: 1 }) },
   { name: "primary button", find: (page) => page.getByRole("button", { name: "New task" }) },
   { name: "search box", find: (page) => page.getByPlaceholder("Search tasks") },
@@ -71,7 +71,7 @@ test("the radius utilities follow the skin's radii on all four corners", async (
 
   expect(await corners(page.getByRole("button", { name: "New task" })), "rounded-bt").toEqual(["7px", "7px", "7px", "7px"]);
   expect(await corners(page.getByPlaceholder("Search tasks")), "rounded-bt").toEqual(["7px", "7px", "7px", "7px"]);
-  expect(await corners(page.getByRole("button", { name: /^My tasks/ })), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
+  expect(await corners(page.getByRole("link", { name: /^My tasks/ })), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
   expect(await corners(page.locator("aside span").first()), "rounded-bt-sm").toEqual(["5px", "5px", "5px", "5px"]);
 });
 
@@ -145,7 +145,9 @@ test.describe("against the design snapshot", () => {
     const design = await context.newPage();
     const app = await context.newPage();
     await open(design, `${DESIGN_URL}/${DESIGN_FILE}`, "All tasks");
-    await open(app, APP_URL, "13 tasks");
+    // Begin at the real task route: the root redirect intentionally moves focus to
+    // the new page heading, so its next Tab is not the shell's first control.
+    await open(app, `${APP_URL}/tasks`, "13 tasks");
 
     const ring = async (page: Page) => {
       await page.bringToFront();
@@ -158,7 +160,13 @@ test.describe("against the design snapshot", () => {
 
     const expected = await ring(design);
     expect(expected.outlineStyle).toBe("solid");
-    expect(await ring(app)).toEqual(expected);
+    expect(expected.tag).toBe("BUTTON");
+    // Navigation is now a real anchor, not the reference's state-only button;
+    // retain every ring assertion and verify the new keyboard/route contract.
+    expect(await ring(app)).toEqual({ ...expected, tag: "A" });
+    const allTasks = app.getByRole("link", { name: /^All tasks/ });
+    await expect(allTasks).toBeFocused();
+    await expect(allTasks).toHaveAttribute("href", "/tasks");
     await context.close();
   });
 });

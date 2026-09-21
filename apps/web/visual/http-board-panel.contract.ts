@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "./http-fixtures";
 import { ApiClient } from "../src/lib/api/client";
 import { HttpAuthService } from "../src/features/auth/service";
 import { HttpTaskService } from "../src/features/tasks/services/httpTaskService";
@@ -214,7 +215,7 @@ test("mobile shell handoff lifecycle and deliberate departures", async ({ browse
   const card = (id: string) => board.locator(`[data-card-open="${id}"]`);
   const toggleProject = async () => {
     await page.getByRole("button", { name: "Open navigation", exact: true }).click();
-    await page.getByRole("navigation", { name: "Projects", exact: true }).getByRole("button", { name: new RegExp(`^${project.name}`) }).click();
+    await page.getByRole("navigation", { name: "Projects", exact: true }).getByRole("link", { name: new RegExp(`^${project.name}`) }).click();
   };
   const removeInPanel = async () => {
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();

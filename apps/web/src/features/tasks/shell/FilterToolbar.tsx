@@ -1,11 +1,14 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { useState } from "react";
 import { Select } from "@/components/ui/Select";
 import { TextInput } from "@/components/ui/TextInput";
 import type { DueFilter, PriorityFilter, SortBy, StatusFilter } from "../model/filter";
 import { STATUSES } from "../model/statuses";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
+import { MAX_SEARCH_LENGTH, routeSearch } from "../workspace/route";
+import { useTaskNavigation } from "../workspace/TaskRouteContext";
 
 const STATUS_OPTIONS: readonly { value: StatusFilter; label: string }[] = [
   { value: "open", label: "All open" },
@@ -46,15 +49,34 @@ export function FilterToolbar() {
       <Select label="Due" value={query.due} options={DUE_OPTIONS} onChange={actions.setDueFilter} />
       <Select label="Priority" value={query.priority} options={PRIORITY_OPTIONS} onChange={actions.setPriorityFilter} />
       <Select label="Sort" value={state.sort} options={SORT_OPTIONS} onChange={actions.setSort} />
-      <TextInput
-        type="search"
-        label="Search tasks"
-        placeholder="Search tasks"
-        icon={Search}
-        value={query.search}
-        onChange={actions.setSearch}
-        className="ml-auto min-w-[220px] max-md:ml-0 max-md:w-full"
-      />
+      <SearchField search={query.search} onSearch={actions.setSearch} />
     </div>
+  );
+}
+
+/**
+ * The route reaches `search` in a transition, so the box shows what was typed here until the
+ * user navigates (Back/Forward or a pushed change); from then on it shows the route's search.
+ * Typing takes the route's own rule, so a search the route would refuse empties the box.
+ */
+function SearchField({ search, onSearch }: { search: string; onSearch: (search: string) => void }) {
+  const resets = useTaskNavigation()?.resets;
+  const [draft, setDraft] = useState<{ value: string; resets: number } | null>(null);
+  const value = draft && draft.resets === resets ? draft.value : search;
+  return (
+    <TextInput
+      type="search"
+      label="Search tasks"
+      placeholder="Search tasks"
+      icon={Search}
+      value={value}
+      maxLength={MAX_SEARCH_LENGTH}
+      onChange={(typed) => {
+        const next = routeSearch(typed);
+        if (resets !== undefined) setDraft({ value: next, resets });
+        onSearch(next);
+      }}
+      className="ml-auto min-w-[220px] max-md:ml-0 max-md:w-full"
+    />
   );
 }
