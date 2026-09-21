@@ -8,6 +8,7 @@ import type { DueFilter, PriorityFilter, SortBy, StatusFilter } from "../model/f
 import { STATUSES } from "../model/statuses";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
 import { MAX_SEARCH_LENGTH, routeSearch } from "../workspace/route";
+import { useTaskNavigation } from "../workspace/TaskRouteContext";
 
 const STATUS_OPTIONS: readonly { value: StatusFilter; label: string }[] = [
   { value: "open", label: "All open" },
@@ -54,29 +55,26 @@ export function FilterToolbar() {
 }
 
 /**
- * The route reaches `search` in a transition, so the box shows what was typed until each
- * keystroke's URL comes back; a search that did not come from typing here replaces the draft.
+ * The route reaches `search` in a transition, so the box shows what was typed here until the
+ * user navigates (Back/Forward or a pushed change); from then on it shows the route's search.
  * Typing takes the route's own rule, so a search the route would refuse empties the box.
  */
 function SearchField({ search, onSearch }: { search: string; onSearch: (search: string) => void }) {
-  const [draft, setDraft] = useState({ value: search, typed: [] as string[], seen: search });
-  if (draft.seen !== search) {
-    const echo = draft.typed.indexOf(search);
-    const typed = echo < 0 ? [] : draft.typed.slice(echo + 1);
-    setDraft({ value: typed.length ? draft.value : search, typed, seen: search });
-  }
+  const resets = useTaskNavigation()?.resets;
+  const [draft, setDraft] = useState<{ value: string; resets: number } | null>(null);
+  const value = draft && draft.resets === resets ? draft.value : search;
   return (
     <TextInput
       type="search"
       label="Search tasks"
       placeholder="Search tasks"
       icon={Search}
-      value={draft.value}
+      value={value}
       maxLength={MAX_SEARCH_LENGTH}
       onChange={(typed) => {
-        const value = routeSearch(typed);
-        setDraft((current) => value === current.seen ? { value, typed: [], seen: current.seen } : { ...current, value, typed: [...current.typed, value] });
-        onSearch(value);
+        const next = routeSearch(typed);
+        if (resets !== undefined) setDraft({ value: next, resets });
+        onSearch(next);
       }}
       className="ml-auto min-w-[220px] max-md:ml-0 max-md:w-full"
     />

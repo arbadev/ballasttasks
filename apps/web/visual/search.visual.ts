@@ -99,3 +99,19 @@ for (const prior of ["", "prd"]) {
     await expect(page.getByText("13 tasks", { exact: true })).toBeVisible();
   });
 }
+
+test("typing, deleting back to the committed search and typing again keeps the newest text", async ({ page }) => {
+  const search = await openTasks(page);
+  await search.click();
+  for (const key of ["a", "Backspace", "b"]) await page.keyboard.press(key);
+  await expect(search).toHaveValue("b");
+  await expect.poll(() => searchParam(page)).toBe("b");
+  await search.pressSequentially("prd");
+  await expect.poll(() => searchParam(page)).toBe("bprd");
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("Backspace");
+  await search.pressSequentially("bprdx");
+  await expect(search).toHaveValue("bprdx");
+  expect(await search.evaluate((input: HTMLInputElement) => input.selectionStart)).toBe(5);
+  await expect.poll(() => searchParam(page)).toBe("bprdx");
+});
