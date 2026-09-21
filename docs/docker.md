@@ -5,7 +5,8 @@ a running Docker-compatible engine, Docker Compose v2 or newer, Git, and free lo
 ports 3000/8000. No host Python, Node, database or provider credentials are needed to run
 the app. These are local development defaults, not a public deployment recipe. The frontend
 is a production build, but keep the shipped API `APP__ENV=development` for local plain HTTP;
-a public deployment needs its own HTTPS/security configuration.
+`APP__ENV=production` requires HTTPS CORS origins and Secure session cookies. A public
+deployment needs its own TLS/security configuration, not these plain-HTTP defaults.
 
 ## What runs
 
