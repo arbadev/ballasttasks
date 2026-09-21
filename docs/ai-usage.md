@@ -1,5 +1,13 @@
 # AI usage
 
+This assessment grew through conversation, implementation and correction, not a single
+prompt followed by an unchecked code dump. I used GenAI to help turn a deliberately
+small scaffold into the application in this repository. I remained responsible for
+what to build, which architectural choices to accept and whether the interface met
+the intended behavior. This account separates **assistance during development** from
+**AI drafting inside the product**, and separates remembered instructions from retained
+evidence.
+
 ## Tools used
 
 **Preferred coding tool for the proposed scaffold: Claude Code.** Give it the prompt
@@ -14,6 +22,21 @@ coding model/version and first unedited model drafts are not retained in the evi
 used for this account, so neither is asserted here. The samples are **accepted resulting
 repository code**, not claimed verbatim first responses.
 
+**Firstmate was my development companion.** It coordinated bounded workers with
+specific instructions, brought review findings and test results back into the work,
+and kept source delivery tied to the evidence for the changed code. That coordination
+helped keep implementation, validation and unresolved issues visible across iterations;
+it did not replace my product direction, interface feedback, scope/architecture
+acceptance or final decisions. Firstmate is development tooling, not a runtime
+dependency of Ballast Tasks, and coordination is not a guarantee of correctness.
+
+The practical loop was to define a small change and its constraints, inspect existing
+code, ask for a testable implementation, examine failures and review findings, then
+accept or correct the result. Tests and source inspection were the checks on the
+assistant's answer, not supporting decoration added after declaring it done. The
+examples below include corrections and limits precisely because an apparently
+plausible answer was not enough.
+
 The workflow used pytest, Vitest/MSW, Playwright, native Chrome checks, Ruff, mypy,
 TypeScript, import-linter and pre-commit. The repository's
 [working rules](../AGENTS.md) require tests-first changes and inward dependencies;
@@ -22,6 +45,39 @@ The application's configurable language-model adapters are a separate feature, n
 identification of the coding assistant: see [ADR 0003](decisions/0003-llm-adapters-over-http.md).
 
 ## Prompts used
+
+### Starting point: recalled scaffold request
+
+The following is an excerpt from **my recalled starting prompt, reconstructed by me**;
+it is not an independently preserved verbatim conversation transcript:
+
+> I am aiming to have a mono repo containing:
+>
+> the frontend application, which is going to be a Next.js app
+> the backend application, which is going to be a FastAPI application
+> probably some shared documentation in that repo that is going to work as some kind of PRD, definitions, and changes that are going to be added to the product that I'm going to be creating for this Claude Design
+>
+> Help me to build this thing. Please give me the instructions so I can start working on that front.
+
+**Condensed history, not a quotation:** I wanted clean configuration, dependency
+inversion and replaceable database/AI components. The initial assignment was setup
+only: a Next.js/FastAPI monorepo, PostgreSQL, Redis, Celery, health/readiness checks,
+Docker Compose, tests and linting. Most documentation was initially headings only.
+Work was staged—implement, check, commit and report—with tests first on the backend,
+explicit checkpoints, and a stop rather than guessing after repeated errors. Auth,
+tasks and other product features were outside that first stage; later accepted work
+intentionally added them. Historical version choices were starting assumptions, not
+today's installation instructions; use the locked dependencies and
+[current setup](../README.md#quick-start).
+
+My starting wording contrasted “dependency inversion” with “dependency injection”.
+The implemented distinction is more precise: use cases depend on inward-facing
+`Protocol` ports, and explicit constructor calls in the composition root inject their
+adapters. We avoided a DI **framework**, not dependency injection itself. That made
+the original replacement goal concrete and testable; see
+[ADR 0002](decisions/0002-ports-and-adapters.md).
+
+### A usable prompt for the expanded API
 
 **Proposed API scaffold prompt (written for this submission, not a historical
 invocation):**
@@ -38,8 +94,12 @@ invocation):**
 > and run tests, coverage, type checks and import-boundary checks. Do not use real
 > external keys or claim tests passed unless they ran.
 
-This proposed prompt did **not** produce the samples below. Historical evidence is
-narrower: these are exact, representative excerpts from retained implementation instructions,
+This proposed prompt did **not** produce the samples below. It describes the later,
+expanded API scope, not the initial no-features scaffold.
+
+### Retained instructions for one bounded feature
+
+Historical evidence is narrower: these are exact, representative excerpts from retained implementation instructions,
 not newly reconstructed prompts or the entire development conversation:
 
 > Implement only the queued asynchronous step-generation API.
@@ -53,6 +113,27 @@ existing Celery/Redis infrastructure and provider-neutral ports, authenticated
 request/poll routes, bounded safe failure responses and offline tests. They did not
 ask the assistant to invent a new job framework or automatically accept generated steps.
 The implemented scope is [FR-24–26](PRD.md).
+
+## GenAI inside the product
+
+Development assistance and the shipped model integration solve different problems.
+In the app, a person requests draft step titles for a task. The API queues work,
+Celery reads task context without keeping a transaction open during the model wait,
+and polling returns validated proposals. Only explicit acceptance writes steps.
+This puts the model on the suggestion side of the boundary, not in charge of task data.
+
+The current default is **OpenRouter**, with the exact alias
+`~openai/gpt-luna-latest` and reasoning enabled. The provider-neutral `LanguageModel`
+port returns only final content; opaque reasoning details are not stored, logged or
+reused. Gemini is an alternative. Offline use explicitly selects **both**
+`AI__PROVIDER=fake` and `AI__MODEL=fake-1`; missing or rejected real-provider credentials
+never trigger a silent fake fallback. See [AI configuration](../apps/api/README.md#ai-configuration)
+and [ADR 0003](decisions/0003-llm-adapters-over-http.md).
+
+Using plain HTTP rather than a vendor SDK keeps the small port, timeout policy and
+error mapping under our control. The tradeoff is that we own those request/response
+shapes: a stub test can pass while a vendor API changes. Likewise, valid JSON is not
+the same as useful advice. Human acceptance and bounded validation remain necessary.
 
 ## Representative output
 
@@ -97,6 +178,15 @@ passing, plus lint, pre-commit and an HTTP-mode production build. API coverage w
 tree as that validated head. These are historical results, not a claim of newly
 running those journeys for this document or of remote CI; no CI workflow is claimed.
 
+A later source-bound checkpoint is `7c43cbfc1161f958e0972ccfc4465293d94dbf6a`,
+whose tree matches landed `2f4397aa0e7bed4e859302beb9de4835ffb3b694`. It reported
+**2,625 API tests (91.05% coverage), 380 integration tests and 804 web tests** passing,
+plus lint/types/import checks, pre-commit and an HTTP-mode production build. These
+final suites used fake providers or mock transports with no real credentials. This
+documentation-only follow-up reuses those results for unchanged executable inputs;
+it does not relabel them as fresh test runs or a new browser campaign. Remote CI was
+not run and no configured CI checks are claimed.
+
 **Current limitation:** later session/routing work exposed an unresolved React185
 (maximum update depth) failure in Next development-mode browser testing. Five bounded
 production attempts passed, but those attempts neither resolve the development failure
@@ -115,9 +205,20 @@ Evidence types matter:
   attachments and explicit proposal acceptance. A subsequent main-equivalent
   deployment smoke confirmed a saved fixture after a fresh sign-in, then deleted it.
   Existing screenshots/journeys retain their original tested-head labels.
-- AI and SSO providers remained **fake**. These results do not verify paid-provider
-  availability, model usefulness or a real Google account flow. One inherited httpx
-  cookie warning was disclosed; normal native console and Chrome Issues checks were clean.
+- Those historical browser/integration results used **fake AI and SSO providers**.
+  Separately, one bounded real OpenRouter generation at source `1323d10304622360828cc295065e967eb0daf12f`
+  traversed API → Redis → Linux prefork Celery → the exact configured alias, then
+  polling and explicit acceptance. No steps or activity changed before acceptance.
+  The later provider delivery changed only a fake-provider docstring in API production
+  source. This supports one real queued success, not a live-model evaluation campaign,
+  a forced worker-timeout test, capacity, or continued provider availability. Its
+  native browser attempt stopped on stale-reference tooling failures; HTTP success
+  is not a native-browser pass. No real Google SSO flow is claimed.
+- One inherited httpx cookie deprecation warning and two jsdom navigation notices were
+  retained in validation history. Earlier native console/Chrome Issues checks were
+  clean within their own journeys, not a blanket warning-free claim for later source.
+  A bounded vendor check found no verified applicable fix for the development React185
+  path; successful production attempts do not erase that failure.
 
 Reproduce the repository checks after the [setup](../README.md#tests-and-linters),
 using a dedicated test stack, never a retained demo database:
@@ -151,10 +252,24 @@ isolated visual ports and real-HTTP test configuration, and the
   disappeared after authoritative query settlement. A failing served regression and
   a fix were followed by native two-client confirmation of focus on the moved card.
   See [board tests](../apps/web/src/features/tasks/board/BoardView.test.tsx).
+- **Provider configuration:** the real-provider default was checked against the exact
+  model alias, with failing default/startup and reasoning-request tests before the
+  change. The API base URL must be the provider root, not a completion endpoint;
+  type-valid configuration alone cannot prove that an endpoint is usable. Offline
+  tests remain explicitly fake/keyless. See
+  [default tests](../apps/api/tests/config/test_ai_default.py) and
+  [adapter tests](../apps/api/tests/unit/test_openrouter_language_model.py).
+- **Test ordering:** a component test failed because its intended passive-effect
+  ordering had not been established. The fixture was changed to await the actual
+  loaded-effect witness, keeping both ordering assertions and the final focus checks.
+  That correction is test evidence, not a claim to fix every browser focus issue.
+  See [detail tests](../apps/web/src/features/tasks/detail/TaskDetail.test.tsx).
 - **Validation setup was fallible too:** an HTTP run failed when its worker was absent;
   a recovered owned worker and a later scheduled run passed. Credential-limit failures
   were retained and groups spaced by the real limit window, not “fixed” by weakening
-  authentication limits. Those failed attempts are not included as passes.
+  authentication limits. A production-mode seed test also failed with an inherited
+  HTTP CORS origin; valid synthetic HTTPS CORS corrected the test environment without
+  weakening its assertion. Those failed attempts are not included as passes.
 
 ## Edge cases, authentication and validation handling
 
@@ -202,3 +317,18 @@ model output can be syntactically valid yet unhelpful; and shared request thrott
 is **not** a separate generation spending cap. Human proposal acceptance, explicit
 failure contracts and documented limitations matter more than treating assistant
 suggestions or coverage percentages as guarantees.
+
+## What I would carry forward
+
+The useful part of this process was not asking for more code at once. It was making
+the next question small enough to check: what may this layer know, what happens when
+a provider fails, what persists after reload, and who decides that a suggestion
+becomes task data? Firstmate helped coordinate those questions and their evidence;
+the answers still needed human acceptance and executable checks.
+
+The strongest lesson is to preserve the difference between intent, output and proof.
+A prompt states what I wanted. Accepted source shows what we built. A passing test
+supports a particular behavior on particular inputs—not the whole product, every
+browser or every future provider response. Keeping the original failures and known
+limits beside the successes makes this account more useful than calling the project
+finished because the code and documentation exist.
