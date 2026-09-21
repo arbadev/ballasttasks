@@ -1,11 +1,12 @@
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.import_linter_cache/
-.coverage
-htmlcov/
-.env
-.git/
+# Allow only production build inputs. Local env, credentials, tests and outputs stay out.
+**
+!pyproject.toml
+!uv.lock
+!alembic.ini
+!src/
+!src/**
+!migrations/
+!migrations/**
+**/.env*
+**/__pycache__/
+**/*.py[cod]

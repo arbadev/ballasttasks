@@ -1,6 +1,6 @@
-# The whole system: `cp .env.example .env && docker compose up --build`.
-# Every value comes from .env (interpolation for compose itself, env_file for the API image).
-# Only web (3000) and api (8000) are published to the host; db and redis stay on the
+# First run: see README.md#quick-start (never overwrite an existing .env).
+# BT_ENV_FILE selects the API/worker runtime file; --env-file selects Compose interpolation.
+# Only web (3000) and api (8000) are published on loopback; db and redis stay on the
 # compose network, where services reach each other by service name.
 name: ballasttasks
 
@@ -9,8 +9,8 @@ name: ballasttasks
 x-api-image: &api-image
   build:
     context: apps/api
-  image: ballasttasks-api
-  env_file: .env
+  image: ${COMPOSE_PROJECT_NAME:-ballasttasks}-api
+  env_file: ${BT_ENV_FILE:-.env}
 
 services:
   db:
@@ -45,7 +45,7 @@ services:
       - -c
       - alembic upgrade head && exec uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-proxy-headers
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${BT_API_PORT:-8000}:8000"
     environment:
       # The mount below decides where the attachments live in the container, so the API is
       # told the same path rather than being left to its own default: a .env that predates
@@ -82,6 +82,7 @@ services:
         condition: service_healthy
 
   web:
+    image: ${COMPOSE_PROJECT_NAME:-ballasttasks}-web
     build:
       context: apps/web
       args:
@@ -89,7 +90,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set in .env}
         NEXT_PUBLIC_SERVICE_MODE: ${NEXT_PUBLIC_SERVICE_MODE:-http}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${BT_WEB_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
