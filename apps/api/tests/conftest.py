@@ -36,11 +36,23 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 @pytest.fixture
 def minimal_env(clean_env: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    """Only the required variables, pointing at services that are down."""
+    """Required variables and explicit offline AI, pointing at services that are down."""
     clean_env.setenv("DATABASE__URL", DOWN_DATABASE_URL)
     clean_env.setenv("REDIS__URL", DOWN_REDIS_URL)
     clean_env.setenv("AUTH__JWT_SECRET", TEST_JWT_SECRET)
+    clean_env.setenv("AI__PROVIDER", "fake")
+    clean_env.setenv("AI__MODEL", "fake-1")
     return clean_env
+
+
+@pytest.fixture(autouse=True)
+def offline_integration_ai(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real database/queue tests never inherit a paid provider or a developer's key."""
+    if request.node.get_closest_marker("integration"):
+        monkeypatch.setenv("AI__PROVIDER", "fake")
+        monkeypatch.setenv("AI__MODEL", "fake-1")
+        monkeypatch.delenv("AI__API_KEY", raising=False)
+        monkeypatch.delenv("AI__BASE_URL", raising=False)
 
 
 @pytest.fixture(scope="session")

@@ -17,7 +17,7 @@ from app.infrastructure.config.settings import AiSettings
 
 pytestmark = pytest.mark.live
 
-DEFAULT_MODELS = {"openrouter": "google/gemini-3.8-flash", "gemini": "gemini-3.8-flash"}
+DEFAULT_MODELS = {"openrouter": "~openai/gpt-luna-latest", "gemini": "gemini-3.8-flash"}
 
 
 @pytest.fixture(params=sorted(DEFAULT_MODELS))

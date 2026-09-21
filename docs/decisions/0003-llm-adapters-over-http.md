@@ -5,7 +5,7 @@
 
 ## Context
 
-The AI features need a real model, and the provider must be replaceable by configuration alone: OpenRouter is the recommended one, Google's Gemini API the alternative, and `fake` stays the default so the stack and every test run with no key.
+The AI features need a real model, and the provider must be replaceable by configuration alone. Initially `fake` was the offline default, with OpenRouter recommended and Google's Gemini API the alternative. The 2026-09-21 default update below makes OpenRouter the normal provider while keeping all ordinary tests keyless.
 The port already existed (`LanguageModel`: `provider`, `model`, `generate`, `check`), with a registry and a contract suite ([ADR 0002](0002-ports-and-adapters.md)).
 Three questions were open: how an adapter talks to its provider, what `check()` may cost, and what the application sees when a provider fails.
 
@@ -59,6 +59,33 @@ One retry, and only after `httpx.ConnectError`: the request never reached the pr
 
 An error message carries a status code or a fixed phrase, never a header, a URL query or a response body, so a provider that echoed the key could not leak it. Gemini gets the key in the `x-goog-api-key` header rather than the documented `?key=` query, which would put it in every logged URL.
 
+### Default update (2026-09-21)
+
+Normal settings and `.env.example` now select OpenRouter with the exact requested
+`~openai/gpt-luna-latest` identifier, including its leading `~`. The official public
+`GET /models` and authenticated `GET /models/user` listings identified it as a model
+alias targeting `openai/gpt-5.6-luna`, not an `@preset/...` workspace preset. An isolated
+API → Redis → prefork Celery → OpenRouter job succeeded with that exact alias, followed
+by polling and explicit acceptance; this is account-specific evidence, not a promise
+of continued availability. The human model-page URL returned HTTP 403 to the validation
+client; the API metadata and actual generation, not that page, establish support.
+
+The adapter adds only `reasoning: {enabled: true}`. Its single-prompt port still returns
+final message content only. Opaque `reasoning_details` are not task content and are not
+logged, persisted or reused between independent requests. No multi-turn feature is
+introduced. A separate continuation must preserve those details unmodified and send
+authentication on both calls. Reasoning tokens count against output budgets and billing.
+
+A nonblank key is required at normal startup; rejection fails health/generation rather
+than falling back. Explicit offline configuration sets `AI__PROVIDER=fake` **and**
+`AI__MODEL=fake-1`. Ordinary test fixtures select that mode or HTTP stubs, and integration
+fixtures discard inherited AI credentials. Gemini remains available unchanged. The API
+base URL is a root (`https://openrouter.ai/api/v1`), never a model page or completion URL.
+
+Official references: [models](https://openrouter.ai/api/v1/models),
+[reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens),
+[presets](https://openrouter.ai/docs/guides/features/presets).
+
 ## Consequences
 
 Positive:
@@ -69,7 +96,7 @@ Positive:
 
 Negative, accepted:
 
-- We own the request and response shapes. When a provider changes its API, the stubbed tests keep passing; only the opt-in live tests (`uv run pytest -m live`) notice. They need a real key and have not been run in this change.
+- We own the request and response shapes. When a provider changes its API, the stubbed tests keep passing; only the opt-in live tests (`uv run pytest -m live`) notice. They need a real key. They were not run for the original adapter change; the later default update above used one bounded real queued generation, separately from the test suite.
 - Readiness reports the AI provider's state as of up to `AI__CHECK_CACHE_SECONDS` ago, not as of now. The cache is per process: each API worker asks once per window.
 - The five categories are coarse: an unknown model id and a malformed body are both `LanguageModelInvalidResponseError`. The `reason` text distinguishes them for a log reader; a new category is added when a use case needs to branch on it.
 - The OpenRouter `401` test fixture is the documented example body. With a key-shaped dummy, `401` was observed on both `GET /key` and `POST /chat/completions`, but the body was not inspected and no real or revoked key was available; the mapping depends only on the status.

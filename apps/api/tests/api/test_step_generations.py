@@ -1,4 +1,5 @@
 from dataclasses import replace
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
 import httpx
@@ -175,6 +176,42 @@ async def test_two_concurrent_generations_and_normal_traffic_fit_the_shipped_bud
     while (await task_client.get("/tasks", headers=bearer)).status_code == 200:
         ordinary += 1
     assert ordinary >= 100
+
+
+async def test_rate_limited_generation_never_enqueues_or_calls_a_model(
+    task_client: httpx.AsyncClient,
+    tasks_app: FastAPI,
+    auth_fakes: AuthFakes,
+    jobs: InMemoryStepGenerationJobs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid task and caller: the shipped budget, not a missing-task shortcut, refuses work."""
+    task = (await task_client.post("/tasks", json={"title": "No paid work"})).json()["id"]
+    container = tasks_app.state.container
+    shipped = RateLimitSettings().authenticated
+    tasks_app.state.container = replace(
+        container,
+        rate_limiting=replace(
+            container.rate_limiting,
+            limiter=InMemoryRateLimiter(),
+            authenticated=RateLimitPolicy("authenticated", shipped.limit, shipped.window_seconds),
+        ),
+    )
+    enqueue = Mock(wraps=jobs.enqueue)
+    generate = AsyncMock()
+    monkeypatch.setattr(jobs, "enqueue", enqueue)
+    monkeypatch.setattr(container.language_model, "generate", generate)
+    bearer = {"Authorization": f"Bearer {auth_fakes.tokens.issue(USER_ID)}"}
+    for _ in range(120):
+        assert (await task_client.get("/tasks", headers=bearer)).status_code == 200
+    response = await task_client.post(f"/tasks/{task}/step-generations", headers=bearer)
+    assert response.status_code == 429
+    assert response.headers["X-RateLimit-Limit"] == "120"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert 1 <= int(response.headers["Retry-After"]) <= 60
+    enqueue.assert_not_called()
+    generate.assert_not_called()
+    assert not jobs.results
 
 
 async def test_queue_outage_is_safe_503(
