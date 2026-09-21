@@ -25,14 +25,14 @@ export interface AutosaveField<T> {
 }
 
 /** A subscribed view of one field machine: there is no mount-local draft or recovery mirror. */
-export function useAutosaveField<T>({ saved, save, savable, delay = 0, owner }: Options<T>): AutosaveField<T> {
-  const [local] = useState(() => owner ?? new AutosaveMachine({ saved, save, savable }));
+export function useAutosaveField<T>({ saved, save, savable, retainDraftUntilFlush, delay = 0, owner }: Options<T>): AutosaveField<T> {
+  const [local] = useState(() => owner ?? new AutosaveMachine({ saved, save, savable, retainDraftUntilFlush }));
   const machine = owner ?? local;
   const view = useSyncExternalStore(machine.subscribe, machine.getSnapshot, machine.getSnapshot);
 
   useEffect(() => {
-    machine.configure({ saved, save, savable });
-  }, [machine, saved, save, savable]);
+    machine.configure({ saved, save, savable, retainDraftUntilFlush });
+  }, [machine, saved, save, savable, retainDraftUntilFlush]);
   useEffect(() => machine.flush, [machine]);
 
   const change = useCallback((value: T) => machine.change(value, delay), [machine, delay]);

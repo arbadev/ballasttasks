@@ -3,6 +3,8 @@ export interface FieldOptions<T> {
   /** `note` is what the caller has to say about this particular write, if anything. */
   save(value: T, note?: string): Promise<unknown>;
   savable?(value: T): boolean;
+  /** Keep typed formatting across successful saves until blur/close, e.g. a title's trailing space. */
+  retainDraftUntilFlush?: boolean;
 }
 
 /** A value on its way to the service, with whatever the writer asked to be recorded about it. */
@@ -33,6 +35,7 @@ export class AutosaveMachine<T> {
   private inFlight: { ticket: number } | null = null;
   private queued: Write<T> | null = null;
   private tickets = 0;
+  private retainDraft = false;
   private options: FieldOptions<T>;
 
   constructor(options: FieldOptions<T>) {
@@ -78,7 +81,7 @@ export class AutosaveMachine<T> {
       // would swallow this refusal and the change would vanish with nothing said.
       const final = !next;
       // A pending edit does not hide a refusal, but only normal settling releases the draft.
-      const draft = final && !this.pending && this.view.draft === from ? null : this.view.draft;
+      const draft = final && !this.pending && this.view.draft === from && !(ok && this.retainDraft) ? null : this.view.draft;
       const failed = ok ? null : final ? write : this.view.failed;
       this.publish(draft, failed);
       if (next) this.start(next);
@@ -90,7 +93,7 @@ export class AutosaveMachine<T> {
     const stored = !this.inFlight && !this.queued && write.note === undefined && Object.is(write.value, this.options.saved);
     // A value going to the service is what answers a refusal, not a keystroke that may still be
     // retyped into nothing, and not settling back on the value the task already holds.
-    this.publish(stored && this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, stored ? this.view.failed : null);
+    this.publish(stored && !this.retainDraft && this.view.draft && Object.is(this.view.draft.value, write.value) ? null : this.view.draft, stored ? this.view.failed : null);
     if (stored) return;
     if (this.inFlight) this.queued = write;
     else this.start(write);
@@ -111,6 +114,7 @@ export class AutosaveMachine<T> {
 
   /** Explicit value, never inferred from incomplete typing. Shares the ordinary save queue. */
   store = (value: T, note?: string) => {
+    this.retainDraft = false;
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.pending = null;
     this.publish({ value }, this.view.failed);
@@ -118,12 +122,17 @@ export class AutosaveMachine<T> {
   };
 
   flush = () => {
-    if (this.commit()) return;
+    this.retainDraft = false;
+    if (this.commit()) {
+      if (this.options.retainDraftUntilFlush && !this.inFlight) this.publish(null, this.view.failed);
+      return;
+    }
     this.pending = null;
     this.publish(null, this.view.failed);
   };
 
   change(value: T, delay: number) {
+    this.retainDraft = this.options.retainDraftUntilFlush ?? false;
     if (this.pending?.timer) clearTimeout(this.pending.timer);
     this.publish({ value }, this.view.failed);
     this.pending = { value, timer: delay > 0 ? setTimeout(this.commit, delay) : null };

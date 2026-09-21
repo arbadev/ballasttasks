@@ -215,7 +215,10 @@ dialog and the hand-back on close are all untouched.
 
 - **Autosave, no Save button.** Each field is a `useAutosaveField`: the edit shows at once, text
   saves 400 ms after typing stops, on blur, and when the field unmounts (the panel closing,
-  another task opening), so typed text is never dropped. A failed save says so inline, with a Retry
+  another task opening), so typed text is never dropped. The title keeps its typed formatting until
+  blur/close even after a successful save: the API trims it, but a pause after Space must not erase
+  the separator before the next word. Blur shows the canonical title without sending it again.
+  A failed save says so inline, with a Retry
   that carries the rejected value. The control goes back to the stored value only when the refused
   write is still what it shows; a newer edit typed since stays on screen and settles the usual way,
   on commit or blur. That recovery is retired when the field sends a replacement of its own — when
@@ -396,8 +399,8 @@ focus; it does not wait for a later render to make a lost-focus assertion pass.
 With the unchanged default auth policy (10 attempts per IP per 60 seconds), the complete
 suite would otherwise overbook credential setup. `visual/http-fixtures.ts` gives each bounded
 test a 61-second natural window before it begins, including after a worker restart or another
-invocation. The suite remains single-worker with no retries; allow roughly 13 minutes for all
-12 contracts. Do not run concurrent credential-heavy jobs on that API/IP. If a deployment uses
+invocation. The suite remains single-worker with no retries; allow roughly 16 minutes for all
+14 contracts. Do not run concurrent credential-heavy jobs on that API/IP. If a deployment uses
 a longer window, provide a separately paced execution plan before running. Keep a 429 setup
 failure as a failure; do not count its unexecuted assertions, reset counters, disable throttling,
 raise allowances or blanket-retry the suite. No test or application request retries automatically.
