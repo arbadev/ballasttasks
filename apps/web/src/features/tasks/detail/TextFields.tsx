@@ -15,6 +15,8 @@ export function TitleField({ task, inputRef }: { task: Task; inputRef: Ref<HTMLI
     saved: task.title,
     save: (title: string) => track(task.id, commands.update(task.id, { title })),
     delay: AUTOSAVE_DELAY_MS,
+    // The API trims titles. A pause after Space must not join the next word onto this one.
+    retainDraftUntilFlush: true,
   });
 
   return (
