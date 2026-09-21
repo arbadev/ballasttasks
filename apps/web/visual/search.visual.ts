@@ -58,3 +58,44 @@ test("Back and Forward carry the search box with the URL", async ({ page }) => {
   await expect(page).toHaveURL(`${APP_URL}/tasks?due=overdue&q=prd`);
   await expect(search).toHaveValue("prd");
 });
+
+test("an edit burst that ends on the committed search leaves Back and Forward in charge of the box", async ({ page }) => {
+  const search = await openTasks(page);
+  await page.getByRole("combobox", { name: "Due", exact: true }).selectOption("overdue");
+  await expect(page).toHaveURL(`${APP_URL}/tasks?due=overdue`);
+  await search.click();
+  await search.pressSequentially("prd");
+  await expect.poll(() => searchParam(page)).toBe("prd");
+  // Both edits land before either URL commits, so React coalesces them and "prd" never changes.
+  await search.evaluate((input: HTMLInputElement) => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    for (const value of ["", "prd"]) {
+      set.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+  await expect(search).toHaveValue("prd");
+  await expect.poll(() => searchParam(page)).toBe("prd");
+  await page.goBack();
+  await expect(page).toHaveURL(`${APP_URL}/tasks`);
+  await expect(search).toHaveValue("");
+  await expect(page.getByText("13 tasks", { exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(`${APP_URL}/tasks?due=overdue&q=prd`);
+  await expect(search).toHaveValue("prd");
+});
+
+for (const prior of ["", "prd"]) {
+  test(`a pasted control character is refused like the route refuses it (prior search "${prior}")`, async ({ page }) => {
+    const search = await openTasks(page);
+    await search.click();
+    if (prior) {
+      await search.pressSequentially(prior);
+      await expect.poll(() => searchParam(page)).toBe(prior);
+    }
+    await page.keyboard.insertText("a\tb");
+    await expect(search).toHaveValue("");
+    await expect.poll(() => searchParam(page)).toBeNull();
+    await expect(page.getByText("13 tasks", { exact: true })).toBeVisible();
+  });
+}

@@ -7,7 +7,7 @@ import { TextInput } from "@/components/ui/TextInput";
 import type { DueFilter, PriorityFilter, SortBy, StatusFilter } from "../model/filter";
 import { STATUSES } from "../model/statuses";
 import { useWorkspace } from "../workspace/WorkspaceProvider";
-import { MAX_SEARCH_LENGTH } from "../workspace/route";
+import { MAX_SEARCH_LENGTH, routeSearch } from "../workspace/route";
 
 const STATUS_OPTIONS: readonly { value: StatusFilter; label: string }[] = [
   { value: "open", label: "All open" },
@@ -56,6 +56,7 @@ export function FilterToolbar() {
 /**
  * The route reaches `search` in a transition, so the box shows what was typed until each
  * keystroke's URL comes back; a search that did not come from typing here replaces the draft.
+ * Typing takes the route's own rule, so a search the route would refuse empties the box.
  */
 function SearchField({ search, onSearch }: { search: string; onSearch: (search: string) => void }) {
   const [draft, setDraft] = useState({ value: search, typed: [] as string[], seen: search });
@@ -72,8 +73,9 @@ function SearchField({ search, onSearch }: { search: string; onSearch: (search: 
       icon={Search}
       value={draft.value}
       maxLength={MAX_SEARCH_LENGTH}
-      onChange={(value) => {
-        setDraft((current) => ({ ...current, value, typed: [...current.typed, value] }));
+      onChange={(typed) => {
+        const value = routeSearch(typed);
+        setDraft((current) => value === current.seen ? { value, typed: [], seen: current.seen } : { ...current, value, typed: [...current.typed, value] });
         onSearch(value);
       }}
       className="ml-auto min-w-[220px] max-md:ml-0 max-md:w-full"

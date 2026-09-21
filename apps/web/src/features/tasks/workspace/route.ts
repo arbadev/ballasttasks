@@ -2,6 +2,8 @@ import { DEFAULT_QUERY, type TaskQuery } from "../model/filter";
 import { initialWorkspaceState, workspaceReducer, type View, type WorkspaceAction, type WorkspaceState } from "./reducer";
 
 export const MAX_SEARCH_LENGTH = 200;
+/** A search the route accepts, or "" for one it refuses. */
+export function routeSearch(search: string): string { return search.length <= MAX_SEARCH_LENGTH && !/\p{Cc}/u.test(search) ? search : ""; }
 export interface TaskRoute { query: TaskQuery; sort: WorkspaceState["sort"]; view: View; pageOffset: number }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function projectId(value: string, demo: boolean) { return UUID.test(value) || (demo && /^[a-z0-9-]{1,100}$/i.test(value)); }
@@ -15,14 +17,13 @@ export function parseTaskRoute(href: string, demo = false): TaskRoute {
   const params = new URLSearchParams(query);
   const project = path.startsWith("/projects/") && projectId(path.slice(10), demo) ? path.slice(10) : "all";
   const scope = project === "all" ? (path === "/tasks/mine" ? "mine" : path === "/tasks/overdue" ? "overdue" : "all") : choice(one(params, "scope"), ["all", "mine", "overdue"], "all");
-  const search = one(params, "q") ?? "";
   const offset = one(params, "offset") ?? "0";
   return {
     query: { ...DEFAULT_QUERY, project, scope,
       status: choice(one(params, "status"), ["open", "all", "todo", "progress", "testing", "done"], "open"),
       due: choice(one(params, "due"), ["any", "overdue", "today", "week", "none"], "any"),
       priority: choice(one(params, "priority"), ["any", "0", "1", "2", "3"], "any"),
-      search: search.length <= MAX_SEARCH_LENGTH && !/\p{Cc}/u.test(search) ? search : "",
+      search: routeSearch(one(params, "q") ?? ""),
       signal: choice(one(params, "signal"), ["", "overdue", "critical", "soon", "unassigned"] as const, "") || null,
     },
     sort: choice(one(params, "sort"), ["urgency", "importance", "due", "updated"], "urgency"),
