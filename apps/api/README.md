@@ -109,6 +109,14 @@ never deleted or reset. Use a separate fresh local database if you need the orig
 scenarios again after edits or as dates age. Failure returns a nonzero exit status
 without printing credentials.
 
+Implementation and executable evidence: [CLI guards](src/app/seed_demo.py),
+[fixture and public credentials](src/app/application/demo_data.py),
+[transactional seed use case](src/app/application/use_cases/seed_demo.py),
+[pre-connection refusal tests](tests/unit/test_seed_demo_entrypoint.py), and
+[PostgreSQL seed/login/rerun/conflict tests](tests/integration/test_seed_demo.py).
+These tests cover preserved existing Inbox data, concurrent invocations, unchanged
+hashes/dates on rerun, edited/partial-seed refusal and rollback after a late failure.
+
 ## Draft step jobs
 
 Run the API and `uv run celery -A app.worker worker --loglevel=INFO` with the same
@@ -191,6 +199,12 @@ only explicit bulk acceptance writes steps. Redis proposals are ephemeral, not d
 job rows. The normal HTTP budgets are not model-spend or per-job quotas.
 
 ## Docker
+
+Use the [root quick start](../../README.md#quick-start) for the complete five-service app;
+[Docker operations](../../docs/docker.md) covers rebuilds, isolated projects and data retention.
+The image installs production dependencies from `uv.lock` with `uv sync --frozen`, runs as
+uid 1001 and owns the persisted attachment directory. Compose runs migrations before the
+HTTP server and starts the worker only after the API healthcheck passes. No seed runs at startup.
 
 One image (build context `apps/api`) serves three commands:
 

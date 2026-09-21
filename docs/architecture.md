@@ -24,6 +24,10 @@ flowchart LR
 
 One `docker-compose.yml` at the repo root runs the five services: `db`, `redis`, `api`, `worker`, `web`.
 PostgreSQL is the only database, in every environment, including integration tests.
+The production application images install locked dependencies and run as non-root users;
+Compose migrates before API startup and persists database rows and uploaded bytes in separate
+named volumes. Redis proposals are ephemeral, not a durable task store. Local first-run,
+rebuild, alternate-project isolation and retention instructions: [Docker operations](docker.md).
 
 ## Layers and the dependency rule
 

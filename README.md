@@ -2,13 +2,41 @@
 
 A task management app: a Python REST API with a web frontend, built as a Clean Architecture exercise.
 
-The repository currently contains the foundation (the monorepo, the architecture, health endpoints, the background worker and the tooling that guards them) and the first product feature: the task CRUD API under `/tasks` (create, read, update, delete, assign, mark as completed; see the [task contract](docs/architecture.md#task-contract) and Swagger UI). It sits behind **JWT authentication** (`/auth/register`, `/auth/login`, `/auth/me`; see [authentication](docs/architecture.md#authentication)): a `/tasks` request without a valid bearer or browser-cookie credential is answered `401`. The API also carries the model the web design shows: projects (`/projects`), task keys such as `BT-04`, four statuses, priority and importance, a people list (`/users`), a task list that is filtered, sorted, searched and paged by the database, and the computed attention data (`attention` on every task, `GET /tasks/summary`); see [projects and task keys](docs/architecture.md#projects-and-task-keys) and [ADR 0005](docs/decisions/0005-task-keys-and-urgency.md). **Single sign-on** (Google first, off by default) is a second way in under `/auth/sso/*` that ends in the same access token; see [single sign-on](docs/architecture.md#single-sign-on). The web callback at `/auth/callback` exchanges the one-time code through the API; real-vendor setup remains an operator action. Tasks also carry **attachments** under `/tasks/{id_or_key}/attachments`: http(s) links and uploaded files (PDF, PNG, JPEG, GIF, WebP), streamed in and out through a `FileStorage` port whose local-disk adapter is replaced by a cloud one with a single registry line; see [task attachments](docs/architecture.md#task-attachments) and [ADR 0008](docs/decisions/0008-file-storage.md). The web app uses HTTP-backed services by default: password sign-in/registration, list/board/detail editing, projects (creating, renaming and recolouring), steps/comments/activity, file/link attachments and queued step proposals with explicit acceptance. Set `NEXT_PUBLIC_SERVICE_MODE=demo` only for the explicit in-memory design demo. Browser sessions use server-validated HttpOnly cookies: reload/new tab restores a session until its configured JWT expiry or browser logout. Anonymous `/login` and `/register` and protected task/project routes preserve validated filters, view and pagination in the URL; saved work remains in PostgreSQL. See [ADR 0009](docs/decisions/0009-browser-sessions-and-routes.md) for CSRF, origin and exact persistence/logout limits. See [web integration](apps/web/README.md#authentication-and-http-integration). The API's own demo data — the design's people, projects and tasks, with credentials to log in and explore them — is an explicit opt-in local command, never run on startup: see [local demo data](apps/api/README.md#local-demo-data-explicit-optional).
+The implemented app includes authenticated task CRUD, a list and board, projects,
+assignment, completion, database-backed filtering/search/pagination, and computed
+attention signals. Task keys such as `BT-04` stay stable when a task moves projects.
+The web frontend uses the real API by default, with password registration/sign-in,
+steps, comments, activity, file/link attachments and queued draft-step proposals.
+It is a **shared workspace**: every signed-in user can read and change every task
+and project; role labels are not permissions.
+
+Browser sessions use server-validated HttpOnly cookies. Reload/new tab restores a
+valid session until its existing JWT expiry; URL-owned filters, view and pagination
+survive navigation. Saved data stays in PostgreSQL. Bearer clients and Swagger
+remain supported, and optional Google single sign-on is disabled until configured.
+See [ADR 0009](docs/decisions/0009-browser-sessions-and-routes.md) for CSRF and the
+exact expiry/logout limits, and [web integration](apps/web/README.md#authentication-and-http-integration).
+`NEXT_PUBLIC_SERVICE_MODE=demo` selects a separate in-memory design demo, not the
+persisted API seed described below.
 
 A task also carries **steps** (`/tasks/{id_or_key}/steps`, added singly or in an atomic batch of up to 20, reordered, ticked and deleted), immutable **comments** (`/comments`) and an **activity timeline** (`/activity`) that also records attaching and removing. Every task representation carries its step, comment and attachment tallies, counted for a whole page in one query; the fields are listed in the [task contract](docs/architecture.md#task-contract). See [steps and activity](docs/architecture.md#steps-and-activity) and [ADR 0007](docs/decisions/0007-steps-and-activity.md).
 
 Step titles can also be **drafted by the language model** in the background: `POST /tasks/{id_or_key}/step-generations` queues the work and answers immediately with a job handle, `GET /tasks/{id_or_key}/step-generations/{job_id}` polls it, and the chosen titles become steps only through the bulk-add endpoint above; see [queued step generation](docs/architecture.md#queued-step-generation).
 
 Every application route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md). Framework documentation/OpenAPI endpoints are intentionally exempt; these request budgets are not DDoS or model-spend protection.
+
+## Submission guide
+
+| Requirement | Where to look |
+| --- | --- |
+| Setup, configuration, service URLs and checks | [Quick start](#quick-start), [tests and linters](#tests-and-linters), [API guide](apps/api/README.md), [web guide](apps/web/README.md) |
+| Seeded data and public demo credentials | [Demo walkthrough](#demo-walkthrough), [seed safety and exact fixture](apps/api/README.md#local-demo-data-explicit-optional) |
+| Key implementation decisions | [Architecture at a glance](#architecture-at-a-glance) and linked ADRs |
+| Coding tool and usable scaffold prompt | [Tools](docs/ai-usage.md#tools-used), [proposed and retained prompts](docs/ai-usage.md#prompts-used) |
+| Representative resulting code | [Exact source excerpts](docs/ai-usage.md#representative-output) |
+| Validation and corrections | [Validation evidence](docs/ai-usage.md#how-suggestions-were-validated), [improvements](docs/ai-usage.md#corrections-and-improvements-made) |
+| Edge cases, authentication and validation | [Handling and tests](docs/ai-usage.md#edge-cases-authentication-and-validation-handling) |
+| Performance and idiomatic quality | [Assessment and limits](docs/ai-usage.md#performance-and-idiomatic-quality-assessment) |
 
 ## Architecture at a glance
 
@@ -17,29 +45,53 @@ Every application route except the health endpoints is **rate limited** (strict 
 - **One HTTP contract**: Pydantic models -> OpenAPI -> generated TypeScript types.
 - **PostgreSQL** everywhere (local, Docker, integration tests) and **Redis** as the Celery broker and result backend, and the shared rate limit counters.
 
-Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md), [ADR 0007: steps and activity](docs/decisions/0007-steps-and-activity.md), [ADR 0008: file storage](docs/decisions/0008-file-storage.md).
+Full description with diagrams: [docs/architecture.md](docs/architecture.md). Decisions: [ADR 0001: monorepo](docs/decisions/0001-monorepo.md), [ADR 0002: ports and adapters](docs/decisions/0002-ports-and-adapters.md), [ADR 0003: LLM adapters over HTTP](docs/decisions/0003-llm-adapters-over-http.md), [ADR 0004: rate limiting](docs/decisions/0004-rate-limiting.md), [ADR 0006: single sign-on](docs/decisions/0006-single-sign-on.md), [ADR 0007: steps and activity](docs/decisions/0007-steps-and-activity.md), [ADR 0008: file storage](docs/decisions/0008-file-storage.md), [ADR 0009: browser sessions and routes](docs/decisions/0009-browser-sessions-and-routes.md).
 
 ## Prerequisites
 
 To run the system:
 
-- A Docker-compatible container runtime with Docker Compose v2 (`docker compose`).
+- A running Docker-compatible container runtime with Docker Compose v2 or newer (`docker compose`) and Git to clone the repository.
 
 To run tests and linters on the host:
 
 - [uv](https://docs.astral.sh/uv/) (it installs the Python version the API asks for).
-- [Node.js](https://nodejs.org/) (current LTS) with npm.
+- [Node.js](https://nodejs.org/) 24 with npm (the web Dockerfile uses Node 24).
 - `make`, and optionally [pre-commit](https://pre-commit.com/).
 
 ## Quick start
 
+From a fresh clone, in the repository root, on a local machine you control:
+
 ```sh
-cp .env.example .env
-# Edit .env: set AI__API_KEY, or set AI__PROVIDER=fake and AI__MODEL=fake-1 for offline use.
+# Preserve existing configuration; create a private local file only when absent.
+if [ ! -e .env ]; then (umask 077; cp .env.example .env); fi
+# Review configuration below: set AI__API_KEY, or explicitly select fake/fake-1.
 docker compose up --build
 ```
 
-That starts all five services (`db`, `redis`, `api`, `worker`, `web`). The default is **OpenRouter** with the exact model alias `~openai/gpt-luna-latest`; a nonblank `AI__API_KEY` is required at startup. A rejected key fails readiness/generation, never silently switches to fake. Keep `AI__BASE_URL` blank (or `https://openrouter.ai/api/v1`): it is the API root, **not** the model page or `/chat/completions` endpoint. For deterministic offline use, explicitly set both `AI__PROVIDER=fake` and `AI__MODEL=fake-1`. Google's Gemini remains an alternative using the commented settings in `.env.example`. See [AI configuration](apps/api/README.md#ai-configuration) for reasoning and live-check limits. Single sign-on ships disabled, so no SSO credentials are required; the `SSO__*` comments describe how to enable Google or the credential-free `fake` identity provider.
+Review [`.env.example`](.env.example) before starting. Its database credentials and
+JWT signing secret are **local-only examples**, not deployment secrets. Do not commit
+`.env` or overwrite an existing one. The default ports 3000 and 8000 must be free;
+Compose publishes them on loopback only. Do not expose this local demo on an
+untrusted network.
+
+Compose starts all five services (`db`, `redis`, `api`, `worker`, `web`). It waits for
+PostgreSQL/Redis health, runs `alembic upgrade head` in the API command before starting
+Uvicorn, then starts the worker/web after API liveness. The application itself never
+runs migrations; native setup uses the [API commands](apps/api/README.md#commands-run-from-appsapi).
+No startup seeds accounts or tasks.
+
+The default is **OpenRouter** with the exact model alias `~openai/gpt-luna-latest`;
+a nonblank `AI__API_KEY` is required at API startup. A rejected key fails
+readiness/generation, never silently switches to fake. Keep `AI__BASE_URL` blank
+(or `https://openrouter.ai/api/v1`): it is the API root, **not** the model page or
+`/chat/completions` endpoint. For deterministic offline use, explicitly set both
+`AI__PROVIDER=fake` and `AI__MODEL=fake-1`. Google's Gemini remains an alternative
+using the commented settings in `.env.example`. See [AI configuration](apps/api/README.md#ai-configuration)
+for reasoning and live-check limits. Single sign-on ships disabled, so no SSO
+credentials are required; the `SSO__*` comments describe how to enable Google or
+the credential-free `fake` identity provider.
 
 | What | URL |
 | --- | --- |
@@ -49,21 +101,82 @@ That starts all five services (`db`, `redis`, `api`, `worker`, `web`). The defau
 | Liveness | <http://localhost:8000/health> |
 | Readiness (database, redis, ai) | <http://localhost:8000/health/ready> |
 
-To try authentication, open Swagger UI, call `POST /auth/register`, then press **Authorize** and enter the same email (as `username`) and password: Swagger logs in through `POST /auth/login` and sends the bearer token on every later call, such as `GET /auth/me`. Details: [docs/architecture.md](docs/architecture.md#authentication).
+Open the **web app**, choose **Create an account**, and register your name, email and password. Use password sign-in for an existing account. The fresh database has an Inbox project but no demo users or tasks: create a project or your first task in the app. API exploration is optional: in Swagger UI, register via `POST /auth/register`, then **Authorize** with email as `username` and the same password. Details: [web integration](apps/web/README.md#authentication-and-http-integration).
 
-To explore the design's tasks and people instead of an empty database, seed a **local** database once with the explicit demo command described in [local demo data](apps/api/README.md#local-demo-data-explicit-optional).
+Check `docker compose ps` and `/health/ready` before exploring. Liveness only proves
+the API process answers; readiness reports database, Redis and AI checks (`200` when
+all pass, `503` otherwise), not that a worker can consume jobs. If startup fails, inspect
+`docker compose logs api worker`; do not delete data or reseed to fix configuration.
 
-Stop with `Ctrl+C`, then `make down` (`docker compose down`; add `-v` to also drop the database and attachment volumes).
+### Demo walkthrough
 
-Only the web app (3000) and the API (8000) are published to the host, so those two ports must be free. PostgreSQL and Redis stay inside the compose network, where the services reach them as `db` and `redis`; the browser reaches the API at `NEXT_PUBLIC_API_URL`, which is baked into the web image at build time.
+Only after confirming the configured database is your **local demo database**, run:
+
+```sh
+docker compose exec api python -m app.seed_demo --confirm-demo-accounts
+```
+
+Open <http://localhost:3000/login> and use **`demo@ballast.example`** with password
+**`ballast-local-demo-only`**. These are intentionally public, demo-only credentials
+from [the fixture](apps/api/src/app/application/demo_data.py), never suitable for a
+public deployment. Additional demo users and full safety rules are in the
+[API seed guide](apps/api/README.md#local-demo-data-explicit-optional).
+
+The seed adds 16 tasks (13 open), the Ballast Tasks project alongside Inbox, and four
+people (three password accounts plus Assistant, which cannot sign in). Inspect All/My
+tasks, project filters and the board; open a task, edit it, add a step/comment or file,
+and reload to see persisted changes. Drafting queues proposals; only **accepting**
+chosen proposals stores steps. The seed itself does not call a model or include
+historical steps, comments or attachments.
+
+Seeding is opt-in, not a reset command. Production mode and missing confirmation are
+refused before adapters are built. An intact rerun reports `Demo unchanged`; conflicts,
+edited records/passwords and partial seeds are refused, not overwritten. Unrelated
+records are preserved. Do not change production mode just to bypass the refusal.
+
+### Stop and rebuild without losing saved work
+
+Stop foreground services with `Ctrl+C`; normal teardown and subsequent rebuild are:
+
+```sh
+docker compose down
+docker compose up --build -d
+```
+
+Keep the same Compose project/configuration to reuse the named PostgreSQL and attachment
+volumes. **Do not add `-v`**, prune volumes or reset the database as routine troubleshooting.
+Changing `POSTGRES_*` in an env file does not change credentials in an initialized volume.
+Redis proposals/queued jobs are ephemeral; accepted steps are persisted in PostgreSQL.
+
+Only the web app (3000) and the API (8000) are published to the host, on loopback. PostgreSQL and
+Redis stay inside the Compose network, reached as `db` and `redis`. The browser API
+origin (`NEXT_PUBLIC_API_URL`) and service mode are baked into the web image: changing
+them requires a rebuild, not just a restart. Keep `CORS__ALLOWED_ORIGINS` equal to the
+web origin and use the same hostname spelling for web/API (`localhost`, not mixed with
+`127.0.0.1`). Local HTTP uses `APP__ENV=development` even with a production Next build;
+production API mode requires HTTPS origins and Secure cookies. Configuration details
+and SSO redirects are in [`.env.example`](.env.example) and [ADR 0009](docs/decisions/0009-browser-sessions-and-routes.md).
+
+For scoped alternate ports/images, isolated projects, rebuilds and troubleshooting,
+see [Docker operations](docs/docker.md). Keep the same explicit env file and project
+selection across lifecycle commands; the examples above use the default local project.
+
+### Dockerization
+
+[`apps/api/Dockerfile`](apps/api/Dockerfile) packages the API and Celery worker;
+[`apps/web/Dockerfile`](apps/web/Dockerfile) packages the production Next.js standalone server
+and static assets. [`docker-compose.yml`](docker-compose.yml) connects those images to
+PostgreSQL and Redis; the quick-start command above runs the complete application, not
+just its database. Dependencies are installed from `uv.lock` (`uv sync --frozen`) and
+`package-lock.json` (`npm ci`). Both application images run as non-root users.
 
 ## Tests and linters
 
-Install each app's dependencies once:
+Install the locked dependencies once (Python 3.14 is selected by the API project):
 
 ```sh
-(cd apps/api && uv sync)
-(cd apps/web && npm install)
+(cd apps/api && uv sync --frozen)
+(cd apps/web && npm ci)
 ```
 
 Then, from the repo root:
@@ -74,13 +187,20 @@ make lint   # ruff check, ruff format --check, mypy, lint-imports, web lint, tsc
 make help   # list every target
 ```
 
-API integration tests need PostgreSQL and Redis. With the system running (`make up`), run them against that stack:
+Default API tests and web unit tests need no external services. Integration tests need
+PostgreSQL and Redis: use a **dedicated disposable test stack**, not a retained demo
+or shared deployment. Against that owned running Compose stack:
 
 ```sh
 make test-integration   # pytest -m integration in a one-off container on the compose network
 ```
 
-See [docs/architecture.md](docs/architecture.md#testing-strategy).
+The integration harness creates temporary PostgreSQL databases; tests also exercise
+Redis and real workers. See the [testing strategy](docs/architecture.md#testing-strategy).
+For production-build and visual/real-HTTP browser commands, required explicit endpoints
+and test isolation, see the [web guide](apps/web/README.md#commands).
+Historical passes are not an all-tests-green claim for current source: the known
+Next development React185 failure remains unresolved; see [validation limits](docs/ai-usage.md#how-suggestions-were-validated).
 
 To run the same checks on every commit: `pre-commit install` (or once, by hand: `pre-commit run --all-files`). The hooks use each app's installed dependencies, so do the two installs above first.
 
@@ -114,7 +234,7 @@ Pydantic response model -> OpenAPI schema -> npm run gen:api -- <your-api-url>/o
 │   └── decisions/            architecture decision records
 ├── docker-compose.yml        the whole system
 ├── .pre-commit-config.yaml   one guard for the whole repo
-├── .env.example              copy to .env; works as is
+├── .env.example              local-only defaults; preserve an existing .env
 ├── Makefile                  up, down, test, test-integration, lint
 ├── AGENTS.md                 rules for coding agents (CLAUDE.md imports it)
 └── README.md

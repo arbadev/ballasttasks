@@ -80,3 +80,48 @@ def test_the_api_writes_where_the_attachments_volume_is_mounted(
 
     assert [volume["target"] for volume in mounted] == [target]
     assert api["environment"]["STORAGE__LOCAL_DIRECTORY"] == target
+
+
+def test_project_name_isolates_both_application_images(tmp_path: Path) -> None:
+    model = _rendered(
+        tmp_path / "project", REQUIRED_ENV + "COMPOSE_PROJECT_NAME=packaging-contract\n"
+    )
+    services = model["services"]
+    assert model["name"] == "packaging-contract"
+    assert services["api"]["image"] == "packaging-contract-api"
+    assert services["worker"]["image"] == services["api"]["image"]
+    assert services["web"]["image"] == "packaging-contract-web"
+
+
+@pytest.mark.parametrize("custom_ports", [False, True])
+def test_only_http_ports_are_published_on_loopback(tmp_path: Path, custom_ports: bool) -> None:
+    extra = "BT_API_PORT=49271\nBT_WEB_PORT=49272\n" if custom_ports else ""
+    services = _rendered(tmp_path / "project", REQUIRED_ENV + extra)["services"]
+    for service, target, published in [
+        ("api", 8000, "49271" if custom_ports else "8000"),
+        ("web", 3000, "49272" if custom_ports else "3000"),
+    ]:
+        assert services[service]["ports"] == [
+            {
+                "mode": "ingress",
+                "host_ip": "127.0.0.1",
+                "target": target,
+                "published": published,
+                "protocol": "tcp",
+            }
+        ]
+    for service in ("db", "redis", "worker"):
+        assert not services[service].get("ports")
+
+
+def test_explicit_runtime_env_file_does_not_load_the_default(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    runtime = project / "runtime.env"
+    runtime.write_text("APP__ENV=packaging-contract\n")
+    model = _rendered(
+        project / "compose",
+        REQUIRED_ENV + f"BT_ENV_FILE={runtime}\nAPP__ENV=must-not-load\n",
+    )
+    for service in ("api", "worker"):
+        assert model["services"][service]["environment"]["APP__ENV"] == "packaging-contract"
