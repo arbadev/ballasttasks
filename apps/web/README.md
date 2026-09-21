@@ -25,7 +25,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation and editing: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts and the "Edit project" pencil the header mounts for the selected project, their dialogs, the colour picker both share (`ui/ProjectColour.tsx`), and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`; edits through `actions.updateProject` (name and colour only, see "Workspace actions"). |
-| `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `AuthBoundary` that gates the workspace on a session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
+| `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `ApplicationRoute` that gates the workspace on a verified session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
 

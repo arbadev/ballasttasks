@@ -1,20 +1,10 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useAuthService, useSession } from "@/app/providers";
 import { Button } from "@/components/ui/Button";
 import type { AuthService } from "./types";
-
-/** Unmounting the whole workspace drops user data and subscriptions, not server data. */
-export function AuthBoundary({ children }: { children: ReactNode }) {
-  const auth = useAuthService();
-  const session = useSession();
-  if (!auth) return children;
-  if (session.status && session.status !== "ready") return <SessionCheck />;
-  if (session.user) return <Fragment key={session.epoch}>{children}</Fragment>;
-  return <AuthScreen auth={auth} expired={session.reason === "expired"} />;
-}
 
 export function SessionCheck() {
   const auth = useAuthService();

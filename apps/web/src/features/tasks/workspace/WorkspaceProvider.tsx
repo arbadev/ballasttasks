@@ -114,9 +114,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setRoute(navigation.route);
     reduce({ type: "routeChanged", route: navigation.route });
   }
-  const dispatch = useCallback((action: WorkspaceAction) => {
+  const dispatch = useCallback((action: WorkspaceAction, replace = action.type === "searchChanged") => {
     const next = navigation && changeTaskRoute(navigation.route, action);
-    if (next && navigation) navigation.navigate(next, action.type === "searchChanged");
+    if (next && navigation) navigation.navigate(next, replace);
     else reduce(action);
   }, [navigation]);
   const [directory, setDirectory] = useState<Directory>(EMPTY_DIRECTORY);
@@ -163,9 +163,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       taskService.query!(request).then((page) => {
         if (cancelled) return;
         if (page.total > 0 && page.offset >= page.total) {
-          dispatch({ type: "pageChanged", offset: Math.floor((page.total - 1) / page.limit) * page.limit });
+          dispatch({ type: "pageChanged", offset: Math.floor((page.total - 1) / page.limit) * page.limit }, true);
         } else if (page.total === 0 && page.offset > 0) {
-          dispatch({ type: "pageChanged", offset: 0 });
+          dispatch({ type: "pageChanged", offset: 0 }, true);
         } else dispatch({ type: "queryLoaded", page, request, revision });
       }).catch((error: unknown) => {
         if (!cancelled) dispatch({ type: "loadFailed", message: error instanceof Error ? error.message : "Could not load tasks." });

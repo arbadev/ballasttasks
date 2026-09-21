@@ -53,5 +53,6 @@ export function changeTaskRoute(route: TaskRoute, action: WorkspaceAction): Task
   if (!QUERY_ACTIONS.has(action.type)) return null;
   const current = { ...initialWorkspaceState, ...route };
   const next = workspaceReducer(current, action);
-  return { query: action.type === "scopeSelected" ? { ...next.query, project: "all" } : next.query, sort: next.sort, view: next.view, pageOffset: next.pageOffset ?? 0 };
+  const leavesProject = action.type === "scopeSelected" && route.query.project !== "all";
+  return { query: leavesProject ? { ...next.query, project: "all" } : next.query, sort: next.sort, view: next.view, pageOffset: leavesProject ? 0 : next.pageOffset ?? 0 };
 }

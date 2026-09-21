@@ -1,12 +1,12 @@
 "use client";
 
-import { Fragment, Suspense, useCallback, useEffect, useMemo } from "react";
+import { Activity, Fragment, Suspense, useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuthService, useSession } from "@/app/providers";
 import { TasksApp } from "@/features/tasks/shell/TasksApp";
 import { TaskRouteContext } from "@/features/tasks/workspace/TaskRouteContext";
 import { isTaskPath, parseTaskRoute, returnDestination, taskHref, type TaskRoute } from "@/features/tasks/workspace/route";
-import { AuthScreen, SessionCheck } from "./AuthBoundary";
+import { AuthScreen, SessionCheck } from "./AuthScreen";
 
 export const SSO_RETURN_KEY = "bt-sso-return";
 
@@ -40,9 +40,13 @@ function Route() {
     else if (signedIn && (anonymous || pathname === "/")) router.replace(anonymous ? destination : "/tasks");
     else if (signedIn && valid && href !== taskHref(route)) navigate(route, true);
   }, [ready, signedIn, anonymous, router, href, destination, pathname, valid, route, navigate]);
-  if (!ready) return <SessionCheck />;
+  const verifying = !ready && session.status === "unavailable" && !!session.user && valid && !anonymous;
+  if (!ready && !verifying) return <SessionCheck />;
   if (!signedIn && anonymous && auth) return <AuthScreen key={pathname} auth={auth} expired={session.reason === "expired"} mode={pathname === "/register" ? "register" : "login"} onModeChange={() => router.push(`${pathname === "/register" ? "/login" : "/register"}?returnTo=${encodeURIComponent(destination)}`)} onSso={() => sessionStorage.setItem(SSO_RETURN_KEY, destination)} />;
   if (!signedIn || anonymous || pathname === "/") return <SessionCheck />;
   if (!valid) return <main className="p-7 text-fg"><h1>Page not found</h1><a href="/tasks">All tasks</a></main>;
-  return <Fragment key={session.epoch}><TaskRouteContext.Provider value={navigation}><TasksApp /></TaskRouteContext.Provider></Fragment>;
+  return <>
+    {verifying && <SessionCheck />}
+    <Activity mode={verifying ? "hidden" : "visible"}><Fragment key={session.epoch}><TaskRouteContext.Provider value={navigation}><TasksApp /></TaskRouteContext.Provider></Fragment></Activity>
+  </>;
 }

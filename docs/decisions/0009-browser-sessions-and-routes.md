@@ -20,6 +20,9 @@ an offered credential is invalid/expired or its user is no longer active. It nev
 reissues the cookie. The ordinary anonymous check is a successful empty session, not
 an HTTP error that fills the browser console. A temporary network/5xx failure is not
 an anonymous session: the app withholds workspace data and offers a session-check retry.
+When a later check of an already verified session fails that way, the mounted workspace
+is hidden and inert behind the same retry rather than unmounted, so a same-user retry
+restores it with its drafts; a `401`, sign-out or a different verified user still retires it.
 
 Cookie attributes: HttpOnly, SameSite=Lax, Path=/, no Domain, persistent Max-Age equal
 to `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES * 60` (default 30 minutes). JWT `exp` remains the
@@ -93,9 +96,12 @@ query actions compute a URL, not another independently authoritative query state
 URL's projection is synchronized before rendering/querying, with no reducer-to-router
 effect to undo Back/Forward. Next's documented native history integration preserves
 the workspace while updating path/search hooks. Sidebar anchors have real destinations
-and support open-in-new-tab; unmodified clicks use that integration. Filter/view/page
+and support open-in-new-tab; a project's anchor always names that project, even while
+it is selected. Unmodified clicks use that integration. Deliberate filter/view/page
 changes push history; search replaces the current entry and retains existing request
-debouncing, so typing does not create a Back entry per keystroke.
+debouncing, so typing does not create a Back entry per keystroke. Automatic
+canonicalization (an invalid URL, or an offset beyond the results) replaces the current
+entry, so Back/Forward never re-enter a correction.
 
 ## Evidence and limits
 
@@ -109,4 +115,4 @@ users, real PostgreSQL/JWT expiry, URL validation and round trips, query-driven 
 navigation, reload/new tab, Back/Forward, unsafe return targets, logout and temporary
 bootstrap failures. Executable coverage lives in `tests/api/test_browser_session.py`,
 `tests/integration/test_browser_session.py` (API), and `browserSession.test.ts`,
-`route.test.ts`, `visual/http-session-routes.contract.ts` (web).
+`ApplicationRoute.test.tsx`, `route.test.ts`, `visual/http-session-routes.contract.ts` (web).

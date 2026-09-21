@@ -26,4 +26,13 @@ describe("task URLs are the query authority", () => {
     expect(taskHref(mine!)).toBe("/tasks/mine?priority=1");
     expect(changeTaskRoute(project, { type: "searchChanged", search: "needle" })?.pageOffset).toBe(0);
   });
+  it.each([["all", `/projects/${id}?offset=100`, "/tasks"], ["mine", `/projects/${id}?scope=mine&offset=100`, "/tasks/mine"]] as const)("leaving a project for the unchanged %s scope starts at the first page", (scope, url, expected) => {
+    const next = changeTaskRoute(parseTaskRoute(url), { type: "scopeSelected", scope });
+    expect(next?.pageOffset).toBe(0);
+    expect(taskHref(next!)).toBe(expected);
+  });
+  it("keeps the page when a scope selection changes neither the project nor the scope", () => {
+    const route = parseTaskRoute("/tasks/mine?priority=1&offset=100");
+    expect(changeTaskRoute(route, { type: "scopeSelected", scope: "mine" })).toEqual(route);
+  });
 });

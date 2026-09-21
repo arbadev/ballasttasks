@@ -30,7 +30,7 @@ async def test_cookie_flags_follow_deployment_and_configured_jwt_lifetime(
     minimal_env.setenv("APP__ENV", "production" if production else "development")
     minimal_env.setenv(
         "CORS__ALLOWED_ORIGINS",
-        '["https://web.example.test"]' if production else '["http://127.0.0.1:49164"]',
+        '["https://web.example.test"]' if production else '["http://127.0.0.1:3000"]',
     )
     minimal_env.setenv("AUTH__ACCESS_TOKEN_EXPIRE_MINUTES", "7")
     container = build_container(load_settings())

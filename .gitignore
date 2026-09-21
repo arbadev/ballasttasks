@@ -44,5 +44,5 @@ Thumbs.db
 # Visual comparison output (npm run test:visual in apps/web)
 visual-results/
 
-# Task-local runtime/evidence copies are not source artifacts
-data/bt-session-routes/
+# Local runtime/evidence copies are not source artifacts
+/data/
