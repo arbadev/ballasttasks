@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test } from "./http-fixtures";
 import { ApiClient } from "../src/lib/api/client";
 import { HttpAuthService } from "../src/features/auth/service";
 import { HttpTaskService } from "../src/features/tasks/services/httpTaskService";

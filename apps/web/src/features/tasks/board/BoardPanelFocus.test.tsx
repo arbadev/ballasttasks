@@ -161,6 +161,9 @@ describe("board-opened panel return over a served page", () => {
     const refresh = service.holdNext("query");
     fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority" }), { target: { value: "3" } });
     await waitFor(() => expect(service.calls).toContainEqual(["update", "alpha", { prio: 3 }]));
+    // The call log precedes the acknowledgement and its query. Close only once
+    // the deliberately held canonical query is actually pending.
+    await waitFor(() => expect(board()).toHaveAttribute("aria-busy", "true"));
     close(); // The saved card is still on the old page, so the board returns to it first.
     expect(card("Alpha")).toHaveFocus();
 
@@ -179,6 +182,7 @@ describe("board-opened panel return over a served page", () => {
     const refresh = service.holdNext("query");
     fireEvent.change(within(panel()).getByRole("combobox", { name: "Priority" }), { target: { value: "3" } });
     await waitFor(() => expect(service.calls).toContainEqual(["update", "alpha", { prio: 3 }]));
+    await waitFor(() => expect(board()).toHaveAttribute("aria-busy", "true"));
     close();
     expect(card("Alpha")).toHaveFocus();
     act(() => card("Alpha").blur()); // A click on board chrome that takes no focus of its own.

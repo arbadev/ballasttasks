@@ -6,6 +6,8 @@ import { defineConfig, devices } from "@playwright/test";
  * holds "Ballast Tasks v2.dc.html" and its support.js. Without it the suite skips itself.
  */
 const designDir = process.env.BT_DESIGN_DIR;
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+if (!apiUrl) throw new Error("Set NEXT_PUBLIC_API_URL to an explicitly owned API before running visual tests; no default endpoint is selected.");
 
 /**
  * Both servers are reused when already up, so two checkouts running the suite at once would
@@ -32,11 +34,11 @@ export default defineConfig({
   use: { ...devices["Desktop Chrome"], deviceScaleFactor: 1 },
   webServer: [
     {
-      // The tasks UI is in-memory; the API URL only has to be well-formed.
+      // Task views use offline fixtures; any public health request still targets the explicitly selected API.
       command: `node node_modules/next/dist/bin/next dev --port ${appPort} --hostname 127.0.0.1`,
       url: APP_URL,
       // Design comparisons deliberately exercise the explicit offline fixture adapter.
-      env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:47899", NEXT_PUBLIC_SERVICE_MODE: "demo" },
+      env: { NEXT_PUBLIC_API_URL: apiUrl, NEXT_PUBLIC_SERVICE_MODE: "demo" },
       reuseExistingServer: true,
       timeout: 120_000,
     },

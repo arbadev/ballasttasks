@@ -145,7 +145,9 @@ test.describe("against the design snapshot", () => {
     const design = await context.newPage();
     const app = await context.newPage();
     await open(design, `${DESIGN_URL}/${DESIGN_FILE}`, "All tasks");
-    await open(app, APP_URL, "13 tasks");
+    // Begin at the real task route: the root redirect intentionally moves focus to
+    // the new page heading, so its next Tab is not the shell's first control.
+    await open(app, `${APP_URL}/tasks`, "13 tasks");
 
     const ring = async (page: Page) => {
       await page.bringToFront();
@@ -158,7 +160,13 @@ test.describe("against the design snapshot", () => {
 
     const expected = await ring(design);
     expect(expected.outlineStyle).toBe("solid");
-    expect(await ring(app)).toEqual(expected);
+    expect(expected.tag).toBe("BUTTON");
+    // Navigation is now a real anchor, not the reference's state-only button;
+    // retain every ring assertion and verify the new keyboard/route contract.
+    expect(await ring(app)).toEqual({ ...expected, tag: "A" });
+    const allTasks = app.getByRole("link", { name: /^All tasks/ });
+    await expect(allTasks).toBeFocused();
+    await expect(allTasks).toHaveAttribute("href", "/tasks");
     await context.close();
   });
 });

@@ -384,26 +384,29 @@ npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
 npm run gen:api -- http://localhost:8000/openapi.json  # use your OWN API URL; source is explicit
 ```
 
-Real HTTP adapter contracts use `BT_HTTP_API_URL=<owned-api-url> npm run test:http`.
-Optionally set `BT_HTTP_WEB_URL=<owned-http-web-url>` as well to execute the served-browser
-query/focus regressions against that same stack. Neither suite starts a stack or selects an
-endpoint by default. Use only an owned disposable database and the fake model provider:
+Real HTTP contracts use `BT_HTTP_API_URL=<owned-api-url> BT_HTTP_WEB_URL=<owned-http-web-url> npm run test:http`.
+Both bindings are required before Playwright can discover or run this combined adapter/browser
+suite. It neither starts a stack nor selects an endpoint by default. Use only an owned disposable database and the fake model provider:
 these tests register example accounts and write ordinary authenticated test data. The
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
-With the unchanged default auth policy (10 attempts per IP per 60 seconds), all eight checks
-in one command overbook credential setup: the three adapter checks need eight attempts,
-the two served query/Retry focus checks need six, the two board-panel keyboard checks
-(desktop/mobile) need six, and the mobile shell lifecycle check needs three. Select four groups
-separately with `-- --grep 'UTC|real atomic|real bearer'`,
-`-- --grep 'served query-backed board focus'`,
-`-- --grep 'served board panel return'`, and
-`-- --grep 'mobile shell handoff lifecycle'`, respectively. Let the configured auth window
-elapse after each group finishes before starting the next, without concurrent
-credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
-Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
-throttling, or blanket-retry the suite. No test or application request retries automatically.
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), the complete
+suite would otherwise overbook credential setup. `visual/http-fixtures.ts` gives each bounded
+test a 61-second natural window before it begins, including after a worker restart or another
+invocation. The suite remains single-worker with no retries; allow roughly 13 minutes for all
+12 contracts. Do not run concurrent credential-heavy jobs on that API/IP. If a deployment uses
+a longer window, provide a separately paced execution plan before running. Keep a 429 setup
+failure as a failure; do not count its unexecuted assertions, reset counters, disable throttling,
+raise allowances or blanket-retry the suite. No test or application request retries automatically.
+
+`http-session-routes.contract.ts` covers real login, protected returns, reload/new-tab restoration,
+URL filtering/history, logout and transient bootstrap recovery. `http-route-continuity.contract.ts`
+adds 51-record list/board pagination through reload and history, a name-only project PATCH that
+preserves the stored key/colour, and acknowledged step/comment writes whose failed readbacks
+recover without another POST or losing a newer draft. These are served-browser checks, not native
+gesture evidence. The API, worker and built web must match the source being certified; verify
+ownership, effective settings and build-time API origin before starting, and refresh after fixes.
 
 The mobile shell check configures mobile/touch before sign-in and measures a 375px viewport.
 It covers consumed empty-project revisits, a pending Board-to-List departure followed by an
@@ -418,7 +421,14 @@ in the same commit; the schema source is always given, the command has no defaul
 
 ## Visual tests
 
-`npm run test:visual` starts the app (port 47812 unless overridden, see below) and runs these suites from `visual/`:
+`npm run test:visual` requires an explicit `NEXT_PUBLIC_API_URL` even though task fixtures use
+offline demo mode; any public health request must still target the selected owned API. It starts
+the app (port 47812 unless overridden, see below) and runs these suites from `visual/`.
+`visual/entrypoints.test.ts` invokes Playwright's real configuration consumer with `--list` to
+check missing-binding refusal and configured discovery without starting servers or sending requests.
+A run without `BT_DESIGN_DIR` is partial evidence, not a pass of the full design suite.
+
+The visual suites are:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view
