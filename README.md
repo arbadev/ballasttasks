@@ -27,16 +27,68 @@ Every application route except the health endpoints is **rate limited** (strict 
 
 ## Submission guide
 
+Start with [the thinking behind the build](#from-scaffold-to-product), then follow
+[the development-time GenAI account](docs/ai-usage.md): the recalled starting prompt,
+Firstmate's role, accepted code, checks and corrections. The runtime AI feature is
+[queued step drafting](docs/ai-usage.md#genai-inside-the-product), not the tool that
+built the app. Both are documented; neither is presented as a guarantee of correctness.
+
 | Requirement | Where to look |
 | --- | --- |
 | Setup, configuration, service URLs and checks | [Quick start](#quick-start), [tests and linters](#tests-and-linters), [API guide](apps/api/README.md), [web guide](apps/web/README.md) |
 | Seeded data and public demo credentials | [Demo walkthrough](#demo-walkthrough), [seed safety and exact fixture](apps/api/README.md#local-demo-data-explicit-optional) |
-| Key implementation decisions | [Architecture at a glance](#architecture-at-a-glance) and linked ADRs |
-| Coding tool and usable scaffold prompt | [Tools](docs/ai-usage.md#tools-used), [proposed and retained prompts](docs/ai-usage.md#prompts-used) |
+| Thought process and implementation decisions | [From scaffold to product](#from-scaffold-to-product), [architecture](#architecture-at-a-glance) and linked ADRs |
+| Coding tool, development companion and usable prompt | [Tools and Firstmate](docs/ai-usage.md#tools-used), [recalled, proposed and retained prompts](docs/ai-usage.md#prompts-used) |
+| GenAI in the running application | [Provider choice and proposal acceptance](docs/ai-usage.md#genai-inside-the-product) |
 | Representative resulting code | [Exact source excerpts](docs/ai-usage.md#representative-output) |
 | Validation and corrections | [Validation evidence](docs/ai-usage.md#how-suggestions-were-validated), [improvements](docs/ai-usage.md#corrections-and-improvements-made) |
 | Edge cases, authentication and validation | [Handling and tests](docs/ai-usage.md#edge-cases-authentication-and-validation-handling) |
 | Performance and idiomatic quality | [Assessment and limits](docs/ai-usage.md#performance-and-idiomatic-quality-assessment) |
+
+## From scaffold to product
+
+I started by asking for a Next.js/FastAPI monorepo with clean configuration and
+replaceable components—not a finished task app in one prompt. The first stage was
+infrastructure: a working five-service setup, health checks, tests and documentation
+headings. Product features were deliberately excluded at that point. That boundary
+made it possible to check the foundation before growing the product; it is not a
+description of the implemented scope shown above. The [recalled starting prompt and
+its provenance](docs/ai-usage.md#prompts-used) make that distinction explicit.
+
+The guiding question was: **can a product decision change without rewriting the
+whole application?** Small inward-facing ports, typed configuration and explicit
+composition roots were the answer. This is dependency inversion *using* constructor
+injection, not an absence of dependency injection; there is no DI framework.
+PostgreSQL remains the only supported database, so a replaceable repository interface
+is not a claim that another database already works.
+
+As the product evolved, the interface and persistence requirements gave those
+boundaries practical work to do:
+
+- **Task and project rules** live in use cases and domain objects; stable task keys
+  and SQL filtering kept identity and query behavior consistent across list and board.
+- **Steps, activity and attachments** made transaction ownership important. Activity
+  belongs with the change, while file cleanup needs compensation because disk and SQL
+  cannot share one atomic commit.
+- **AI drafting** reused Celery and the model port rather than adding another job
+  framework. A suggestion is deliberately not a saved step: the person chooses what
+  to accept, and the existing bulk operation enforces the same rules as manual entry.
+- **Browser integration** exposed a distinction between saved data and remembered UI
+  state. Server-validated cookie sessions and URL-owned navigation addressed reload
+  behavior without inventing a second source of truth or readable browser credentials.
+
+These choices cost extra interfaces, wiring and contract tests. For this assessment,
+that cost buys explicit failure boundaries and changes that can be checked in isolation;
+it does not make every dependency interchangeable for free. The ADRs below preserve
+the tradeoffs rather than just the final folder layout.
+
+I kept ownership of product direction, interface feedback, scope and architecture
+acceptance, and final decisions. **Firstmate was my development companion**, coordinating
+bounded implementation work, review findings and validation evidence. Its part in the
+process—and what the evidence does *not* prove—is described in
+[AI usage](docs/ai-usage.md). The known development-mode React185 failure remains
+[openly documented](docs/ai-usage.md#how-suggestions-were-validated); a complete account
+of the work is not a claim that the entire project is finished.
 
 ## Architecture at a glance
 
