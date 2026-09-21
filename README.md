@@ -8,7 +8,7 @@ A task also carries **steps** (`/tasks/{id_or_key}/steps`, added singly or in an
 
 Step titles can also be **drafted by the language model** in the background: `POST /tasks/{id_or_key}/step-generations` queues the work and answers immediately with a job handle, `GET /tasks/{id_or_key}/step-generations/{job_id}` polls it, and the chosen titles become steps only through the bulk-add endpoint above; see [queued step generation](docs/architecture.md#queued-step-generation).
 
-Every route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md).
+Every application route except the health endpoints is **rate limited** (strict per-IP limits on login and registration, per-user and per-IP limits elsewhere; `429` with `Retry-After` and `X-RateLimit-*` headers; counted in Redis, and the API keeps serving when Redis is down): see [rate limiting](docs/architecture.md#rate-limiting) and [ADR 0004](docs/decisions/0004-rate-limiting.md). Framework documentation/OpenAPI endpoints are intentionally exempt; these request budgets are not DDoS or model-spend protection.
 
 ## Architecture at a glance
 
@@ -34,10 +34,12 @@ To run tests and linters on the host:
 ## Quick start
 
 ```sh
-cp .env.example .env && docker compose up --build
+cp .env.example .env
+# Edit .env: set AI__API_KEY, or set AI__PROVIDER=fake and AI__MODEL=fake-1 for offline use.
+docker compose up --build
 ```
 
-That starts all five services (`db`, `redis`, `api`, `worker`, `web`) with no other step. `.env.example` holds working local values; nothing needs editing. The AI provider that ships active is the offline `fake`; to use a real one (OpenRouter is the recommended one, Gemini the alternative), edit the `AI__*` lines in `.env` as their comments in `.env.example` describe. Single sign-on ships disabled, so password login works with no credentials; the `SSO__*` comments in `.env.example` describe how to enable Google or the credential-free `fake` provider.
+That starts all five services (`db`, `redis`, `api`, `worker`, `web`). The default is **OpenRouter** with the exact model alias `~openai/gpt-luna-latest`; a nonblank `AI__API_KEY` is required at startup. A rejected key fails readiness/generation, never silently switches to fake. Keep `AI__BASE_URL` blank (or `https://openrouter.ai/api/v1`): it is the API root, **not** the model page or `/chat/completions` endpoint. For deterministic offline use, explicitly set both `AI__PROVIDER=fake` and `AI__MODEL=fake-1`. Google's Gemini remains an alternative using the commented settings in `.env.example`. See [AI configuration](apps/api/README.md#ai-configuration) for reasoning and live-check limits. Single sign-on ships disabled, so no SSO credentials are required; the `SSO__*` comments describe how to enable Google or the credential-free `fake` identity provider.
 
 | What | URL |
 | --- | --- |

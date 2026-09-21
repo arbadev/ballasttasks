@@ -1,4 +1,5 @@
-# The whole system: `cp .env.example .env && docker compose up --build`.
+# Copy .env.example to .env, set AI__API_KEY (or explicitly select fake), then:
+# `docker compose up --build`.
 # Every value comes from .env (interpolation for compose itself, env_file for the API image).
 # Only web (3000) and api (8000) are published to the host; db and redis stay on the
 # compose network, where services reach each other by service name.

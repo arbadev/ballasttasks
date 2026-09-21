@@ -65,8 +65,8 @@ class RedisSettings(_Group):
 
 
 class AiSettings(_Group):
-    provider: str = "fake"
-    model: str = "fake-1"
+    provider: str = "openrouter"
+    model: str = "~openai/gpt-luna-latest"
     # Whether a provider needs it is that provider's rule: its registry factory enforces it.
     api_key: SecretStr | None = None
     # None means the adapter's own default; set it to go through a proxy or a gateway.
