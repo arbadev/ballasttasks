@@ -63,6 +63,7 @@ test("title typing: pauses, replacement, backspace, paste, middle insertion and 
   await input.pressSequentially("Write a ", { delay: 90 });
   expect(writes).toEqual([]); // every key was inside the existing 400ms debounce
   await settle(page, input, client, task, "Write a ");
+  await page.screenshot({ path: info.outputPath("title-saved-mid-typing.png") });
   await input.pressSequentially("multiword title", { delay: 90 });
   await settle(page, input, client, task, "Write a multiword title");
 
@@ -75,7 +76,8 @@ test("title typing: pauses, replacement, backspace, paste, middle insertion and 
   await page.evaluate(() => navigator.clipboard.writeText("for people")); // clipboard fixture, not an input-value assignment
   await input.press("ControlOrMeta+V");
   await settle(page, input, client, task, "Plan work for people");
-  await input.press("Home");
+  // Home does not move an input caret on macOS either. Use the same plain-key path as End below.
+  for (let i = 0; i < "Plan work for people".length; i++) await input.press("ArrowLeft");
   await caret(input, "Plan work for people", 0);
   for (let i = 0; i < 4; i++) await input.press("ArrowRight");
   await input.pressSequentially(" carefully", { delay: 90 });
