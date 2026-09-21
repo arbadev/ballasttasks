@@ -72,11 +72,13 @@ separate operator actions, not performed by the local fake-provider tests.
 The URL owns task scope/project, status/due/priority, search (`q`), Attention signal,
 sort, list/board (`view`) and 50-row offset. Direct links, reload and Back/Forward feed
 the same validated query projection; there is no state-to-router synchronization effect.
-Filters/views/pages push history; search replaces it, retaining request debouncing.
-Sidebar anchors navigate and support new tabs. A named scope leaves the selected project;
-a project route may carry a combined `scope`. Unknown/duplicate/invalid parameters are
-canonicalized to defaults; unsafe return destinations fall back to `/tasks`. Selection
-and drafts stay session-local, not in URLs. Signed-in visitors to login/register return
+Deliberate filter/view/page changes push history; search replaces it, retaining request
+debouncing. Sidebar anchors navigate and support new tabs; a project's anchor always names
+that project. A named scope leaves the selected project and resets the page;
+a project route may carry a combined `scope`. Unknown/duplicate/invalid parameters and
+offsets beyond the results are canonicalized to defaults, replacing the current entry;
+unsafe return destinations fall back to `/tasks`. Selection and drafts stay session-local,
+not in URLs. Signed-in visitors to login/register return
 to the app; anonymous protected links preserve only a validated same-app destination.
 
 The HTTP workspace uses the API's filters, sorting, search and limit/offset pages (50 rows),
