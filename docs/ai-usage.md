@@ -1,81 +1,188 @@
 # AI usage
 
-This assessment grew through conversation, implementation and correction, not a single
-prompt followed by an unchecked code dump. I used GenAI to help turn a deliberately
-small scaffold into the application in this repository. I remained responsible for
-what to build, which architectural choices to accept and whether the interface met
-the intended behavior. This account separates **assistance during development** from
-**AI drafting inside the product**, and separates remembered instructions from retained
-evidence.
+I wanted to turn a task-management design into a working product: somewhere to
+organise projects, identify the next piece of work and carry a task through to
+completion. My first request was deliberately smaller than that goal. I asked for
+a Next.js/FastAPI monorepo with a runnable foundation, clean configuration and
+replaceable components. Product features would follow once that foundation could
+be checked.
+
+**Firstmate is my development companion and coordination point.** Together we worked
+through a product-definition loop: clarify the behavior, constrain the implementation,
+review the result, exercise it and use the findings to refine the next change. I
+supplied product direction and interface feedback and accepted scope and architecture
+decisions. Firstmate contributed suggestions, coordinated bounded workers and brought
+implementation, review and test evidence back together. I did not hand-design every
+detail or personally execute every check; my responsibility was to make informed
+acceptance decisions rather than treat generated code as the finished product.
+
+That loop led to the delivered **Ballast Tasks**: an authenticated shared workspace
+with projects, list and board views, assignment, priorities, attention signals,
+steps, comments, activity, attachments and AI-assisted step drafting. The final
+Docker application was exercised on representative persisted workflows, including
+title editing, session restoration, navigation and a real queued generation with
+explicit acceptance. This is a completed bounded task-manager delivery, with known
+follow-ups—not a claim that every edge case is solved.
+
+## From product questions to architectural decisions
+
+The architecture became useful when it answered concrete product questions. The
+following groups explain that reasoning; they are not a claim that I anticipated
+every requirement at the start. The [PRD](PRD.md) records implemented behavior, and
+the [architecture](architecture.md) and ADRs record the constraints we accepted.
+
+### Keep the API and interface in agreement
+
+I wanted one deliverable that could be cloned and run, with the design and API
+evolving together. We kept the docs, FastAPI backend, Next.js frontend and Compose
+setup in one repository. The API owns the HTTP contract: Pydantic models produce
+OpenAPI, which generates the frontend types. A contract change and its frontend fix
+land together instead of relying on two hand-maintained definitions.
+
+The tradeoff is two toolchains and coordinated releases, without an additional
+monorepo build framework. At this size, explicit `make` commands are enough. See
+[ADR 0001](decisions/0001-monorepo.md) and the
+[contract flow](architecture.md#http-contract-flow).
+
+### Make replacement a boundary, not a promise
+
+My initial request for replaceable database and AI components needed a precise
+implementation rule. We put small `Protocol` ports in the application layer and
+kept framework and provider adapters outside it. `bootstrap.py` and `providers.tsx`
+choose and inject implementations; components receive services rather than calling
+the network themselves.
+
+This is **dependency inversion using explicit dependency injection**. We avoided a
+DI framework, not injection. The cost is more interfaces, files and hand wiring;
+the benefit is that a use case can be tested without its external services and an
+adapter can be checked against a shared contract. Import-linter checks the dependency
+direction. PostgreSQL is still the only supported database: an interface is not
+proof that another database already works. See [ADR 0002](decisions/0002-ports-and-adapters.md)
+and the [adapter contracts](architecture.md#ports).
+
+### Translate the design into durable task rules
+
+The design introduced projects, stable task keys, a Testing column and urgency-based
+attention. Those are product rules, not just new fields on a screen. A task keeps
+its key when moved to another project; a transactional counter on the project row
+allocates keys safely under concurrent creation. That serialises creation within
+one project, in exchange for rollback-safe allocation.
+
+Urgency created a different tension: it depends on today's date, but filtering,
+sorting and pagination belong in SQL. We accepted a domain implementation and a SQL
+implementation, both checked against literal design cases with an injected date.
+That preserves server-side paging but creates an ongoing parity-testing obligation;
+“today” remains UTC for everyone. [ADR 0005](decisions/0005-task-keys-and-urgency.md)
+explains the decisions and links the concurrency and urgency tests.
+
+### Give a change and its consequences one transaction owner
+
+Steps and activity made “save the task” insufficient: a change and its timeline entry
+must succeed or fail together, including outside an HTTP route. We used PostgreSQL
+through a request-scoped unit of work; repositories never commit. Use cases record
+activity through `ActivityRecorder` in the same transaction. Task-row locking keeps
+step positions and the 100-step limit coherent under concurrent writers.
+
+Attachments exposed the boundary of that guarantee. SQL and a filesystem cannot
+share an atomic commit, so `FileChanges` compensates new writes on rollback and
+defers removal until after commit. Uploads stream between short transactions rather
+than occupy a database connection while waiting for a client. This costs cleanup
+logic and leaves documented crash/orphan windows. The
+[unit of work](architecture.md#unit-of-work-one-transaction-per-request),
+[ADR 0007](decisions/0007-steps-and-activity.md) and
+[ADR 0008](decisions/0008-file-storage.md) connect those choices to rollback,
+concurrency and real-storage tests.
+
+### Treat reload and navigation as product behavior
+
+Real browser use revealed a distinction between persisted records and a remembered
+session or filter: PostgreSQL could retain the data while a reload lost the context
+needed to use it. We adopted server-validated HttpOnly cookie sessions and URL-owned
+filters, view and pagination. The existing workspace remains the data/draft owner;
+the URL owns navigation, including Back/Forward.
+
+The decision preserved bearer clients and the existing JWT expiry rather than adding
+refresh credentials or readable browser tokens. Cookie writes require Origin and
+CSRF checks; logout clears this browser's cookie, not every copied token or device.
+Optional SSO stays behind its own port and single-use exchange flow, with no live
+SSO claim here. See [ADR 0009](decisions/0009-browser-sessions-and-routes.md), which
+supersedes the earlier memory-only browser approach in
+[ADR 0006](decisions/0006-single-sign-on.md).
+
+### Let AI propose work, not silently create it
+
+For step drafting, I wanted help breaking down a task while keeping acceptance with
+the person. We reused Celery/Redis and the provider-neutral `LanguageModel` port:
+queue the request, wait outside a database transaction, validate the returned titles
+and present proposals. Only the existing atomic bulk-step operation persists the
+selected titles. The same domain limits apply to manual and generated steps.
+
+Plain HTTP adapters keep timeout and error policies explicit, at the cost of owning
+vendor request/response compatibility. Ephemeral proposals avoid treating Redis as
+the task store. Shared request throttling limits request rates, **not model spending**;
+there is no separate generation quota. [ADR 0003](decisions/0003-llm-adapters-over-http.md),
+[ADR 0004](decisions/0004-rate-limiting.md) and
+[queued generation](architecture.md#queued-step-generation) document these boundaries.
 
 ## Tools used
 
-**Preferred coding tool for the proposed scaffold: Claude Code.** Give it the prompt
-below alongside this repository's `CLAUDE.md`/`AGENTS.md` and architecture. This names
-a usable tool choice for the submission, not a claim that every historical change
-came from that tool or a particular model/version.
+Firstmate gave me one coordination point for bounded implementation and validation
+work. The practical cycle was:
 
-GenAI-assisted implementation used bounded task instructions, repository inspection,
-code edits and test feedback. Retained implementation briefs and validation reports
-support the examples below; they are not a complete conversation archive. The precise
-coding model/version and first unedited model drafts are not retained in the evidence
-used for this account, so neither is asserted here. The samples are **accepted resulting
-repository code**, not claimed verbatim first responses.
-
-**Firstmate was my development companion.** It coordinated bounded workers with
-specific instructions, brought review findings and test results back into the work,
-and kept source delivery tied to the evidence for the changed code. That coordination
-helped keep implementation, validation and unresolved issues visible across iterations;
-it did not replace my product direction, interface feedback, scope/architecture
-acceptance or final decisions. Firstmate is development tooling, not a runtime
-dependency of Ballast Tasks, and coordination is not a guarantee of correctness.
-
-The practical loop was to define a small change and its constraints, inspect existing
-code, ask for a testable implementation, examine failures and review findings, then
-accept or correct the result. Tests and source inspection were the checks on the
-assistant's answer, not supporting decoration added after declaring it done. The
-examples below include corrections and limits precisely because an apparently
-plausible answer was not enough.
+1. **Define the next observable result.** For example, generating titles must leave
+   the task unchanged until acceptance; reloading must restore a valid session and
+   the chosen navigation state.
+2. **Constrain the change.** Use existing ports and transaction ownership, specify
+   non-goals, and stop on uncertainty rather than introduce an unreviewed framework.
+3. **Implement and challenge the result.** Workers inspected the source, wrote code
+   and tests, and returned review findings and failures—not just a completion message.
+4. **Use real flows to refine acceptance.** A title save that trims a paused space
+   can pass a simple persistence check yet still break typing. That finding led to
+   a focused correction and natural-typing plus in-flight-response regressions.
+5. **Separate source delivery from usable delivery.** Merged code and passing suites
+   were followed by checks against the actual Docker application, then bounded
+   acceptance with the remaining findings recorded.
 
 The workflow used pytest, Vitest/MSW, Playwright, native Chrome checks, Ruff, mypy,
-TypeScript, import-linter and pre-commit. The repository's
-[working rules](../AGENTS.md) require tests-first changes and inward dependencies;
-that policy alone is not proof that every change followed TDD.
-The application's configurable language-model adapters are a separate feature, not
-identification of the coding assistant: see [ADR 0003](decisions/0003-llm-adapters-over-http.md).
+TypeScript, import-linter and pre-commit. The [working rules](../AGENTS.md) require
+tests-first executable changes; documented red/green examples appear below. Firstmate
+is development tooling, not a runtime dependency or a correctness guarantee.
+
+**Claude Code is my preferred coding-tool choice for the reusable prompt below.**
+That recommendation does not identify every historical coding session or model.
+The app's OpenRouter/Gemini integration is a separate use of GenAI, described under
+[GenAI inside the product](#genai-inside-the-product).
 
 ## Prompts used
 
-### Starting point: recalled scaffold request
+### Starting point: a bounded scaffold
 
-The following is an excerpt from **my recalled starting prompt, reconstructed by me**;
-it is not an independently preserved verbatim conversation transcript:
+**Edited reconstruction of my recalled initial request**, not a verbatim transcript;
+the dependency-inversion wording is clarified to match the distinction above:
 
-> I am aiming to have a mono repo containing:
+> Set up the initial monorepo for a task-management product based on the interface
+> design: Next.js and TypeScript for the frontend, FastAPI for the backend, and
+> shared product requirements, architecture and decision records. This stage is
+> setup only; do not implement authentication or task features yet.
 >
-> the frontend application, which is going to be a Next.js app
-> the backend application, which is going to be a FastAPI application
-> probably some shared documentation in that repo that is going to work as some kind of PRD, definitions, and changes that are going to be added to the product that I'm going to be creating for this Claude Design
+> Establish Clean Architecture and typed configuration. Keep application behavior
+> separate from database and AI adapters so those boundaries can be replaced and
+> tested. Use dependency inversion with explicit injection, without a DI framework.
 >
-> Help me to build this thing. Please give me the instructions so I can start working on that front.
+> Provide PostgreSQL, Redis and Celery, health/readiness checks, a frontend status
+> page and a five-service Docker Compose setup. Add backend tests, coverage, lint,
+> type checks and pre-commit tooling. Start most product documentation as headings;
+> fill in the initial architecture decision and give me reproducible setup instructions.
+>
+> Work one task at a time: implement, check, commit and report. Write backend tests
+> first, pause at the backend and Compose checkpoints, and stop rather than guess
+> after repeated errors or uncertainty. Completion means the services and checks
+> actually work—not that their files merely exist.
 
-**Condensed history, not a quotation:** I wanted clean configuration, dependency
-inversion and replaceable database/AI components. The initial assignment was setup
-only: a Next.js/FastAPI monorepo, PostgreSQL, Redis, Celery, health/readiness checks,
-Docker Compose, tests and linting. Most documentation was initially headings only.
-Work was staged—implement, check, commit and report—with tests first on the backend,
-explicit checkpoints, and a stop rather than guessing after repeated errors. Auth,
-tasks and other product features were outside that first stage; later accepted work
-intentionally added them. Historical version choices were starting assumptions, not
-today's installation instructions; use the locked dependencies and
-[current setup](../README.md#quick-start).
-
-My starting wording contrasted “dependency inversion” with “dependency injection”.
-The implemented distinction is more precise: use cases depend on inward-facing
-`Protocol` ports, and explicit constructor calls in the composition root inject their
-adapters. We avoided a DI **framework**, not dependency injection itself. That made
-the original replacement goal concrete and testable; see
-[ADR 0002](decisions/0002-ports-and-adapters.md).
+That first boundary let us validate the foundation before expanding it. Auth, task
+CRUD and the later capabilities were deliberate subsequent work, not violations of
+the scaffold scope. For installation today, use the locked dependencies and
+[current setup](../README.md#quick-start), not historical version assumptions.
 
 ### A usable prompt for the expanded API
 
@@ -87,8 +194,9 @@ invocation):**
 > adapters and one composition root. Support JWT registration/login, authenticated
 > task CRUD, assignment and completion, with status/due-date filtering and pagination.
 > Preserve the browser-session/CSRF and bearer contracts in ADR 0009; never store
-> readable browser credentials. Validate inputs and return safe errors. Use migrations, a request-scoped unit of
-> work, Redis-backed rate limiting and Celery background processing. Read the existing
+> readable browser credentials. Validate inputs and return safe errors. Use migrations,
+> a request-scoped unit of work, Redis-backed rate limiting and Celery background
+> processing. Read the existing
 > architecture and decisions before editing. Write failing domain, contract and route
 > tests first; exercise real PostgreSQL/Redis integrations, document setup and Swagger,
 > and run tests, coverage, type checks and import-boundary checks. Do not use real
@@ -171,54 +279,93 @@ proof that the first generated draft was correct.
 
 ## How suggestions were validated
 
-Retained consolidated validation at `f5f50b950a785d3acfac5ff246229285662d6c40`
-reported **2,600 API tests, 375 integration tests, 670 web tests and 106 visual tests**
-passing, plus lint, pre-commit and an HTTP-mode production build. API coverage was
-90.95%; web statement coverage was 96.18%. Baseline `80c2c29` has the same source
-tree as that validated head. These are historical results, not a claim of newly
-running those journeys for this document or of remote CI; no CI workflow is claimed.
+I treated validation as several kinds of evidence, not a single green status.
+Unit and contract tests check rules and adapter behavior; HTTP integrations check
+real infrastructure; browser journeys check whether the interface is usable. A
+successful build or a merged branch cannot substitute for that last step.
 
-A later source-bound checkpoint is `7c43cbfc1161f958e0972ccfc4465293d94dbf6a`,
-whose tree matches landed `2f4397aa0e7bed4e859302beb9de4835ffb3b694`. It reported
-**2,625 API tests (91.05% coverage), 380 integration tests and 804 web tests** passing,
-plus lint/types/import checks, pre-commit and an HTTP-mode production build. These
-final suites used fake providers or mock transports with no real credentials. This
-documentation-only follow-up reuses those results for unchanged executable inputs;
-it does not relabel them as fresh test runs or a new browser campaign. Remote CI was
-not run and no configured CI checks are claimed.
+### Source-bound suites and build
 
-**Current limitation:** later session/routing work exposed an unresolved React185
-(maximum update depth) failure in Next development-mode browser testing. Five bounded
-production attempts passed, but those attempts neither resolve the development failure
-nor establish production capacity or an all-browser-tests-green result. The commands
-below are a reproduction guide, not a statement that every suite currently passes.
+The final executable source is `d6568fe952434763919734dea5d680ec1e5ceac6`.
+It differs from validated `1ffc78382eaf11d58620b2fc13ceb6263c5ee942` only in
+README and assessment prose. The retained results for those executable inputs are:
 
-Evidence types matter:
+| Evidence | Result and scope |
+| --- | --- |
+| API at `7c43cbfc1161f958e0972ccfc4465293d94dbf6a` | 2,625 tests passed; 91.05% coverage. API/config/build-test inputs match the final validated title source. |
+| PostgreSQL/Redis integration at the same API checkpoint | 380 passed; one inherited httpx cookie deprecation warning. |
+| Web at `1ffc78382eaf11d58620b2fc13ceb6263c5ee942` | 807 tests passed; 95.74% statement coverage, including the title correction. |
+| Static checks at that title checkpoint | Ruff, formatting, mypy, import contracts, ESLint, TypeScript and pre-commit passed. |
+| Production build | Successful HTTP-mode build reused against identical web product/build inputs; the final Docker build was separately exercised below. |
 
-- Unit/contract tests inject ports; web HTTP-adapter tests use MSW. They test specified
-  behavior, not a live vendor or a real browser deployment.
-- [Served generation integration](../apps/api/tests/integration/test_step_generation_served.py)
-  exercises real HTTP, PostgreSQL, Redis and a consuming worker with a deterministic
-  fake model. [File integration](../apps/api/tests/integration/test_file_attachments.py)
-  covers real storage/transaction behavior.
-- Retained native browser acceptance covered sign-in, persisted edits, steps,
-  attachments and explicit proposal acceptance. A subsequent main-equivalent
-  deployment smoke confirmed a saved fixture after a fresh sign-in, then deleted it.
-  Existing screenshots/journeys retain their original tested-head labels.
-- Those historical browser/integration results used **fake AI and SSO providers**.
-  Separately, one bounded real OpenRouter generation at source `1323d10304622360828cc295065e967eb0daf12f`
-  traversed API → Redis → Linux prefork Celery → the exact configured alias, then
-  polling and explicit acceptance. No steps or activity changed before acceptance.
-  The later provider delivery changed only a fake-provider docstring in API production
-  source. This supports one real queued success, not a live-model evaluation campaign,
-  a forced worker-timeout test, capacity, or continued provider availability. Its
-  native browser attempt stopped on stale-reference tooling failures; HTTP success
-  is not a native-browser pass. No real Google SSO flow is claimed.
-- One inherited httpx cookie deprecation warning and two jsdom navigation notices were
-  retained in validation history. Earlier native console/Chrome Issues checks were
-  clean within their own journeys, not a blanket warning-free claim for later source.
-  A bounded vendor check found no verified applicable fix for the development React185
-  path; successful production attempts do not erase that failure.
+Ordinary suites used fake providers or mock transports, not real credentials.
+[Served generation integration](../apps/api/tests/integration/test_step_generation_served.py)
+adds real HTTP, PostgreSQL, Redis and a consuming worker with deterministic fake AI;
+[file integration](../apps/api/tests/integration/test_file_attachments.py) checks
+storage and transaction behavior. Neither establishes live-provider quality.
+
+### Acceptance against the delivered Docker app
+
+At the final source above, bounded checks exercised password login, reload/new-tab
+session restoration, protected navigation, list/board and Back/Forward, search,
+project/task operations, title editing, steps, comments, activity and file round trips.
+The title journeys checked a paused Space followed by more typing, caret preservation,
+reload persistence and genuine blank-title refusal/retry. Controlled delivery of
+real PATCH responses separately checked that an older acknowledgement preserves a
+newer draft. These core/title journeys used Playwright, not native gestures.
+
+One real queued OpenRouter job traversed the API, Redis and Linux prefork Celery and
+returned **10 proposals**. The full task response was unchanged before acceptance,
+including after removing one proposal locally. Explicit acceptance stored **9 steps**;
+reload and database readback agreed on the selected titles and order. That demonstrated
+the product boundary I wanted: assistance first, a deliberate user decision before
+persistent change. It was one final-app success, not a provider evaluation campaign.
+
+The final API report recorded 74 expected statuses and 116 passing assertions,
+retaining an earlier header-helper false failure and a separate failed 403 rate-header
+audit. The primary browser run retained 14 passed
+and 3 failed compound cases; nine corrected navigation checkpoints subsequently
+passed. Invalid URL expectations, a wrong board selector and an assertion made before
+an asynchronous step acknowledgement were distinguished from product defects, not
+silently removed from the record. Native stale-reference failures stopped that path.
+An auxiliary generation observer started after acceptance and failed its launcher
+assertion; preacceptance evidence comes from the captured task responses, not that
+late observer.
+
+A 375×812 viewport check covered dialog keyboard traversal and document overflow,
+not touch or full accessibility. The primary browser console contained two expected
+422 resource errors; no page errors or Chrome Issues were recorded in that bounded
+run. The corrected navigation run was clean. These observations do not erase the
+historical jsdom notices or establish a universal warning-free result.
+
+### Known follow-ups and evidence provenance
+
+The delivery was accepted with these limits visible:
+
+- **Development React185 remains unresolved.** Production search passes do not fix
+  the Next development-mode maximum-update-depth failure.
+- **Cookie-CSRF 403 refusals lack the documented rate headers.** They safely refused
+  writes, but source ordering skips the ordinary limiter decision on that path.
+  Accounting was not directly measured in Redis; no auth bypass or exhaustion exploit
+  was demonstrated.
+- **Long project names overlap sidebar rows.** The final check measured 9.75 px of
+  overlap; this is a usability follow-up, not observed data loss.
+- **The project-key hint says 2–4 letters while the contract permits 2–5.** Five-letter
+  keys succeeded through the API; five-letter UI acceptance was not tested.
+
+Retained instructions, source and validation reports underpin this account, not a
+complete conversation archive. The starting prompt is edited recollection; the
+reusable prompt is newly proposed; the feature quotations are retained instructions;
+the code samples are accepted output, not invented first model responses. The exact
+development model/version is not established by the app's provider settings. The
+TDD policy alone is not proof that every historical change followed it.
+
+This prose-only revision reuses source-bound suite/build/browser evidence; it does
+not report new executions of those campaigns. CI was intentionally **skipped, not
+green**. No live Google SSO, exhaustive browser/security audit, production capacity,
+forced worker-kill proof or live-model usefulness benchmark is claimed. Fresh final
+acceptance did not repeat natural session expiry, all filter permutations, step-limit
+concurrency or crash/rollback testing. Earlier failures retain their original scope.
 
 Reproduce the repository checks after the [setup](../README.md#tests-and-linters),
 using a dedicated test stack, never a retained demo database:
@@ -239,6 +386,17 @@ isolated visual ports and real-HTTP test configuration, and the
 
 ## Corrections and improvements made
 
+These examples show where feedback changed the implementation or the way we checked
+it. The useful output was the corrected behavior and its evidence, not the assistant's
+initial confidence.
+
+- **Title autosave:** a natural paused Space was saved, trimmed by the server and
+  applied back to the focused input, joining the next word to the previous one.
+  The correction retains the title's local draft until blur/close while still saving
+  it; tests cover natural typing, newer drafts during acknowledgement and refusal/retry.
+  This accepts a focused-draft-versus-canonical-value tradeoff rather than changing
+  autosave for every field. See [autosave](../apps/web/src/features/tasks/detail/autosaveMachine.ts)
+  and [title-typing tests](../apps/web/src/features/tasks/detail/titleTyping.test.tsx).
 - **Unicode output:** JSON decoding accepts lone surrogate escapes which cannot be
   represented by HTTP/PostgreSQL. A retained red/green regression led to explicit
   UTF-8 encoding validation, rejecting the whole invalid proposal batch rather than
@@ -289,8 +447,7 @@ clients remain supported. Logout clears the browser cookie, not copied JWTs or o
 devices. See [ADR 0009](decisions/0009-browser-sessions-and-routes.md),
 [browser-session route tests](../apps/api/tests/api/test_browser_session.py) and
 [PostgreSQL/JWT integration tests](../apps/api/tests/integration/test_browser_session.py).
-File content
-sniffing, streaming size limits, rollback cleanup and their residual failure windows
+File content sniffing, streaming size limits, rollback cleanup and their residual failure windows
 are documented in [ADR 0008](decisions/0008-file-storage.md) and tested in
 [file route tests](../apps/api/tests/api/test_file_attachments.py). These are concrete
 checks, not a claim of a complete security audit or malware scanning.
@@ -320,15 +477,14 @@ suggestions or coverage percentages as guarantees.
 
 ## What I would carry forward
 
-The useful part of this process was not asking for more code at once. It was making
-the next question small enough to check: what may this layer know, what happens when
-a provider fails, what persists after reload, and who decides that a suggestion
-becomes task data? Firstmate helped coordinate those questions and their evidence;
-the answers still needed human acceptance and executable checks.
+I would keep the same division of responsibility: I set product direction and make
+acceptance decisions; Firstmate helps turn those decisions into bounded work, brings
+back suggestions and evidence, and keeps the feedback loop moving. The most useful
+questions were concrete: what may this layer know, what happens when a provider
+fails, what persists after reload, and who decides that a suggestion becomes task data?
 
-The strongest lesson is to preserve the difference between intent, output and proof.
-A prompt states what I wanted. Accepted source shows what we built. A passing test
-supports a particular behavior on particular inputs—not the whole product, every
-browser or every future provider response. Keeping the original failures and known
-limits beside the successes makes this account more useful than calling the project
-finished because the code and documentation exist.
+We reached a working task manager by answering those questions through successive
+implementation and validation, not by making the initial prompt sound omniscient.
+My reusable lesson is to define observable behavior, preserve failures and distinguish
+intent, accepted source and demonstrated behavior. That is how I can explain both
+what was delivered and what I would improve next.
