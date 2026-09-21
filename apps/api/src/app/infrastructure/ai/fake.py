@@ -5,7 +5,7 @@ from app.application.use_cases.generate_step_titles import PROMPT_PREFIX
 
 
 class FakeLanguageModel:
-    """Deterministic, offline LanguageModel. The default provider: needs no API key.
+    """Deterministic, offline LanguageModel. Explicit opt-in (never a fallback): needs no API key.
 
     It never fails, so it raises none of the port's ``LanguageModelError``s and its
     ``check`` is always True.
