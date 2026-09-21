@@ -11,6 +11,8 @@ import { cn } from "@/lib/cn";
 import { sidebarCounts } from "../model/counts";
 import type { Scope } from "../model/filter";
 import { useDirectory, useNow, useWorkspace } from "../workspace/WorkspaceProvider";
+import { useTaskNavigation } from "../workspace/TaskRouteContext";
+import { changeTaskRoute, taskHref } from "../workspace/route";
 
 /** The assistant is a system actor, not a teammate: it never appears in the People list. */
 const ASSISTANT_ID = "ai";
@@ -31,6 +33,7 @@ interface SidebarProps {
 
 export function Sidebar({ id, open, onNavigate }: SidebarProps) {
   const auth = useAuthService();
+  const navigation = useTaskNavigation();
   const { state, actions } = useWorkspace();
   const { people, projects, currentUser } = useDirectory();
   const now = useNow();
@@ -63,6 +66,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
           <NavButton
             key={scope}
             active={state.query.scope === scope}
+            href={navigation ? taskHref(changeTaskRoute(navigation.route, { type: "scopeSelected", scope })!) : undefined}
             onClick={() => {
               actions.selectScope(scope);
               onNavigate();
@@ -84,6 +88,7 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
           <NavButton
             key={project.id}
             active={state.query.project === project.id}
+            href={navigation ? taskHref(navigation.route.query.project === project.id ? navigation.route : changeTaskRoute(navigation.route, { type: "projectToggled", project: project.id })!) : undefined}
             onClick={() => {
               actions.toggleProject(project.id);
               onNavigate();
@@ -127,18 +132,18 @@ export function Sidebar({ id, open, onNavigate }: SidebarProps) {
   );
 }
 
-function NavButton({ active, onClick, className, children }: { active: boolean; onClick: () => void; className: string; children: ReactNode }) {
+function NavButton({ active, onClick, href, className, children }: { active: boolean; onClick: () => void; href?: string; className: string; children: ReactNode }) {
+  const classes = cn(
+    "flex cursor-pointer items-center gap-2.5 rounded-bt-sm px-2.5 text-left text-[13px] font-medium transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:min-h-11",
+    active ? "bg-card-2 text-fg" : "text-fg-2",
+    className,
+  );
+  if (href) return <a href={href} aria-current={active ? "page" : undefined} onClick={(event) => {
+    if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault(); onClick();
+  }} className={classes}>{children}</a>;
   return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "flex cursor-pointer items-center gap-2.5 rounded-bt-sm px-2.5 text-left text-[13px] font-medium transition-colors duration-[160ms] ease-bt hover:bg-card-2 hover:text-fg pointer-coarse:min-h-11",
-        active ? "bg-card-2 text-fg" : "text-fg-2",
-        className,
-      )}
-    >
+    <button type="button" aria-pressed={active} onClick={onClick} className={classes}>
       {children}
     </button>
   );

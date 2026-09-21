@@ -12,10 +12,11 @@ answers the same 401s, and differs only in where the caller is read.
 import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from app.api.dependencies import ContainerDep, GetCurrentUserDep
+from app.api.session_policy import SESSION_COOKIE
 from app.application.errors import AuthenticationError
 from app.application.use_cases.get_current_user import GetCurrentUser
 from app.domain.user import User
@@ -26,6 +27,23 @@ BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 # auto_error=False: the 401 for a missing token is raised below, with the same shape and
 # challenge header as every other authentication failure.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+
+
+def request_credential(
+    request: Request,
+    container: ContainerDep,
+    bearer: Annotated[str | None, Depends(oauth2_scheme)],
+) -> str | None:
+    # Explicit Authorization always wins, including an invalid scheme or token.
+    if "authorization" in request.headers:
+        return bearer
+    token = request.cookies.get(SESSION_COOKIE)
+    if token and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        container.browser_session.protect(request)
+    return token
+
+
+Credential = Annotated[str | None, Depends(request_credential)]
 
 
 def unauthorized(detail: str) -> HTTPException:
@@ -51,7 +69,7 @@ def _signed_in(token: str | None, user: User | None) -> User:
 
 
 async def _authenticate(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    token: Credential,
     use_case: GetCurrentUserDep,
 ) -> User | None:
     """The active user the token belongs to, or None. FastAPI caches it per request, so
@@ -61,7 +79,7 @@ async def _authenticate(
 
 
 async def _authenticate_apart(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    token: Credential,
     container: ContainerDep,
 ) -> User | None:
     """The same caller, read in a unit of work that ends here instead of the request's.
@@ -77,7 +95,7 @@ async def _authenticate_apart(
 
 
 async def get_current_user(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    token: Credential,
     user: Annotated[User | None, Depends(_authenticate)],
 ) -> User:
     return _signed_in(token, user)
@@ -96,7 +114,7 @@ async def get_current_user_id(user: Annotated[User, Depends(get_current_user)]) 
 
 
 async def get_streaming_user_id(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    token: Credential,
     user: Annotated[User | None, Depends(_authenticate_apart)],
 ) -> uuid.UUID:
     """``get_current_user_id`` for a route that streams its body."""
@@ -110,6 +128,7 @@ async def get_optional_streaming_user_id(
     return None if user is None else user.id
 
 
+OptionalUser = Annotated[User | None, Depends(_authenticate)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
 OptionalUserId = Annotated[uuid.UUID | None, Depends(get_optional_user_id)]

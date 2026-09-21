@@ -19,7 +19,7 @@ describe("SSO callback", () => {
       expect(code).toBe("one-time");
     });
     render(<StrictMode><Providers authService={auth(exchange)}><AuthCallback /></Providers></StrictMode>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/tasks"));
     expect(exchange).toHaveBeenCalledTimes(1);
     expect(document.body).not.toHaveTextContent("one-time");
   });

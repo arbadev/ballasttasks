@@ -8,7 +8,7 @@ for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(APP_URL);
     if (width < 768) await page.getByRole("button", { name: "Open navigation" }).click();
-    await page.getByRole("button", { name: /^Ballast Tasks \d/ }).click();
+    await page.getByRole("link", { name: /^Ballast Tasks \d/ }).click();
     const edit = page.getByRole("button", { name: "Edit project", exact: true });
     await edit.focus();
     await page.keyboard.press("Enter");

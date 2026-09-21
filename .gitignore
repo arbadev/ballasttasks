@@ -43,3 +43,6 @@ Thumbs.db
 
 # Visual comparison output (npm run test:visual in apps/web)
 visual-results/
+
+# Local runtime/evidence copies are not source artifacts
+/data/

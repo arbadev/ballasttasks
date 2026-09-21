@@ -11,6 +11,7 @@ from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
+from app.api.session_policy import BrowserSessionPolicy
 from app.application.ports.identity_provider import IdentityProvider
 from app.application.ports.language_model import LanguageModel
 from app.application.ports.rate_limiter import RateLimiter, RateLimitPolicy
@@ -172,6 +173,9 @@ class RateLimiting(Protocol):
 
 
 class AppContainer(Protocol):
+    @property
+    def browser_session(self) -> BrowserSessionPolicy: ...
+
     @property
     def step_generations(self) -> StepGenerations: ...
 

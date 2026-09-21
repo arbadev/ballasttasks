@@ -29,7 +29,7 @@ const STATES: { name: string; reach: (page: Page) => Promise<void> }[] = [
   {
     name: "my-tasks-board-owner-signal",
     reach: async (page) => {
-      await page.getByRole("button", { name: /^My tasks/ }).click();
+      await page.getByRole(page.url().startsWith(APP_URL) ? "link" : "button", { name: /^My tasks/ }).click();
       await page.getByText("Board", { exact: true }).click();
       await page.getByRole("button", { name: /need an owner/ }).click();
       // Park the pointer where nothing reacts to hover.

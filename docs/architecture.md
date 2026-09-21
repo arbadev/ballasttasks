@@ -282,7 +282,7 @@ Repositories never commit. `Container.request_scope()` (built in `bootstrap.py`)
 - Builds session-scoped HTTP services through `client.ts` by default and provides them through React context. `NEXT_PUBLIC_SERVICE_MODE=demo` explicitly selects the in-memory design fixtures; failures never silently switch modes. Like `NEXT_PUBLIC_API_URL`, it is inlined at build time, so compose passes it as a build argument (`http` unless set). The existing workspace is the single data owner, with server-side queries, pagination and counts.
 - Components and hooks read the service interface from context. They never import `client.ts` or call `fetch`.
 - `config.ts` is the only application module that reads `process.env` (`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SERVICE_MODE`). Test tooling (`playwright.config.ts`, `apps/web/visual/`) reads its own variables.
-- Password registration/login and the SSO callback establish a memory-only bearer session. Full reload/new tab requires sign-in again, without losing PostgreSQL data. Logout/401 disposes session services, unmounts the workspace and fences late responses. No browser credential persistence, refresh token or cookie-session subsystem is added. See [web integration](../apps/web/README.md#authentication-and-http-integration) for the service and polling contracts.
+- Password registration/login and the SSO callback establish a server-validated HttpOnly cookie session. Bootstrap gates all private UI; reload/new tab restores a valid session without renewing its existing JWT expiry. Logout/401 disposes session services, unmounts the workspace and fences late responses. Real anonymous/protected routes and validated URL query state own navigation. Bearer API clients remain supported; no refresh credentials or readable browser token storage. See [ADR 0009](decisions/0009-browser-sessions-and-routes.md) for CSRF, exact persistence/logout limits and routing authority, and [web integration](../apps/web/README.md#authentication-and-http-integration) for service contracts.
 - Tests render components with a fake service passed to the provider; no network mocking is needed.
 
 ## HTTP contract flow
@@ -558,6 +558,25 @@ flowchart LR
 - **Control characters** (C0, DEL, C1; PostgreSQL text cannot even hold NUL) are refused before any query: `normalise_email` raises `InvalidEmailError`, so login answers its uniform `401`, and `RegisterRequest` rejects them in `full_name` and `password` with `422`.
 - **Settings**: the `auth` group (`AUTH__JWT_SECRET`, `AUTH__JWT_ALGORITHM`, `AUTH__ACCESS_TOKEN_EXPIRE_MINUTES`). Startup fails when the secret is missing or shorter than the algorithm's digest (RFC 7518 section 3.2). Only HMAC algorithms are accepted, and decoding pins the configured one, which rules out `alg=none` and algorithm confusion.
 - Out of scope by decision: refresh tokens, password reset, email verification, roles.
+
+### Persistent browser sessions
+
+[ADR 0009](decisions/0009-browser-sessions-and-routes.md) is authoritative for cookie,
+CSRF, origin and route policy. These endpoints complement, rather than replace, bearer auth:
+
+| Route | Success | Errors |
+| --- | --- | --- |
+| `POST /auth/session` (password form) | `200 UserResponse`, server-set HttpOnly cookie | `401`, `403` CSRF/origin, `422`, `429` |
+| `GET /auth/session` | `200 UserResponse` or `null` when no credential was offered; no renewal | `401` invalid/expired/inactive, `429` |
+| `DELETE /auth/session` | `204`, clears the browser cookie even if expired | `403` CSRF/origin, `429` |
+| `POST /auth/session/sso` (`{code}`) | `200 UserResponse`, server-set HttpOnly cookie | `401`, `403`, `422`, `429` |
+
+Cookie writes require exact allowed Origin plus `X-CSRF-Protection: 1`, including before
+login and for streamed uploads. Secure in production, SameSite=Lax, host-only Path=/;
+HTTP loopback development is supported. The same JWT expiry is enforced server-side,
+without refresh or sliding renewal; logout does not revoke copied JWTs or other devices.
+A definitive unauthorized response clears session UI; transient verification failures
+withhold private data and offer retry, never fabricate an anonymous/authenticated result.
 
 ### Single sign-on
 

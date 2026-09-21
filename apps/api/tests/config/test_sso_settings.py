@@ -58,6 +58,7 @@ def test_the_fake_provider_refuses_to_start_in_production(
 ) -> None:
     """It signs anybody in as its demo user: a demo convenience, never a production door."""
     minimal_env.setenv("APP__ENV", "production")
+    minimal_env.setenv("CORS__ALLOWED_ORIGINS", '["https://web.example.test"]')
     minimal_env.setenv("SSO__ENABLED_PROVIDERS", '["fake"]')
 
     with pytest.raises(ConfigurationError, match="APP__ENV"):

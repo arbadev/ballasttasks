@@ -1,8 +1,9 @@
 # apps/web
 
-Next.js (App Router, TypeScript, Tailwind) frontend. `/` is the Ballast Tasks application;
-`/status` shows API, Database, Redis and AI (provider and model) health, and is linked from
-the sidebar footer.
+Next.js (App Router, TypeScript, Tailwind) frontend. `/` resolves after session verification;
+`/login` and `/register` are anonymous routes, while `/tasks`, `/tasks/mine`, `/tasks/overdue`
+and `/projects/[id]` expose the existing workspace. Public `/status` shows API, Database,
+Redis and AI health and is linked from the sidebar footer.
 
 ## Architecture
 
@@ -24,7 +25,7 @@ Dependencies point inwards; components never touch HTTP, the environment or a co
 | `src/features/tasks/list/` | The list view. `rowView.ts` is the pure row model (due tone, rail, priority tone, stagger: every decision the design's `taskView` makes); `TaskRow`, `QuickAdd`, `ListSkeleton` and `ListLoadError` draw it; `ListView` wires them to the workspace and owns keyboard focus. |
 | `src/features/tasks/board/` | The board view: the four status columns, the card, and the moves between them. See "The board" below. |
 | `src/features/projects/` | Project creation and editing: the rules for a name and key (`model/rules.ts`, pure), the "New project" control the sidebar mounts and the "Edit project" pencil the header mounts for the selected project, their dialogs, the colour picker both share (`ui/ProjectColour.tsx`), and the empty-project state the shell shows for a project with no tasks. Creates through `DirectoryService.createProject`, then `actions.addProject`; edits through `actions.updateProject` (name and colour only, see "Workspace actions"). |
-| `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `AuthBoundary` that gates the workspace on a session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
+| `src/features/auth/` | Sign-in: the `AuthService` over `client.ts`, the `ApplicationRoute` that gates the workspace on a verified session, and the `/auth/callback` code exchange. See "Authentication and HTTP integration" below. |
 | `src/features/health/` | `HealthService` and the `StatusCard` behind `/status`. |
 | `src/test/` | Test infrastructure: `makeTask`/`due`/`NOW`, fake services that record calls, `renderWithServices`. |
 
@@ -37,17 +38,48 @@ falls back to it after an API error. Unit tests can still inject individual serv
 
 ## Authentication and HTTP integration
 
-`/` presents password sign-in/registration; `/auth/callback` exchanges an SSO one-time code
-in a POST body after clearing it from the browser URL. Enabled providers come from the API.
-The bearer credential lives **only in memory**. Full reloads and new tabs require sign-in
-again; logout/401 clears the session and unmounts the workspace. This is not XSS protection.
-Unsaved per-session drafts are cleared by that teardown: within-session close/reopen
-retention does not promise draft survival across sign-out or expiry.
-Saved tasks/projects are PostgreSQL data, independent of login persistence: sign in again
-to retrieve them. No refresh tokens, cookie session or browser token storage is introduced.
+`/login` and `/register` create a browser session through `POST /auth/session` after
+password authentication. `/auth/callback` exchanges an SSO one-time code in a POST body
+after clearing it from the browser URL. Enabled providers come from the API. The API
+sets a **persistent HttpOnly cookie**; JavaScript holds only the verified public user,
+never a readable persistent credential or remembered logged-in flag. Bootstrap blocks
+private UI until `GET /auth/session` verifies the cookie and active user. Full reloads
+and new tabs restore valid sessions; a temporary verification failure offers retry,
+not a false login screen. The API's configured JWT expiry is unchanged (default 30
+minutes from sign-in), with no refresh token, silent extension or cookie renewal.
+
+Logout/401 clears services and unmounts the workspace. Logout waits for any in-flight
+credential response before deleting the cookie, and explicitly reports deletion failure.
+Same-origin tabs receive invalidations; focus/pageshow and visible minute checks also
+reconcile the session. Server expiry is enforced on every API call; the idle UI learns
+of it on those checks or a 401. This is not XSS protection or server-side JWT revocation:
+copied tokens and independent device sessions last until their existing expiry or user
+deactivation. An accepted server write is not undone by disposal. Unsaved session drafts
+are cleared; saved tasks/projects remain in PostgreSQL. Only a validated SSO return
+route, never credentials, may temporarily use sessionStorage. Policy and deployment
+limits: [ADR 0009](../../docs/decisions/0009-browser-sessions-and-routes.md).
+
+The API requires `X-CSRF-Protection: 1` plus exact configured Origin on cookie-authenticated
+writes, including sign-in/out and uploads. `client.ts` supplies the header and includes
+cookies. Cookies are host-only, Path=/, SameSite=Lax, Secure in production; production
+origins must use HTTPS. Use same-site web/API origins, including the same loopback host
+spelling locally. Different ports do not isolate cookies; use separate profiles or hosts
+for independent local deployments. Legacy non-browser bearer adapters remain usable.
 Next development request logs exclude `/auth/callback`; deployment proxy/access logs must
 also omit callback query strings. Real-vendor OAuth setup and primary-stack activation are
 separate operator actions, not performed by the local fake-provider tests.
+
+The URL owns task scope/project, status/due/priority, search (`q`), Attention signal,
+sort, list/board (`view`) and 50-row offset. Direct links, reload and Back/Forward feed
+the same validated query projection; there is no state-to-router synchronization effect.
+Deliberate filter/view/page changes push history; search replaces it, retaining request
+debouncing. Sidebar anchors navigate and support new tabs; a project's anchor always names
+that project. A named scope leaves the selected project and resets the page;
+a project route may carry a combined `scope`. Unknown/duplicate/invalid parameters and
+offsets beyond the results are canonicalized to defaults, replacing the current entry;
+unsafe return destinations fall back to `/tasks`. Selection and drafts stay session-local,
+not in URLs. Signed-in visitors to login/register return
+to the app; anonymous protected links preserve only a validated same-app destination.
 
 The HTTP workspace uses the API's filters, sorting, search and limit/offset pages (50 rows),
 not client filtering over the first page. Page/filter changes discard stale requests;
@@ -63,7 +95,7 @@ this page; columns with off-page rows say so.
 Selected-task detail/activity is loaded separately, not once per list row. The complete
 `TaskService.list()` remains a legacy/demo capability, not the HTTP workspace's data path.
 
-`client.ts` attaches bearer headers, carries Retry-After, uploads multipart files and returns
+`client.ts` sends browser cookies/CSRF headers (or bearer headers for API clients), carries Retry-After, uploads multipart files and returns
 authenticated download blobs (never bearer URLs). It fences both late responses and queued
 work from an obsolete session. Client disposal does not undo an already accepted mutation.
 Generation handles belong to tasks; observation pauses when not selected/visible/subscribed,
@@ -354,26 +386,29 @@ npm run build                # needs NEXT_PUBLIC_API_URL (inlined at build time)
 npm run gen:api -- http://localhost:8000/openapi.json  # use your OWN API URL; source is explicit
 ```
 
-Real HTTP adapter contracts use `BT_HTTP_API_URL=<owned-api-url> npm run test:http`.
-Optionally set `BT_HTTP_WEB_URL=<owned-http-web-url>` as well to execute the served-browser
-query/focus regressions against that same stack. Neither suite starts a stack or selects an
-endpoint by default. Use only an owned disposable database and the fake model provider:
+Real HTTP contracts use `BT_HTTP_API_URL=<owned-api-url> BT_HTTP_WEB_URL=<owned-http-web-url> npm run test:http`.
+Both bindings are required before Playwright can discover or run this combined adapter/browser
+suite. It neither starts a stack nor selects an endpoint by default. Use only an owned disposable database and the fake model provider:
 these tests register example accounts and write ordinary authenticated test data. The
 browser regression observes the canonical query's settled DOM boundary independently of
 focus; it does not wait for a later render to make a lost-focus assertion pass.
 
-With the unchanged default auth policy (10 attempts per IP per 60 seconds), all eight checks
-in one command overbook credential setup: the three adapter checks need eight attempts,
-the two served query/Retry focus checks need six, the two board-panel keyboard checks
-(desktop/mobile) need six, and the mobile shell lifecycle check needs three. Select four groups
-separately with `-- --grep 'UTC|real atomic|real bearer'`,
-`-- --grep 'served query-backed board focus'`,
-`-- --grep 'served board panel return'`, and
-`-- --grep 'mobile shell handoff lifecycle'`, respectively. Let the configured auth window
-elapse after each group finishes before starting the next, without concurrent
-credential-heavy jobs on that API/IP. Honor any longer advertised `Retry-After` boundary.
-Keep a 429 setup failure as a failure; do not count its unexecuted assertions, disable
-throttling, or blanket-retry the suite. No test or application request retries automatically.
+With the unchanged default auth policy (10 attempts per IP per 60 seconds), the complete
+suite would otherwise overbook credential setup. `visual/http-fixtures.ts` gives each bounded
+test a 61-second natural window before it begins, including after a worker restart or another
+invocation. The suite remains single-worker with no retries; allow roughly 13 minutes for all
+12 contracts. Do not run concurrent credential-heavy jobs on that API/IP. If a deployment uses
+a longer window, provide a separately paced execution plan before running. Keep a 429 setup
+failure as a failure; do not count its unexecuted assertions, reset counters, disable throttling,
+raise allowances or blanket-retry the suite. No test or application request retries automatically.
+
+`http-session-routes.contract.ts` covers real login, protected returns, reload/new-tab restoration,
+URL filtering/history, logout and transient bootstrap recovery. `http-route-continuity.contract.ts`
+adds 51-record list/board pagination through reload and history, a name-only project PATCH that
+preserves the stored key/colour, and acknowledged step/comment writes whose failed readbacks
+recover without another POST or losing a newer draft. These are served-browser checks, not native
+gesture evidence. The API, worker and built web must match the source being certified; verify
+ownership, effective settings and build-time API origin before starting, and refresh after fixes.
 
 The mobile shell check configures mobile/touch before sign-in and measures a 375px viewport.
 It covers consumed empty-project revisits, a pending Board-to-List departure followed by an
@@ -388,7 +423,14 @@ in the same commit; the schema source is always given, the command has no defaul
 
 ## Visual tests
 
-`npm run test:visual` starts the app (port 47812 unless overridden, see below) and runs these suites from `visual/`:
+`npm run test:visual` requires an explicit `NEXT_PUBLIC_API_URL` even though task fixtures use
+offline demo mode; any public health request must still target the selected owned API. It starts
+the app (port 47812 unless overridden, see below) and runs these suites from `visual/`.
+`visual/entrypoints.test.ts` invokes Playwright's real configuration consumer with `--list` to
+check missing-binding refusal and configured discovery without starting servers or sending requests.
+A run without `BT_DESIGN_DIR` is partial evidence, not a pass of the full design suite.
+
+The visual suites are:
 
 - `responsive.visual.ts` needs nothing else: no horizontal page scroll from 375px to 1440px,
   the sidebar drawer and full-screen task panel at 375px, keyboard operation of the view

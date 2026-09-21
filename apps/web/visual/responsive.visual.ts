@@ -55,7 +55,7 @@ test("at 375px the sidebar is a drawer: closed by default, opened by the menu bu
   await page.screenshot({ path: join(RESULTS, "responsive-375-drawer.png") });
 
   // A choice applies and closes the drawer.
-  await sidebar.getByRole("button", { name: /^My tasks/ }).click();
+  await sidebar.getByRole("link", { name: /^My tasks/ }).click();
   await expect(sidebar).toBeHidden();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("My tasks");
 
@@ -100,11 +100,11 @@ test("no console errors or warnings across the shell's states", async ({ page })
 
   await page.goto(APP_URL);
   await page.getByText("13 tasks", { exact: true }).waitFor();
-  await page.getByRole("button", { name: /^My tasks/ }).click();
-  await page.getByRole("button", { name: /^Overdue/ }).click();
-  await page.getByRole("button", { name: /^All tasks/ }).click();
-  await page.getByRole("button", { name: /^Inbox/ }).click();
-  await page.getByRole("button", { name: /^Inbox/ }).click();
+  await page.getByRole("link", { name: /^My tasks/ }).click();
+  await page.getByRole("link", { name: /^Overdue/ }).click();
+  await page.getByRole("link", { name: /^All tasks/ }).click();
+  await page.getByRole("link", { name: /^Inbox/ }).click();
+  await page.getByRole("link", { name: /^Inbox/ }).click();
   await page.getByRole("combobox", { name: "Status" }).selectOption("all");
   await page.getByRole("combobox", { name: "Due" }).selectOption("week");
   await page.getByRole("combobox", { name: "Priority" }).selectOption("1");

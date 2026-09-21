@@ -26,7 +26,7 @@ interface Services {
 }
 
 const ServicesContext = createContext<Services | null>(null);
-const ANONYMOUS: Session = { epoch: 0, user: null };
+const ANONYMOUS: Session = { epoch: 0, user: null, status: "checking" };
 const emptySession = () => ANONYMOUS;
 const emptySubscribe = () => () => {};
 
@@ -46,24 +46,25 @@ interface ProvidersProps {
 /**
  * Composition root of the frontend: the only place concrete services are constructed.
  * Everything below depends on the service interfaces through the hooks in this file.
- * HTTP is the default. Authentication and all data services are memory-only and session-scoped.
+ * HTTP is the default. Browser credentials are HttpOnly cookies; data services are session-scoped.
  */
 export function Providers({ children, demo = config.serviceMode === "demo", authService, healthService, taskService, directoryService, stepGenerationService, clock }: ProvidersProps) {
   const auth = useMemo(() => {
     if (authService !== undefined) return authService;
     if (demo || taskService) return null;
     const client: ApiClient = new ApiClient(config.apiUrl, {
-      token: () => service.token(), version: () => service.current().epoch, unauthorized: () => service.expire(),
+      browser: true, token: () => service.token(), version: () => service.current().epoch, unauthorized: () => service.expire(),
     });
-    const service = new HttpAuthService(client, config.apiUrl);
+    const service = new HttpAuthService(client, config.apiUrl, true);
     return service;
   }, [authService, demo, taskService]);
+  useEffect(() => auth?.connect?.(), [auth]);
   const session = useSyncExternalStore(auth?.subscribe ?? emptySubscribe, auth?.current ?? emptySession, emptySession);
   const epoch = session.epoch;
   const implementations = useMemo<Omit<Services, "auth" | "session">>(() => {
     const now = clock ?? systemClock;
     const client = new ApiClient(config.apiUrl, auth instanceof HttpAuthService ? {
-      token: auth.token, version: () => auth.current().epoch, expectedVersion: epoch, unauthorized: auth.expire,
+      browser: true, token: auth.token, version: () => auth.current().epoch, expectedVersion: epoch, unauthorized: auth.expire,
     } : undefined);
     const store = demo ? new InMemoryTaskStore(now) : null;
     const httpTasks = new HttpTaskService(client);

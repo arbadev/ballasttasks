@@ -44,6 +44,8 @@ export interface HttpTransport extends HttpClient {
 }
 
 interface Credentials {
+  /** Opt-in browser cookie transport; bearer clients retain their original behavior. */
+  browser?: boolean;
   token(): string | null;
   /** Session epoch fences every completion, including old public login requests. */
   version?(): number;
@@ -106,6 +108,7 @@ export class ApiClient implements HttpTransport {
     const token = options.authenticated === false ? null : this.credentials?.token();
     const headers: Record<string, string> = { Accept: accept };
     if (token) headers.Authorization = `Bearer ${token}`;
+    if (this.credentials?.browser && options.method && options.method !== "GET") headers["X-CSRF-Protection"] = "1";
     let body: BodyInit | undefined;
     if (options.body instanceof FormData || options.body instanceof URLSearchParams) {
       body = options.body; // The browser supplies multipart boundaries / form content type.
@@ -117,7 +120,7 @@ export class ApiClient implements HttpTransport {
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method: options.method ?? "GET", headers, body,
-        cache: "no-store", credentials: "omit", redirect: "error",
+        cache: "no-store", credentials: this.credentials?.browser ? "include" : "omit", redirect: "error",
       });
     } catch {
       // A native error can contain a sensitive URL. Do not retain it as a cause.
@@ -128,8 +131,8 @@ export class ApiClient implements HttpTransport {
       const errorBody = path.startsWith("/auth/") ? undefined : await readJson(response);
       this.assertSession(version);
       // A delayed 401 from the previous session must not sign out a new one.
-      if (response.status === 401 && token && token === this.credentials?.token()) {
-        this.credentials.unauthorized?.();
+      if (response.status === 401 && options.authenticated !== false && ((token && token === this.credentials?.token()) || this.credentials?.browser)) {
+        this.credentials?.unauthorized?.();
       }
       throw new ApiError(`The API request failed (${response.status}).`, {
         kind: "http", status: response.status, body: errorBody,

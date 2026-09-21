@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./http-fixtures";
 import { ApiClient, ApiError } from "../src/lib/api/client";
 import type { components } from "../src/lib/api/schema";
 import { HttpAuthService } from "../src/features/auth/service";
