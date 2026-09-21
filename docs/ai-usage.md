@@ -2,6 +2,11 @@
 
 ## Tools used
 
+**Preferred coding tool for the proposed scaffold: Claude Code.** Give it the prompt
+below alongside this repository's `CLAUDE.md`/`AGENTS.md` and architecture. This names
+a usable tool choice for the submission, not a claim that every historical change
+came from that tool or a particular model/version.
+
 GenAI-assisted implementation used bounded task instructions, repository inspection,
 code edits and test feedback. Retained implementation briefs and validation reports
 support the examples below; they are not a complete conversation archive. The precise
@@ -25,7 +30,8 @@ invocation):**
 > domain rules, application use cases with small Protocol ports, infrastructure
 > adapters and one composition root. Support JWT registration/login, authenticated
 > task CRUD, assignment and completion, with status/due-date filtering and pagination.
-> Validate inputs and return safe errors. Use migrations, a request-scoped unit of
+> Preserve the browser-session/CSRF and bearer contracts in ADR 0009; never store
+> readable browser credentials. Validate inputs and return safe errors. Use migrations, a request-scoped unit of
 > work, Redis-backed rate limiting and Celery background processing. Read the existing
 > architecture and decisions before editing. Write failing domain, contract and route
 > tests first; exercise real PostgreSQL/Redis integrations, document setup and Swagger,
@@ -46,7 +52,7 @@ Summary, **not a quotation**: these instructions constrained implementation to t
 existing Celery/Redis infrastructure and provider-neutral ports, authenticated
 request/poll routes, bounded safe failure responses and offline tests. They did not
 ask the assistant to invent a new job framework or automatically accept generated steps.
-The implemented scope is [FR-24–26](PRD.md#draft-step-generation).
+The implemented scope is [FR-24–26](PRD.md).
 
 ## Representative output
 
@@ -90,6 +96,12 @@ passing, plus lint, pre-commit and an HTTP-mode production build. API coverage w
 90.95%; web statement coverage was 96.18%. Baseline `80c2c29` has the same source
 tree as that validated head. These are historical results, not a claim of newly
 running those journeys for this document or of remote CI; no CI workflow is claimed.
+
+**Current limitation:** later session/routing work exposed an unresolved React185
+(maximum update depth) failure in Next development-mode browser testing. Five bounded
+production attempts passed, but those attempts neither resolve the development failure
+nor establish production capacity or an all-browser-tests-green result. The commands
+below are a reproduction guide, not a statement that every suite currently passes.
 
 Evidence types matter:
 
@@ -155,7 +167,14 @@ acceptance is atomic and subject to the 100-step ceiling.
 
 [Authentication tests](../apps/api/tests/api/test_auth.py) exercise the JWT boundary;
 the product is deliberately a **shared workspace**, not per-user task isolation.
-Browser sessions are memory-only, so a reload requires sign-in again. File content
+Browser sessions now use server-set HttpOnly cookies, verified against the active
+user on reload/new tab, with the existing JWT expiry and no refresh/sliding renewal.
+Cookie-authenticated writes require an exact allowed Origin and CSRF header; bearer
+clients remain supported. Logout clears the browser cookie, not copied JWTs or other
+devices. See [ADR 0009](decisions/0009-browser-sessions-and-routes.md),
+[browser-session route tests](../apps/api/tests/api/test_browser_session.py) and
+[PostgreSQL/JWT integration tests](../apps/api/tests/integration/test_browser_session.py).
+File content
 sniffing, streaming size limits, rollback cleanup and their residual failure windows
 are documented in [ADR 0008](decisions/0008-file-storage.md) and tested in
 [file route tests](../apps/api/tests/api/test_file_attachments.py). These are concrete

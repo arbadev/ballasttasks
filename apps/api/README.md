@@ -109,6 +109,14 @@ never deleted or reset. Use a separate fresh local database if you need the orig
 scenarios again after edits or as dates age. Failure returns a nonzero exit status
 without printing credentials.
 
+Implementation and executable evidence: [CLI guards](src/app/seed_demo.py),
+[fixture and public credentials](src/app/application/demo_data.py),
+[transactional seed use case](src/app/application/use_cases/seed_demo.py),
+[pre-connection refusal tests](tests/unit/test_seed_demo_entrypoint.py), and
+[PostgreSQL seed/login/rerun/conflict tests](tests/integration/test_seed_demo.py).
+These tests cover preserved existing Inbox data, concurrent invocations, unchanged
+hashes/dates on rerun, edited/partial-seed refusal and rollback after a late failure.
+
 ## Draft step jobs
 
 Run the API and `uv run celery -A app.worker worker --loglevel=INFO` with the same

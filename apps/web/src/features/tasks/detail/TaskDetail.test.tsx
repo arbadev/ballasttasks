@@ -432,7 +432,13 @@ describe("closing the panel, from a list row", () => {
       alpha.focus();
       alpha.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     };
-    const record = (tasks: number) => { if (tasks === threeTasks.length) order.push(clicked); };
+    let acknowledgeLoadedEffect!: () => void;
+    const loadedEffect = new Promise<void>((resolve) => { acknowledgeLoadedEffect = resolve; });
+    const record = (tasks: number) => {
+      if (tasks !== threeTasks.length) return;
+      order.push(clicked);
+      acknowledgeLoadedEffect();
+    };
 
     renderWithServices(
       <WorkspaceProvider>
@@ -450,7 +456,12 @@ describe("closing the panel, from a list row", () => {
       listed(threeTasks);
       await new Promise((resolve) => setTimeout(resolve, 0));
       await new Promise((resolve) => setTimeout(resolve, 0));
-      if (!clickBeforeItsEffects) click();
+      if (!clickBeforeItsEffects) {
+        // Timer turns alone do not establish passive-effect ordering. Wait for the loaded
+        // commit's witness, without flushing away the other branch's owed-effect scenario.
+        await loadedEffect;
+        click();
+      }
     } finally {
       env.IS_REACT_ACT_ENVIRONMENT = inAct;
     }
